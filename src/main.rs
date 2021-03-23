@@ -17,6 +17,7 @@ use std::{convert::TryFrom, fmt::Display, io::Read};
 
 // 10 megabytes
 const STREAM_LIMIT: u64 = 10000000;
+const DB_PATH: &'static str = "/tmp/kepler_cas";
 
 struct MH(Multihash);
 
@@ -34,6 +35,10 @@ impl<'a> rocket::request::FromParam<'a> for MH {
     }
 }
 
+struct Store {
+    pub db: Arc<Mutex<DB>>,
+}
+
 #[get("/<hash>")]
 fn get_content(hash: MH) -> Option<NamedFile> {
     todo!()
@@ -46,6 +51,9 @@ fn put_content(data: Data) -> String {
 
 fn main() {
     rocket::ignite()
+        .manage(Store {
+            db: Arc::new(Mutex::new(DB::open_default(DB_PATH).unwrap())),
+        })
         .mount("/", routes![get_content])
         .mount("/", routes![put_content])
         .launch();
