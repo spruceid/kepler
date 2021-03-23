@@ -40,13 +40,37 @@ struct Store {
 }
 
 #[get("/<hash>")]
-fn get_content(hash: MH) -> Option<NamedFile> {
-    todo!()
+fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<&[u8]>>> {
+    let store = state.db.lock().map_err(|e| anyhow!(format!("{}", e)))?;
+    match store.get(hash.0.to_bytes()) {
+        Ok(Some(content)) => {
+            if Code::try_from(hash.0.code())?.digest(&content) != hash.0 {
+                Err(anyhow!("Invalid Content Address"))
+            } else {
+                Ok(Some(Stream::chunked(&content, 1024)))
+            }
+        }
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
-#[post("/", format = "plain", data = "<data>")]
-fn put_content(data: Data) -> String {
-    todo!()
+#[post("/", format = "binary", data = "<data>")]
+fn put_content(state: State<Store>, data: Data) -> Result<String> {
+    let mut hasher = Blake3Hasher::default();
+    let content: Vec<u8> = data
+        .open()
+        .take(STREAM_LIMIT)
+        .bytes()
+        .filter_map(|x| x.ok())
+        .inspect(|b| hasher.update(&[*b]))
+        .collect();
+    let hash = hasher.finalize();
+
+    let store = state.db.lock()?;
+    store.put(&hash, &content)?;
+
+    Ok(multibase::encode(multibase::Base::Base64, hash))
 }
 
 fn main() {
