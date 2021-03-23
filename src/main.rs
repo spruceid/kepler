@@ -2,29 +2,35 @@
 
 #[macro_use]
 extern crate rocket;
+#[macro_use]
+extern crate anyhow;
+extern crate multibase;
 extern crate multihash;
+extern crate rocksdb;
 
-use rocket::{
-    data::{Capped, Data, TempFile, ToByteUnit},
-    response::NamedFile,
-};
+use anyhow::Result;
+use multihash::{Blake3Hasher, Code, Multihash, MultihashDigest, StatefulHasher};
+use rocket::{data::Data, http::RawStr, response::Stream, State};
+use rocksdb::{Options, DB};
+use std::sync::{Arc, Mutex};
+use std::{convert::TryFrom, fmt::Display, io::Read};
 
 // 10 megabytes
-const STREAM_LIMIT: usize = 10.megabytes();
+const STREAM_LIMIT: u64 = 10000000;
 
-struct MH(multihash::Multihash);
+struct MH(Multihash);
 
 impl MH {
-    pub fn read<R: std::io::Read>(r: R) -> Result<Self, multihash::Error> {
-        Ok(Self(multihash::Multihash::read(r)?))
+    pub fn decode(r: &[u8]) -> Result<Self, multihash::Error> {
+        Ok(Self(Multihash::from_bytes(r)?))
     }
 }
 
 // Orphan rule requires a wrapper type for this :(
-impl<'a> rocket::request::FromParam<'_> for MH {
-    type Error = multihash::Error;
-    fn from_param(param: &'a str) -> Result<Self, multihash::Error> {
-        Self::read(param.bytes())
+impl<'a> rocket::request::FromParam<'a> for MH {
+    type Error = anyhow::Error;
+    fn from_param(param: &'a RawStr) -> Result<MH> {
+        MH::decode(&multibase::decode(param)?.1).map_err(|e| e.into())
     }
 }
 

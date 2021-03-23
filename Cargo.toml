@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 rocket = "0.4"
 multihash = "0.13"
+multibase = "0.9"
+rocksdb = "0.15"
+anyhow = "1.0"
