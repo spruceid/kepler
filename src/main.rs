@@ -14,7 +14,7 @@ use cid::{Cid, Version};
 use multihash::{Code, Multihash, MultihashDigest};
 use rocket::{
     data::Data,
-    http::{ContentType, RawStr},
+    http::{ContentType, RawStr, Status},
     request::{FromRequest, Outcome, Request},
     response::Stream,
     State,
@@ -33,7 +33,6 @@ mod cas;
 // 10 megabytes
 const STREAM_LIMIT: u64 = 10000000;
 const DB_PATH: &'static str = "/tmp/kepler_cas";
-
 
 struct MH(Cid);
 
@@ -120,8 +119,41 @@ impl<'a, 'r> FromRequest<'a, 'r> for SupportedCodecs {
     }
 }
 
+trait AuthrorizationStrategy: Sized {
+    fn authorize<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self>;
+}
+
+struct Authorization<S: AuthrorizationStrategy>(S);
+
+#[derive(PartialEq)]
+struct DummyAuth;
+
+impl AuthrorizationStrategy for DummyAuth {
+    fn authorize<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl<'a, 'r, T> FromRequest<'a, 'r> for Authorization<T>
+where
+    T: AuthrorizationStrategy,
+{
+    type Error = anyhow::Error;
+
+    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
+        match T::authorize(request.headers().get("Authorization")) {
+            Ok(auth) => Outcome::Success(Self(auth)),
+            Err(e) => Outcome::Failure((Status::Unauthorized, anyhow!(format!("{}", e)))),
+        }
+    }
+}
+
 #[get("/<hash>")]
-fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
+fn get_content(
+    state: State<Store>,
+    hash: MH,
+    auth: Authorization<DummyAuth>,
+) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
     match cas::ContentAddressedStorage::get(&state.deref(), hash.0) {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content), 1024))),
         Ok(None) => Ok(None),
