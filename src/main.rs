@@ -4,20 +4,28 @@
 extern crate rocket;
 #[macro_use]
 extern crate anyhow;
-extern crate multibase;
+extern crate cid;
 extern crate multihash;
 extern crate rocksdb;
 
 use anyhow::Result;
-use multihash::{Blake3_256, Code, Multihash, MultihashDigest, StatefulHasher};
-use rocket::{data::Data, http::RawStr, response::Stream, State};
+use cid::{Cid, Codec, Version};
+use multibase::Base;
+use multihash::{Code, Multihash, MultihashDigest};
+use rocket::{
+    data::Data,
+    http::RawStr,
+    request::{FromRequest, Outcome, Request},
+    response::Stream,
+    State,
+};
 use rocksdb::{Options, DB};
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::{
     convert::TryFrom,
-    fmt::Display,
     io::{Cursor, Read},
     ops::Deref,
+    str::FromStr,
+    sync::{Arc, Mutex},
 };
 
 mod cas;
@@ -26,19 +34,14 @@ mod cas;
 const STREAM_LIMIT: u64 = 10000000;
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
-struct MH(Multihash);
 
-impl MH {
-    pub fn decode(r: &[u8]) -> Result<Self, multihash::Error> {
-        Ok(Self(Multihash::from_bytes(r)?))
-    }
-}
+struct MH(Cid);
 
 // Orphan rule requires a wrapper type for this :(
 impl<'a> rocket::request::FromParam<'a> for MH {
     type Error = anyhow::Error;
     fn from_param(param: &'a RawStr) -> Result<MH> {
-        MH::decode(&multibase::decode(param)?.1).map_err(|e| e.into())
+        Ok(MH(Cid::from_str(param)?))
     }
 }
 
@@ -49,26 +52,26 @@ struct Store {
 
 impl cas::ContentAddressedStorage for &Store {
     type Error = anyhow::Error;
-    fn put<C: Read>(&self, content: C) -> Result<Multihash, Self::Error> {
+    fn put<C: Read>(&self, content: C, codec: Codec) -> Result<Cid, Self::Error> {
         let c: Vec<u8> = content.bytes().filter_map(|b| b.ok()).collect();
-        let hash = Code::Blake3_256.digest(&c);
+        let cid = Cid::new(Version::V1, codec, Code::Blake3_256.digest(&c))?;
 
         self.db
             .lock()
             .map_err(|e| anyhow!(format!("{}", e)))?
-            .put(&hash.to_bytes(), &c)?;
+            .put(&cid.to_bytes(), &c)?;
 
-        Ok(hash)
+        Ok(cid)
     }
-    fn get(&self, digest: Multihash) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn get(&self, address: Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         match self
             .db
             .lock()
             .map_err(|e| anyhow!(format!("{}", e)))?
-            .get(digest.to_bytes())
+            .get(address.to_bytes())
         {
             Ok(Some(content)) => {
-                if Code::try_from(digest.code())?.digest(&content) != digest {
+                if Code::try_from(address.hash().code())?.digest(&content) != *address.hash() {
                     Err(anyhow!("Invalid Content Address"))
                 } else {
                     Ok(Some(content.to_vec()))
@@ -78,12 +81,22 @@ impl cas::ContentAddressedStorage for &Store {
             Err(e) => Err(e.into()),
         }
     }
-    fn delete(&self, digest: Multihash) -> Result<(), Self::Error> {
+    fn delete(&self, address: Cid) -> Result<(), Self::Error> {
         self.db
             .lock()
             .map_err(|e| anyhow!(format!("{}", e)))?
-            .delete(digest.to_bytes())
+            .delete(address.to_bytes())
             .map_err(|e| e.into())
+    }
+}
+
+struct CodecWrap(Codec);
+
+impl<'a, 'r> FromRequest<'a, 'r> for CodecWrap {
+    type Error = anyhow::Error;
+
+    fn from_request(req: &'a Request<'r>) -> Outcome<Self, Self::Error> {
+        todo!()
     }
 }
 
@@ -96,10 +109,11 @@ fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<Cursor<Vec
     }
 }
 
-#[post("/", format = "binary", data = "<data>")]
-fn put_content(state: State<Store>, data: Data) -> Result<String> {
-    match cas::ContentAddressedStorage::put(&state.deref(), data.open().take(STREAM_LIMIT)) {
-        Ok(hash) => Ok(multibase::encode(multibase::Base::Base64, hash.to_bytes())),
+#[post("/", data = "<data>")]
+fn put_content(state: State<Store>, data: Data, codec: CodecWrap) -> Result<String> {
+    match cas::ContentAddressedStorage::put(&state.deref(), data.open().take(STREAM_LIMIT), codec.0)
+    {
+        Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
         Err(e) => Err(e),
     }
 }
