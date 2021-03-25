@@ -9,12 +9,12 @@ extern crate multihash;
 extern crate rocksdb;
 
 use anyhow::Result;
-use cid::{Cid, Codec, Version};
-use multibase::Base;
+use cid::multibase::Base;
+use cid::{Cid, Version};
 use multihash::{Code, Multihash, MultihashDigest};
 use rocket::{
     data::Data,
-    http::RawStr,
+    http::{ContentType, RawStr},
     request::{FromRequest, Outcome, Request},
     response::Stream,
     State,
@@ -52,9 +52,9 @@ struct Store {
 
 impl cas::ContentAddressedStorage for &Store {
     type Error = anyhow::Error;
-    fn put<C: Read>(&self, content: C, codec: Codec) -> Result<Cid, Self::Error> {
+    fn put<C: Read>(&self, content: C, codec: SupportedCodecs) -> Result<Cid, Self::Error> {
         let c: Vec<u8> = content.bytes().filter_map(|b| b.ok()).collect();
-        let cid = Cid::new(Version::V1, codec, Code::Blake3_256.digest(&c))?;
+        let cid = Cid::new(Version::V1, codec as u64, Code::Blake3_256.digest(&c))?;
 
         self.db
             .lock()
@@ -90,13 +90,33 @@ impl cas::ContentAddressedStorage for &Store {
     }
 }
 
-struct CodecWrap(Codec);
+enum SupportedCodecs {
+    Raw = 0x55,
+    Json = 0x0200,
+    MsgPack = 0x0201,
+    Cbor = 0x51,
+}
 
-impl<'a, 'r> FromRequest<'a, 'r> for CodecWrap {
+impl From<&ContentType> for SupportedCodecs {
+    fn from(c: &ContentType) -> Self {
+        if c.is_json() {
+            Self::Json
+        } else if c.is_msgpack() {
+            Self::MsgPack
+        } else {
+            Self::Raw
+        }
+    }
+}
+
+impl<'a, 'r> FromRequest<'a, 'r> for SupportedCodecs {
     type Error = anyhow::Error;
 
     fn from_request(req: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        todo!()
+        Outcome::Success(match req.content_type() {
+            Some(t) => Self::from(t),
+            None => Self::Raw,
+        })
     }
 }
 
@@ -110,9 +130,8 @@ fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<Cursor<Vec
 }
 
 #[post("/", data = "<data>")]
-fn put_content(state: State<Store>, data: Data, codec: CodecWrap) -> Result<String> {
-    match cas::ContentAddressedStorage::put(&state.deref(), data.open().take(STREAM_LIMIT), codec.0)
-    {
+fn put_content(state: State<Store>, data: Data, codec: SupportedCodecs) -> Result<String> {
+    match cas::ContentAddressedStorage::put(&state.deref(), data.open().take(STREAM_LIMIT), codec) {
         Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
         Err(e) => Err(e),
     }
