@@ -9,11 +9,18 @@ extern crate multihash;
 extern crate rocksdb;
 
 use anyhow::Result;
-use multihash::{Blake3Hasher, Code, Multihash, MultihashDigest, StatefulHasher};
+use multihash::{Blake3_256, Code, Multihash, MultihashDigest, StatefulHasher};
 use rocket::{data::Data, http::RawStr, response::Stream, State};
 use rocksdb::{Options, DB};
-use std::sync::{Arc, Mutex};
-use std::{convert::TryFrom, fmt::Display, io::Read};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::{
+    convert::TryFrom,
+    fmt::Display,
+    io::{Cursor, Read},
+    ops::Deref,
+};
+
+mod cas;
 
 // 10 megabytes
 const STREAM_LIMIT: u64 = 10000000;
@@ -35,42 +42,66 @@ impl<'a> rocket::request::FromParam<'a> for MH {
     }
 }
 
+#[derive(Clone)]
 struct Store {
     pub db: Arc<Mutex<DB>>,
 }
 
-#[get("/<hash>")]
-fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<&[u8]>>> {
-    let store = state.db.lock().map_err(|e| anyhow!(format!("{}", e)))?;
-    match store.get(hash.0.to_bytes()) {
-        Ok(Some(content)) => {
-            if Code::try_from(hash.0.code())?.digest(&content) != hash.0 {
-                Err(anyhow!("Invalid Content Address"))
-            } else {
-                Ok(Some(Stream::chunked(&content, 1024)))
+impl cas::ContentAddressedStorage for &Store {
+    type Error = anyhow::Error;
+    fn put<C: Read>(&self, content: C) -> Result<Multihash, Self::Error> {
+        let c: Vec<u8> = content.bytes().filter_map(|b| b.ok()).collect();
+        let hash = Code::Blake3_256.digest(&c);
+
+        self.db
+            .lock()
+            .map_err(|e| anyhow!(format!("{}", e)))?
+            .put(&hash.to_bytes(), &c)?;
+
+        Ok(hash)
+    }
+    fn get(&self, digest: Multihash) -> Result<Option<Vec<u8>>, Self::Error> {
+        match self
+            .db
+            .lock()
+            .map_err(|e| anyhow!(format!("{}", e)))?
+            .get(digest.to_bytes())
+        {
+            Ok(Some(content)) => {
+                if Code::try_from(digest.code())?.digest(&content) != digest {
+                    Err(anyhow!("Invalid Content Address"))
+                } else {
+                    Ok(Some(content.to_vec()))
+                }
             }
+            Ok(None) => Ok(None),
+            Err(e) => Err(e.into()),
         }
+    }
+    fn delete(&self, digest: Multihash) -> Result<(), Self::Error> {
+        self.db
+            .lock()
+            .map_err(|e| anyhow!(format!("{}", e)))?
+            .delete(digest.to_bytes())
+            .map_err(|e| e.into())
+    }
+}
+
+#[get("/<hash>")]
+fn get_content(state: State<Store>, hash: MH) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
+    match cas::ContentAddressedStorage::get(&state.deref(), hash.0) {
+        Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content), 1024))),
         Ok(None) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(e),
     }
 }
 
 #[post("/", format = "binary", data = "<data>")]
 fn put_content(state: State<Store>, data: Data) -> Result<String> {
-    let mut hasher = Blake3Hasher::default();
-    let content: Vec<u8> = data
-        .open()
-        .take(STREAM_LIMIT)
-        .bytes()
-        .filter_map(|x| x.ok())
-        .inspect(|b| hasher.update(&[*b]))
-        .collect();
-    let hash = hasher.finalize();
-
-    let store = state.db.lock()?;
-    store.put(&hash, &content)?;
-
-    Ok(multibase::encode(multibase::Base::Base64, hash))
+    match cas::ContentAddressedStorage::put(&state.deref(), data.open().take(STREAM_LIMIT)) {
+        Ok(hash) => Ok(multibase::encode(multibase::Base::Base64, hash.to_bytes())),
+        Err(e) => Err(e),
+    }
 }
 
 fn main() {
