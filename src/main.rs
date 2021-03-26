@@ -34,13 +34,13 @@ mod cas;
 const STREAM_LIMIT: u64 = 10000000;
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
-struct MH(Cid);
+struct CidWrap(Cid);
 
 // Orphan rule requires a wrapper type for this :(
-impl<'a> rocket::request::FromParam<'a> for MH {
+impl<'a> rocket::request::FromParam<'a> for CidWrap {
     type Error = anyhow::Error;
-    fn from_param(param: &'a RawStr) -> Result<MH> {
-        Ok(MH(Cid::from_str(param)?))
+    fn from_param(param: &'a RawStr) -> Result<CidWrap> {
+        Ok(CidWrap(Cid::from_str(param)?))
     }
 }
 
@@ -151,7 +151,7 @@ where
 #[get("/<hash>")]
 fn get_content(
     state: State<Store>,
-    hash: MH,
+    hash: CidWrap,
     auth: Authorization<DummyAuth>,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
     match cas::ContentAddressedStorage::get(&state.deref(), hash.0) {
