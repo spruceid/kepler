@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub trait ContentAddressedStorage {
+pub trait ContentAddressedStorage: Send + Sync {
     type Error;
     fn put<C: Read>(&self, content: C, codec: SupportedCodecs) -> Result<Cid, Self::Error>;
     fn get(&self, address: Cid) -> Result<Option<Vec<u8>>, Self::Error>;

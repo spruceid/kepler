@@ -39,13 +39,16 @@ impl<'a> rocket::request::FromParam<'a> for CidWrap {
     }
 }
 
-struct Store {
-    pub db: CASDB,
+struct Store<T>
+where
+    T: ContentAddressedStorage,
+{
+    pub db: T,
 }
 
 #[get("/<hash>")]
 fn get_content(
-    state: State<Store>,
+    state: State<Store<CASDB>>,
     hash: CidWrap,
     auth: Authorization<DummyAuth>,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
@@ -57,7 +60,12 @@ fn get_content(
 }
 
 #[post("/", data = "<data>")]
-fn put_content(state: State<Store>, data: Data, codec: SupportedCodecs) -> Result<String> {
+fn put_content(
+    state: State<Store<CASDB>>,
+    data: Data,
+    codec: SupportedCodecs,
+    auth: Authorization<DummyAuth>,
+) -> Result<String> {
     match state.db.put(data.open().take(STREAM_LIMIT), codec) {
         Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
         Err(e) => Err(e),
