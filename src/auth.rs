@@ -42,13 +42,10 @@ impl AuthrorizationStrategy for DummyAuthorization {
     }
 }
 
-impl<'a, 'r, T> FromRequest<'a, 'r> for AuthToken {
+impl<'a, 'r> FromRequest<'a, 'r> for AuthToken {
     type Error = anyhow::Error;
 
     fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        match T::extract(request.headers().get(T::header_key())) {
-            Ok(auth) => Outcome::Success(Self(auth)),
-            Err(e) => Outcome::Failure((Status::Unauthorized, anyhow!(format!("{}", e)))),
-        }
+        Outcome::Success(Self::None)
     }
 }

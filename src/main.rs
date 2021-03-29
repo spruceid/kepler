@@ -21,7 +21,7 @@ mod auth;
 mod cas;
 mod codec;
 
-use auth::{Authorization, DummyAuth};
+use auth::AuthToken;
 use cas::{ContentAddressedStorage, CASDB};
 use codec::SupportedCodecs;
 
@@ -51,7 +51,7 @@ fn get_content(
     state: State<Store<CASDB>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: Authorization<DummyAuth>,
+    auth: AuthToken,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
     match state.db.get(hash.0) {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
@@ -66,7 +66,7 @@ fn put_content(
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    auth: Authorization<DummyAuth>,
+    auth: AuthToken,
 ) -> Result<String> {
     match state.db.put(data.open().take(STREAM_LIMIT), codec) {
         Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
