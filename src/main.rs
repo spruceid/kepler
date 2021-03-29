@@ -46,9 +46,10 @@ where
     pub db: T,
 }
 
-#[get("/<hash>")]
+#[get("/<orbit_id>/<hash>")]
 fn get_content(
     state: State<Store<CASDB>>,
+    orbit_id: CidWrap,
     hash: CidWrap,
     auth: Authorization<DummyAuth>,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
@@ -59,9 +60,10 @@ fn get_content(
     }
 }
 
-#[post("/", data = "<data>")]
+#[post("/<orbit_id>", data = "<data>")]
 fn put_content(
     state: State<Store<CASDB>>,
+    orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     auth: Authorization<DummyAuth>,
