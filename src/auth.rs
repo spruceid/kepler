@@ -1,3 +1,4 @@
+use crate::tz;
 use anyhow::Result;
 use rocket::{
     http::Status,
@@ -15,31 +16,9 @@ pub trait AuthrorizationStrategy: Sized {
     fn authorize(&self, auth_token: Self::Token) -> Result<Self::Action>;
 }
 
-#[derive(PartialEq)]
-pub struct DummyToken;
-
-pub struct DummyAuthorization;
-
 pub enum AuthToken {
     None,
-    TezosSignature(String),
-}
-
-impl AuthorizationToken for DummyToken {
-    fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
-        Ok(Self)
-    }
-    fn header_key() -> &'static str {
-        ""
-    }
-}
-
-impl AuthrorizationStrategy for DummyAuthorization {
-    type Token = DummyToken;
-    type Action = ();
-    fn authorize(&self, auth_token: Self::Token) -> Result<Self::Action> {
-        Ok(())
-    }
+    TezosSignature(tz::TZAuth),
 }
 
 impl<'a, 'r> FromRequest<'a, 'r> for AuthToken {

@@ -12,3 +12,7 @@ multihash = "0.13"
 cid = "0.6"
 rocksdb = "0.15"
 anyhow = "1.0"
+ssi = { path = "../ssi" }
+did-tezos = { path = "../ssi/did-tezos" }
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+

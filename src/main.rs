@@ -5,8 +5,12 @@ extern crate rocket;
 #[macro_use]
 extern crate anyhow;
 extern crate cid;
+extern crate did_tezos;
 extern crate multihash;
 extern crate rocksdb;
+extern crate ssi;
+#[macro_use]
+extern crate tokio;
 
 use anyhow::Result;
 use cid::multibase::Base;
@@ -20,6 +24,7 @@ use std::{
 mod auth;
 mod cas;
 mod codec;
+mod tz;
 
 use auth::AuthToken;
 use cas::{ContentAddressedStorage, CASDB};
