@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Kepler is a configurably-permissioned replicating content-addressed storage. Kepler storage is bucketed by Orbits, authorization policies which determine who may perform certain actions on the bucket. Orbit policies may be defined using:
+Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage. Kepler storage is bucketed by Orbits, authorization policies which determine who may perform certain actions on the bucket. Orbit policies may be defined using:
   * [X] None (operations are unpermissioned)
   * [ ] Public key whitelist
   * [ ] DID Verification method ID whitelist
