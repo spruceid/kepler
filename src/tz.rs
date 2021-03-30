@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bs58;
 use cid::Cid;
 use did_tezos::DIDTz;
 use nom::{
@@ -19,12 +20,14 @@ pub struct TZAuth {
     pub timestamp: String,
     pub orbit: String,
     pub action: String,
-    pub cid: Cid,
+    pub cid: String,
 }
+
+// TODO comment on the query message format in KERI
 
 impl FromStr for TZAuth {
     type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
         match tuple((
             tag("Tezos Signed Message:"),                  // remove
             preceded(tag(" "), take_until(".kepler.net")), // get orbit
@@ -41,13 +44,23 @@ impl FromStr for TZAuth {
                     sig: sig_str.into(),
                     pkh: pkh_str.into(),
                     timestamp: timestamp_str.into(),
-                    orbit: orbit_str.into(),
+                    orbit: orbit_str.parse()?,
                     action: action_str.into(),
                     cid: cid_str.parse()?,
                 })
             }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(anyhow!("thing")),
         }
+    }
+}
+
+impl TZAuth {
+    fn serialize_for_verification(&self) -> Vec<u8> {
+        format!(
+            "Tezos Signed Message: {} {}.kepler.net {} {} {}",
+            &self.orbit, &self.timestamp, &self.pkh, &self.action, &self.cid
+        )
+        .into_bytes()
     }
 }
 
@@ -59,19 +72,17 @@ pub async fn verify(auth: TZAuth) -> Result<()> {
         &DIDTz::default(),
     )
     .await?;
-    // match key type to determine tz1/2/3
-    match (key.algorithm, auth.pkh.as_str()) {
-        (Some(Algorithm::EdDSA), "tz1") => Ok(()),   // tz1
-        (Some(Algorithm::ES256KR), "tz2") => Ok(()), // tz2
-        (Some(Algorithm::PS256), "tz3") => Ok(()),   // tz3
-        _ => Err(anyhow!("Invalid Key Type")),
-    }
-    //
-    // verify according to tz key edition
-    // Ok(verify_bytes(
-    //     Algorithm::EdDSA,
-    //     auth.data.as_bytes(),
+    ssi::jws::verify_bytes(
+        key.algorithm.unwrap(),
+        &auth.serialize_for_verification(),
+        &key,
+        &bs58::decode(&auth.sig).into_vec()?,
+    )?;
+    Ok(())
+}
 
-    //     auth.sig.as_bytes(),
-    // )?)
+#[test]
+async fn simple_parse() {
+    let sig_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z phk GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA sig";
+    let ta: TZAuth = sig_str.parse().unwrap();
 }
