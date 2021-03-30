@@ -28,7 +28,7 @@ pub struct TZAuth {
 impl FromStr for TZAuth {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
-        match tuple((
+        match tuple::<_, _, (), _>((
             tag("Tezos Signed Message:"),                  // remove
             preceded(tag(" "), take_until(".kepler.net")), // get orbit
             tag(".kepler.net"),
@@ -49,7 +49,7 @@ impl FromStr for TZAuth {
                     cid: cid_str.parse()?,
                 })
             }
-            Err(e) => Err(anyhow!("thing")),
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -65,7 +65,7 @@ impl TZAuth {
 }
 
 #[tokio::main]
-pub async fn verify(auth: TZAuth) -> Result<()> {
+pub async fn verify(auth: &TZAuth) -> Result<()> {
     // get jwk
     let key = resolve_key(
         &format!("did:tz:{}#blockchainAccountId", &auth.pkh),
@@ -83,6 +83,23 @@ pub async fn verify(auth: TZAuth) -> Result<()> {
 
 #[test]
 async fn simple_parse() {
-    let sig_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z phk GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA sig";
-    let ta: TZAuth = sig_str.parse().unwrap();
+    let sig_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z <phk> GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA <sig>";
+    let tza: TZAuth = sig_str.parse().unwrap();
+}
+
+#[test]
+#[should_panic]
+async fn simple_verify_fail() {
+    let sig_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z <phk> GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA <sig>";
+    let tza: TZAuth = sig_str.parse().unwrap();
+
+    verify(&tza).unwrap();
+}
+
+#[test]
+async fn simple_verify_succeed() {
+    let sig_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z <phk> GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA <sig>";
+    let tza: TZAuth = sig_str.parse().unwrap();
+
+    verify(&tza).unwrap();
 }
