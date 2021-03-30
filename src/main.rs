@@ -11,6 +11,7 @@ extern crate rocksdb;
 extern crate ssi;
 #[macro_use]
 extern crate tokio;
+extern crate nom;
 
 use anyhow::Result;
 use cid::multibase::Base;
