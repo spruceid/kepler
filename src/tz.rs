@@ -133,9 +133,45 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    // let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkN2QDv7TGEPfAwzs9qCujsB1CxtVSjeesSj7EfFQh5cj4PJiH9 tz1ZoKiKMuSEyQ9JTETx7ZTwmnRtCxXoxduN GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA edsigWUz8sUVeqTJgXW7SMzihcmJ2JPQxPx9T5G6hx6P2yJSs9gYQSDNLFEm3rPYVB8fajgRS6qqAEX4LHhUCuaucp1qKHxpU5";
-    let auth_str = "Tezos Signed Message: uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg.kepler.net 2021-01-14T15:16:04Z edpkTm7tvHubvApsRRhQfvsFDJ1c4ndojg52t8Dea483bmcyFHr1y tz1c6nvfo3YeWtRPwkBp4qR6FdK8HnAm4R7H PUT uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg edsigMPqbYX4VhcwJ2tbKabgLSkMpwDDo4cNiCvrNt5bwcZsZ4982iTTeyjnfLmE599tpQ8oDu4RFxeD5LCo1FEB2neJiuZYqF";
+    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpk2LN8RVL7BEkNpugYQGgAXDTx2Nu3rYkKUxuLkXwLsRSpHMr56N tz1T1QsjyS9jkhuRW2xTnXXw1yas1z2oUKBk PUT uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg edsigHyi8nwAKFvECEcUzs9PNBmEA68tNdAKa762aqsMX7gcPVwnfCrhcxtYKBNid17QSygQKfVuJgx8CtVuVB3tsACsfFvUXg";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
+}
+
+#[test]
+async fn round_trip() {
+    let ts = "2021-01-14T15:16:04Z";
+    let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";
+    let dummy_orbit = "uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA";
+    let j = JWK::generate_ed25519().unwrap();
+    let did = DIDTz::default().generate(&Source::Key(&j)).unwrap();
+    let pkh = did.split(":").last().unwrap();
+    let pk: String = format!(
+        "edpk{}",
+        match &j.params {
+            Params::OKP(p) => bs58::encode(&p.public_key.0).with_check().into_string(),
+            _ => panic!(),
+        }
+    );
+    let message = format!(
+        "Tezos Signed Message: {}.kepler.net {} {} {} GET {}",
+        &dummy_orbit, &ts, &pk, &pkh, &dummy_cid
+    );
+    let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message.as_bytes(), &j).unwrap();
+    let sig = format!(
+        "edsig{}",
+        bs58::encode(&sig_bytes).with_check().into_string()
+    );
+    let tz = TZAuth {
+        sig,
+        pk,
+        pkh: pkh.into(),
+        timestamp: ts.into(),
+        orbit: dummy_orbit.into(),
+        action: "GET".into(),
+        cid: dummy_cid.into(),
+    };
+    assert_eq!(message.as_bytes(), tz.serialize_for_verification());
+    assert!(verify(&tz).is_ok());
 }

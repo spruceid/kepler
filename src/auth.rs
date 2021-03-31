@@ -26,11 +26,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for AuthToken {
     type Error = anyhow::Error;
 
     fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        let auth_headers: Vec<&'a str> = request
-            .headers()
-            .get("Authentication")
-            .inspect(|s| println!("{}", s))
-            .collect();
+        let auth_headers: Vec<&'a str> = request.headers().get("Authentication").collect();
         match auth_headers.first() {
             Some(auth_header) => match TZAuth::from_str(auth_header) {
                 Ok(tza) => match verify(&tza) {
