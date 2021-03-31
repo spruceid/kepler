@@ -1,5 +1,6 @@
-use crate::tz;
+use crate::tz::{verify, TZAuth};
 use anyhow::Result;
+use core::str::FromStr;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -18,13 +19,27 @@ pub trait AuthrorizationStrategy: Sized {
 
 pub enum AuthToken {
     None,
-    TezosSignature(tz::TZAuth),
+    TezosSignature(TZAuth),
 }
 
 impl<'a, 'r> FromRequest<'a, 'r> for AuthToken {
     type Error = anyhow::Error;
 
     fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        Outcome::Success(Self::None)
+        let auth_headers: Vec<&'a str> = request
+            .headers()
+            .get("Authentication")
+            .inspect(|s| println!("{}", s))
+            .collect();
+        match auth_headers.first() {
+            Some(auth_header) => match TZAuth::from_str(auth_header) {
+                Ok(tza) => match verify(&tza) {
+                    Ok(()) => Outcome::Success(Self::TezosSignature(tza)),
+                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+                },
+                Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+            },
+            None => Outcome::Success(Self::None),
+        }
     }
 }

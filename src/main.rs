@@ -13,6 +13,7 @@ extern crate ssi;
 extern crate tokio;
 extern crate bs58;
 extern crate nom;
+extern crate serde_json;
 
 use anyhow::Result;
 use cid::multibase::Base;

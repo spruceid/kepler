@@ -17,4 +17,5 @@ did-tezos = { path = "../ssi/did-tezos" }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"
+serde_json = "1"
 

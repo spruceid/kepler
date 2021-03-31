@@ -1344,6 +1344,7 @@ dependencies = [
  "nom 6.1.2",
  "rocket",
  "rocksdb",
+ "serde_json",
  "ssi",
  "tokio",
 ]
