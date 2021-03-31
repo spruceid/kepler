@@ -1340,6 +1340,7 @@ dependencies = [
  "bs58",
  "cid",
  "did-tezos",
+ "hex",
  "multihash",
  "nom 6.1.2",
  "rocket",

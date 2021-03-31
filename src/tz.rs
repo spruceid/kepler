@@ -1,6 +1,7 @@
 use anyhow::Result;
-use bs58::{decode, encode};
+use bs58;
 use did_tezos::DIDTz;
+use hex;
 use nom::{
     bytes::complete::{tag, take_until},
     sequence::{preceded, tuple},
@@ -61,11 +62,15 @@ impl FromStr for TZAuth {
 
 impl TZAuth {
     fn serialize_for_verification(&self) -> Vec<u8> {
-        format!(
-            "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
-            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
-        )
-        .into_bytes()
+        // use micheline string encoding
+        let hex = hex::encode(
+            format!(
+                "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
+                &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
+            )
+            .as_bytes(),
+        );
+        hex::decode(format!("0501{:08x}{}", hex.len() / 2, &hex).into_bytes()).unwrap()
     }
 }
 
@@ -102,7 +107,9 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
                 Algorithm::EdDSA => Params::OKP(OctetParams {
                     curve: "Ed25519".into(),
                     // TODO the slicing must happen on the bytes, not the characters
-                    public_key: Base64urlUInt(decode(&auth.pk[4..]).with_check(None).into_vec()?),
+                    public_key: Base64urlUInt(
+                        bs58::decode(&auth.pk[4..]).with_check(None).into_vec()?,
+                    ),
                     private_key: None,
                 }),
                 Algorithm::ES256KR => todo!(),
@@ -111,7 +118,7 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
             },
         },
         // TODO the slicing must happen on the bytes, not the characters
-        &decode(&auth.sig[5..]).with_check(None).into_vec()?,
+        &bs58::decode(&auth.sig[5..]).with_check(None).into_vec()?,
     )?;
     Ok(())
 }
@@ -133,7 +140,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpk2LN8RVL7BEkNpugYQGgAXDTx2Nu3rYkKUxuLkXwLsRSpHMr56N tz1T1QsjyS9jkhuRW2xTnXXw1yas1z2oUKBk PUT uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg edsigHyi8nwAKFvECEcUzs9PNBmEA68tNdAKa762aqsMX7gcPVwnfCrhcxtYKBNid17QSygQKfVuJgx8CtVuVB3tsACsfFvUXg";
+    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkDN8f6SeqWXTH1R4dZT87mWKxvvpwUJTkjsmcCrcYxj7kpZZvK tz1dSUbwi693dAw4nWuzEBitHLkd5XtGaF4P GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsig57wAVkvLoXeJsj7fFBXK2JARFkzoPZg5D9Co8jfDeLXCF4BxYL8c5iX8quBvJtc1v7UouKtzhFvwZ7RS2HuQK6w1va4QX";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
@@ -154,24 +161,23 @@ async fn round_trip() {
             _ => panic!(),
         }
     );
-    let message = format!(
-        "Tezos Signed Message: {}.kepler.net {} {} {} GET {}",
-        &dummy_orbit, &ts, &pk, &pkh, &dummy_cid
-    );
-    let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message.as_bytes(), &j).unwrap();
-    let sig = format!(
-        "edsig{}",
-        bs58::encode(&sig_bytes).with_check().into_string()
-    );
-    let tz = TZAuth {
-        sig,
+    let tz_unsigned = TZAuth {
+        sig: "".into(),
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
         orbit: dummy_orbit.into(),
-        action: "GET".into(),
+        action: "PUT".into(),
         cid: dummy_cid.into(),
     };
-    assert_eq!(message.as_bytes(), tz.serialize_for_verification());
+    let message = tz_unsigned.serialize_for_verification();
+    let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message, &j).unwrap();
+    let sig = format!(
+        "edsig{}",
+        bs58::encode(&sig_bytes).with_check().into_string()
+    );
+    let tz = TZAuth { sig, ..tz_unsigned };
+
+    assert_eq!(message, tz.serialize_for_verification());
     assert!(verify(&tz).is_ok());
 }
