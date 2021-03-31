@@ -74,12 +74,21 @@ fn put_content(
     }
 }
 
+#[delete("/<orbit_id>/<hash>")]
+fn delete_content(
+    state: State<Store<CASDB>>,
+    orbit_id: CidWrap,
+    hash: CidWrap,
+    auth: Authorization<DummyAuth>,
+) -> Result<()> {
+    Ok(state.db.delete(hash.0)?)
+}
+
 fn main() {
     rocket::ignite()
         .manage(Store {
             db: CASDB::new(DB_PATH).unwrap(),
         })
-        .mount("/", routes![get_content])
-        .mount("/", routes![put_content])
+        .mount("/", routes![get_content, put_content, delete_content])
         .launch();
 }
