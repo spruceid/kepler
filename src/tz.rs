@@ -11,11 +11,12 @@ use ssi::{
     did::{DIDMethod, Source},
     did_resolve::DIDResolver,
     did_resolve::ResolutionInputMetadata,
-    jwk::{Algorithm, Base64urlUInt, OctetParams, Params, JWK},
+    jwk::{ECParams, Algorithm, Base64urlUInt, OctetParams, Params, JWK},
     jws::verify_bytes,
     ldp::resolve_key,
 };
 use std::str::FromStr;
+use multihash::{Code, MultihashDigest};
 
 #[derive(Debug)]
 pub struct TZAuth {
@@ -62,16 +63,16 @@ impl FromStr for TZAuth {
 
 impl TZAuth {
     fn serialize_for_verification(&self) -> Vec<u8> {
-        // use micheline string encoding
-        let hex = hex::encode(
-            format!(
+        let message = format!(
                 "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
                 &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
-            )
-            .as_bytes(),
-        );
-        hex::decode(format!("0501{:08x}{}", hex.len() / 2, &hex).into_bytes()).unwrap()
+            );
+        Code::Blake2b256.digest(&encode_string(&message)).digest().to_vec()
     }
+}
+
+fn encode_string(s: &str) -> Vec<u8> {
+    hex::decode(format!("0501{:08x}{}", &s.as_bytes().len(), &hex::encode(&s.as_bytes())).into_bytes()).unwrap()
 }
 
 impl core::fmt::Display for TZAuth {
@@ -85,16 +86,51 @@ impl core::fmt::Display for TZAuth {
 }
 
 pub fn verify(auth: &TZAuth) -> Result<()> {
-    let alg = match &auth.pkh.as_str()[..3] {
-        "tz1" => Algorithm::EdDSA,
-        "tz2" => Algorithm::ES256KR,
-        "tz3" => Algorithm::PS256,
-        _ => return Err(anyhow!("Invalid Public Key Hash, {}", &auth.pkh)),
-    };
+    let key = from_tezos_key(&auth.pk)?;
     verify_bytes(
-        alg,
+        key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
         &auth.serialize_for_verification(),
-        &JWK {
+        &key,
+        &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
+    )?;
+    Ok(())
+}
+
+pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
+    let (alg, params) = match &tz_pk[..4] {
+        "edpk" => (
+            Algorithm::EdDSA,
+            Params::OKP(OctetParams {
+                curve: "Ed25519".into(),
+                public_key: Base64urlUInt(
+                    bs58::decode(&tz_pk).with_check(None).into_vec()?[4..].to_owned(),
+                ),
+                private_key: None,
+            })
+        ),
+        "sppk" => (
+            Algorithm::ES256KR,
+            Params::EC(ECParams {
+                curve: Some("secp256k1".into()),
+                // TODO
+                x_coordinate: None,
+                y_coordinate: None,
+                ecc_private_key: None
+            })
+        ),
+        "p2pk" => (
+            Algorithm::PS256,
+            Params::EC(ECParams {
+                curve: Some("P-256".into()),
+                // TODO
+                x_coordinate: None,
+                y_coordinate: None,
+                ecc_private_key: None
+            })
+        ),
+        _ => Err(anyhow!("Invalid Tezos Public Key"))?
+    };
+    Ok(JWK {
             public_key_use: None,
             key_operations: None,
             algorithm: Some(alg),
@@ -103,22 +139,13 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
             x509_certificate_chain: None,
             x509_thumbprint_sha1: None,
             x509_thumbprint_sha256: None,
-            params: match alg {
-                Algorithm::EdDSA => Params::OKP(OctetParams {
-                    curve: "Ed25519".into(),
-                    public_key: Base64urlUInt(
-                        bs58::decode(&auth.pk).with_check(None).into_vec()?[4..].to_owned(),
-                    ),
-                    private_key: None,
-                }),
-                Algorithm::ES256KR => todo!(),
-                Algorithm::PS256 => todo!(),
-                _ => return Err(anyhow!("Invalid Public Key Hash, {}", &auth.pkh)),
-            },
-        },
-        &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
-    )?;
-    Ok(())
+            params
+    })
+}
+
+#[test]
+async fn string_encoding() {
+    assert_eq!(&encode_string("message"), &[0x05, 0x01, 0x00, 0x00, 0x00, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65])
 }
 
 #[test]
@@ -138,7 +165,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 1617708704410 edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigttjg233gJhDGsSVRF6BCxsHujoF55nmJSsyPWR17BeMPhUFLVaBVJTwtHxebstYJTzTCJSCLbexV1PAp2J7spKbsLrd9r2";
+    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 1617729172025 edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigu1XepfKcX2ec5Cn8pXxXSA3mX2ygWm5akw8bJgnNDDFQpAevK2vDxXfzL1gidopuHfkDci72Z7YahrZ7jaW8akgwGhR7Fc";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
@@ -185,9 +212,6 @@ async fn round_trip() {
     .with_check()
     .into_string();
     let tz = TZAuth { sig, ..tz_unsigned };
-
-    println!("{}", &tz);
-    println!("{}", hex::encode(&message));
 
     assert_eq!(message, tz.serialize_for_verification());
     assert!(verify(&tz).is_ok());
