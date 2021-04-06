@@ -106,9 +106,8 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
             params: match alg {
                 Algorithm::EdDSA => Params::OKP(OctetParams {
                     curve: "Ed25519".into(),
-                    // TODO the slicing must happen on the bytes, not the characters
                     public_key: Base64urlUInt(
-                        bs58::decode(&auth.pk[4..]).with_check(None).into_vec()?,
+                        bs58::decode(&auth.pk).with_check(None).into_vec()?[4..].to_owned(),
                     ),
                     private_key: None,
                 }),
@@ -117,8 +116,7 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
                 _ => return Err(anyhow!("Invalid Public Key Hash, {}", &auth.pkh)),
             },
         },
-        // TODO the slicing must happen on the bytes, not the characters
-        &bs58::decode(&auth.sig[5..]).with_check(None).into_vec()?,
+        &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
     )?;
     Ok(())
 }
@@ -140,7 +138,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkDN8f6SeqWXTH1R4dZT87mWKxvvpwUJTkjsmcCrcYxj7kpZZvK tz1dSUbwi693dAw4nWuzEBitHLkd5XtGaF4P GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsig57wAVkvLoXeJsj7fFBXK2JARFkzoPZg5D9Co8jfDeLXCF4BxYL8c5iX8quBvJtc1v7UouKtzhFvwZ7RS2HuQK6w1va4QX";
+    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 1617708704410 edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigttjg233gJhDGsSVRF6BCxsHujoF55nmJSsyPWR17BeMPhUFLVaBVJTwtHxebstYJTzTCJSCLbexV1PAp2J7spKbsLrd9r2";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
@@ -154,13 +152,18 @@ async fn round_trip() {
     let j = JWK::generate_ed25519().unwrap();
     let did = DIDTz::default().generate(&Source::Key(&j)).unwrap();
     let pkh = did.split(":").last().unwrap();
-    let pk: String = format!(
-        "edpk{}",
-        match &j.params {
-            Params::OKP(p) => bs58::encode(&p.public_key.0).with_check().into_string(),
-            _ => panic!(),
-        }
-    );
+    let pk: String = match &j.params {
+        Params::OKP(p) => bs58::encode(
+            [13, 15, 37, 217]
+                .iter()
+                .chain(&p.public_key.0)
+                .map(|&x| x)
+                .collect::<Vec<u8>>(),
+        )
+        .with_check()
+        .into_string(),
+        _ => panic!(),
+    };
     let tz_unsigned = TZAuth {
         sig: "".into(),
         pk,
@@ -172,11 +175,19 @@ async fn round_trip() {
     };
     let message = tz_unsigned.serialize_for_verification();
     let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message, &j).unwrap();
-    let sig = format!(
-        "edsig{}",
-        bs58::encode(&sig_bytes).with_check().into_string()
-    );
+    let sig = bs58::encode(
+        [9, 245, 205, 134, 18]
+            .iter()
+            .chain(&sig_bytes)
+            .map(|&x| x)
+            .collect::<Vec<u8>>(),
+    )
+    .with_check()
+    .into_string();
     let tz = TZAuth { sig, ..tz_unsigned };
+
+    println!("{}", &tz);
+    println!("{}", hex::encode(&message));
 
     assert_eq!(message, tz.serialize_for_verification());
     assert!(verify(&tz).is_ok());
