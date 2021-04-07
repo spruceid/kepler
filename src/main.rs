@@ -5,8 +5,17 @@ extern crate rocket;
 #[macro_use]
 extern crate anyhow;
 extern crate cid;
+extern crate did_pkh;
 extern crate multihash;
 extern crate rocksdb;
+extern crate ssi;
+#[macro_use]
+extern crate tokio;
+extern crate bs58;
+extern crate nom;
+extern crate serde_json;
+#[macro_use]
+extern crate hex;
 
 use anyhow::Result;
 use cid::multibase::Base;
@@ -20,8 +29,9 @@ use std::{
 mod auth;
 mod cas;
 mod codec;
+mod tz;
 
-use auth::{Authorization, DummyAuth};
+use auth::AuthToken;
 use cas::{ContentAddressedStorage, CASDB};
 use codec::SupportedCodecs;
 
@@ -51,7 +61,7 @@ fn get_content(
     state: State<Store<CASDB>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: Authorization<DummyAuth>,
+    auth: AuthToken,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
     match state.db.get(hash.0) {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
@@ -60,13 +70,13 @@ fn get_content(
     }
 }
 
-#[post("/<orbit_id>", data = "<data>")]
+#[put("/<orbit_id>", data = "<data>")]
 fn put_content(
     state: State<Store<CASDB>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    auth: Authorization<DummyAuth>,
+    auth: AuthToken,
 ) -> Result<String> {
     match state.db.put(data.open().take(STREAM_LIMIT), codec) {
         Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
@@ -79,7 +89,7 @@ fn delete_content(
     state: State<Store<CASDB>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: Authorization<DummyAuth>,
+    auth: AuthToken,
 ) -> Result<()> {
     Ok(state.db.delete(hash.0)?)
 }
