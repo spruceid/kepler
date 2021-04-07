@@ -70,7 +70,7 @@ fn get_content(
     }
 }
 
-#[post("/<orbit_id>", data = "<data>")]
+#[put("/<orbit_id>", data = "<data>")]
 fn put_content(
     state: State<Store<CASDB>>,
     orbit_id: CidWrap,
