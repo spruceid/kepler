@@ -1,26 +1,20 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
 #[macro_use]
 extern crate rocket;
 #[macro_use]
 extern crate anyhow;
-extern crate cid;
-extern crate did_pkh;
-extern crate multihash;
-extern crate rocksdb;
-extern crate ssi;
 #[macro_use]
 extern crate tokio;
-extern crate bs58;
-extern crate nom;
-extern crate serde_json;
-#[macro_use]
-extern crate hex;
 
-use anyhow::Result;
+use anyhow::{anyhow, Error, Result};
 use cid::multibase::Base;
 use cid::Cid;
-use rocket::{data::Data, http::RawStr, response::Stream, State};
+use rocket::{
+    data::{ByteUnit, Data, ToByteUnit},
+    http::{ContentType, RawStr},
+    launch,
+    response::{Debug, Stream},
+    State,
+};
 use std::{
     io::{Cursor, Read},
     str::FromStr,
@@ -35,8 +29,6 @@ use auth::AuthToken;
 use cas::{ContentAddressedStorage, CASDB};
 use codec::SupportedCodecs;
 
-// 10 megabytes
-const STREAM_LIMIT: u64 = 10000000;
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
 struct CidWrap(Cid);
@@ -44,7 +36,7 @@ struct CidWrap(Cid);
 // Orphan rule requires a wrapper type for this :(
 impl<'a> rocket::request::FromParam<'a> for CidWrap {
     type Error = anyhow::Error;
-    fn from_param(param: &'a RawStr) -> Result<CidWrap> {
+    fn from_param(param: &'a str) -> Result<CidWrap> {
         Ok(CidWrap(Cid::from_str(param)?))
     }
 }
@@ -57,48 +49,59 @@ where
 }
 
 #[get("/<orbit_id>/<hash>")]
-fn get_content(
-    state: State<Store<CASDB>>,
+async fn get_content(
+    state: State<'_, Store<CASDB>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
-) -> Result<Option<Stream<Cursor<Vec<u8>>>>> {
+) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
     match state.db.get(hash.0) {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
         Ok(None) => Ok(None),
-        Err(e) => Err(e),
+        Err(e) => Err(e)?,
     }
 }
 
 #[put("/<orbit_id>", data = "<data>")]
-fn put_content(
-    state: State<Store<CASDB>>,
+async fn put_content(
+    state: State<'_, Store<CASDB>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     auth: AuthToken,
-) -> Result<String> {
-    match state.db.put(data.open().take(STREAM_LIMIT), codec) {
-        Ok(cid) => Ok(cid.to_string_of_base(Base::Base64Url)?),
-        Err(e) => Err(e),
+) -> Result<String, Debug<Error>> {
+    match state.db.put(
+        Cursor::new(
+            data.open(10.megabytes())
+                .into_bytes() // TODO buffering 10Mb here is not wise, find a streaming way for this
+                .await
+                .map_err(|e| anyhow!(e))?
+                .value,
+        ),
+        codec,
+    ) {
+        Ok(cid) => Ok(cid
+            .to_string_of_base(Base::Base64Url)
+            .map_err(|e| anyhow!(e))?),
+        Err(e) => Err(e)?,
     }
 }
 
 #[delete("/<orbit_id>/<hash>")]
-fn delete_content(
-    state: State<Store<CASDB>>,
+async fn delete_content(
+    state: State<'_, Store<CASDB>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
-) -> Result<()> {
+) -> Result<(), Debug<Error>> {
     Ok(state.db.delete(hash.0)?)
 }
 
-fn main() {
+#[launch]
+fn rocket() -> rocket::Rocket {
     rocket::ignite()
         .manage(Store {
             db: CASDB::new(DB_PATH).unwrap(),
         })
         .mount("/", routes![get_content, put_content, delete_content])
-        .launch();
 }
