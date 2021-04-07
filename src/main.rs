@@ -5,7 +5,7 @@ extern crate rocket;
 #[macro_use]
 extern crate anyhow;
 extern crate cid;
-extern crate did_tezos;
+extern crate did_pkh;
 extern crate multihash;
 extern crate rocksdb;
 extern crate ssi;

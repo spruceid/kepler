@@ -1,22 +1,16 @@
 use anyhow::Result;
 use bs58;
-use did_tezos::DIDTz;
 use hex;
+use multihash::{Code, MultihashDigest};
 use nom::{
     bytes::complete::{tag, take_until},
     sequence::{preceded, tuple},
 };
-use serde_json;
 use ssi::{
-    did::{DIDMethod, Source},
-    did_resolve::DIDResolver,
-    did_resolve::ResolutionInputMetadata,
-    jwk::{ECParams, Algorithm, Base64urlUInt, OctetParams, Params, JWK},
+    jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
     jws::verify_bytes,
-    ldp::resolve_key,
 };
 use std::str::FromStr;
-use multihash::{Code, MultihashDigest};
 
 #[derive(Debug)]
 pub struct TZAuth {
@@ -64,15 +58,26 @@ impl FromStr for TZAuth {
 impl TZAuth {
     fn serialize_for_verification(&self) -> Vec<u8> {
         let message = format!(
-                "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
-                &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
-            );
-        Code::Blake2b256.digest(&encode_string(&message)).digest().to_vec()
+            "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
+            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
+        );
+        Code::Blake2b256
+            .digest(&encode_string(&message))
+            .digest()
+            .to_vec()
     }
 }
 
 fn encode_string(s: &str) -> Vec<u8> {
-    hex::decode(format!("0501{:08x}{}", &s.as_bytes().len(), &hex::encode(&s.as_bytes())).into_bytes()).unwrap()
+    hex::decode(
+        format!(
+            "0501{:08x}{}",
+            &s.as_bytes().len(),
+            &hex::encode(&s.as_bytes())
+        )
+        .into_bytes(),
+    )
+    .unwrap()
 }
 
 impl core::fmt::Display for TZAuth {
@@ -106,7 +111,7 @@ pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
                     bs58::decode(&tz_pk).with_check(None).into_vec()?[4..].to_owned(),
                 ),
                 private_key: None,
-            })
+            }),
         ),
         "sppk" => (
             Algorithm::ES256KR,
@@ -115,8 +120,8 @@ pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
                 // TODO
                 x_coordinate: None,
                 y_coordinate: None,
-                ecc_private_key: None
-            })
+                ecc_private_key: None,
+            }),
         ),
         "p2pk" => (
             Algorithm::PS256,
@@ -125,27 +130,30 @@ pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
                 // TODO
                 x_coordinate: None,
                 y_coordinate: None,
-                ecc_private_key: None
-            })
+                ecc_private_key: None,
+            }),
         ),
-        _ => Err(anyhow!("Invalid Tezos Public Key"))?
+        _ => Err(anyhow!("Invalid Tezos Public Key"))?,
     };
     Ok(JWK {
-            public_key_use: None,
-            key_operations: None,
-            algorithm: Some(alg),
-            key_id: None,
-            x509_url: None,
-            x509_certificate_chain: None,
-            x509_thumbprint_sha1: None,
-            x509_thumbprint_sha256: None,
-            params
+        public_key_use: None,
+        key_operations: None,
+        algorithm: Some(alg),
+        key_id: None,
+        x509_url: None,
+        x509_certificate_chain: None,
+        x509_thumbprint_sha1: None,
+        x509_thumbprint_sha256: None,
+        params,
     })
 }
 
 #[test]
 async fn string_encoding() {
-    assert_eq!(&encode_string("message"), &[0x05, 0x01, 0x00, 0x00, 0x00, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65])
+    assert_eq!(
+        &encode_string("message"),
+        &[0x05, 0x01, 0x00, 0x00, 0x00, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65]
+    )
 }
 
 #[test]
@@ -173,11 +181,14 @@ async fn simple_verify_succeed() {
 
 #[test]
 async fn round_trip() {
+    use did_pkh::DIDPKH;
+    use ssi::did::{DIDMethod, Source};
+
     let ts = "2021-01-14T15:16:04Z";
     let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";
     let dummy_orbit = "uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA";
     let j = JWK::generate_ed25519().unwrap();
-    let did = DIDTz::default().generate(&Source::Key(&j)).unwrap();
+    let did = DIDPKH.generate(&Source::KeyAndPattern(&j, "tz")).unwrap();
     let pkh = did.split(":").last().unwrap();
     let pk: String = match &j.params {
         Params::OKP(p) => bs58::encode(
