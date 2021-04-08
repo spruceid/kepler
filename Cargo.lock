@@ -1617,6 +1617,7 @@ name = "kepler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-std",
  "bs58",
  "cid",
  "did-pkh",

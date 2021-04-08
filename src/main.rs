@@ -89,11 +89,18 @@ async fn delete_content(
     Ok(state.db.delete(hash.0).await?)
 }
 
-#[launch]
-fn rocket() -> rocket::Rocket {
-    rocket::ignite()
-        .manage(Store {
-            db: CASDB::new(DB_PATH).unwrap(),
-        })
-        .mount("/", routes![get_content, put_content, delete_content])
+#[async_std::main]
+async fn main() -> Result<()> {
+    let ipfs = Ipfs::<DefaultParams>::new(Config::new(None, 10)).await?;
+    ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?).await?;
+
+    rocket::tokio::runtime::Runtime::new()?
+        .spawn(
+            rocket::ignite()
+                .manage(Store { db: ipfs })
+                .mount("/", routes![get_content, put_content, delete_content])
+                .launch(),
+        )
+        .await??;
+    Ok(())
 }
