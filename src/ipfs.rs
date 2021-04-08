@@ -22,12 +22,20 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
         content: &mut C,
         codec: SupportedCodecs,
     ) -> Result<Cid, Self::Error> {
-        todo!()
+        // TODO find a way to stream this better? (use .take with max block size?)
+        let mut buf = Vec::<u8>::new();
+        content.read_to_end(&mut buf).await?;
+        // TODO impl support for chunking with linked data (e.g. use IpldCodec)
+        let block = Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, &buf)?;
+        self.insert(&block)?.await?;
+        Ok(*block.cid())
     }
-    async fn get(&self, address: Cid) -> Result<Option<Vec<u8>>, Self::Error> {
-        todo!()
+    async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
+        // TODO this api returns Result<Block, anyhow::Error>, with an err thrown for no block found
+        // until this API changes (a breaking change), we will error here when no block found
+        Ok(Some(self.get(address)?.data().to_vec()))
     }
-    async fn delete(&self, address: Cid) -> Result<(), Self::Error> {
+    async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         todo!()
     }
 }

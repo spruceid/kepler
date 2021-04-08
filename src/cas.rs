@@ -10,6 +10,6 @@ pub trait ContentAddressedStorage: Send + Sync {
         content: &mut C,
         codec: SupportedCodecs,
     ) -> Result<Cid, Self::Error>;
-    async fn get(&self, address: Cid) -> Result<Option<Vec<u8>>, Self::Error>;
-    async fn delete(&self, address: Cid) -> Result<(), Self::Error>;
+    async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error>;
+    async fn delete(&self, address: &Cid) -> Result<(), Self::Error>;
 }
