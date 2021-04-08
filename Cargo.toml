@@ -10,7 +10,7 @@ edition = "2018"
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d0110" }
 multihash = "0.13"
 cid = "0.6"
-rocksdb = "0.15"
+ipfs-embed = "0.19"
 anyhow = "1.0"
 ssi = "0.2.0"
 did-pkh = "0.0.1"
