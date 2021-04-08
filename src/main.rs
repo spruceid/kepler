@@ -22,6 +22,7 @@ use std::{
 mod auth;
 mod cas;
 mod codec;
+mod ipfs;
 mod tz;
 
 use auth::AuthToken;
@@ -70,7 +71,7 @@ async fn put_content(
     codec: SupportedCodecs,
     auth: AuthToken,
 ) -> Result<String, Debug<Error>> {
-    match state.db.put(data.open(10.megabytes()), codec).await {
+    match state.db.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
             .to_string_of_base(Base::Base64Url)
             .map_err(|e| anyhow!(e))?),
@@ -90,7 +91,9 @@ async fn delete_content(
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    let ipfs = Ipfs::<DefaultParams>::new(Config::new(None, 10)).await?;
+    let mut cfg = Config::new(None, 10);
+    cfg.network.enable_kad = false;
+    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?).await?;
 
     rocket::tokio::runtime::Runtime::new()?
