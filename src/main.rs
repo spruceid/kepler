@@ -26,8 +26,9 @@ mod codec;
 mod tz;
 
 use auth::AuthToken;
-use cas::{ContentAddressedStorage, CASDB};
+use cas::ContentAddressedStorage;
 use codec::SupportedCodecs;
+use ipfs_embed::{Config, DefaultParams, Ipfs};
 
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
@@ -50,12 +51,12 @@ where
 
 #[get("/<orbit_id>/<hash>")]
 async fn get_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
-    match state.db.get(hash.0) {
+    match ContentAddressedStorage::get(&state.db, hash.0).await {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
         Ok(None) => Ok(None),
         Err(e) => Err(e)?,
@@ -64,22 +65,13 @@ async fn get_content(
 
 #[put("/<orbit_id>", data = "<data>")]
 async fn put_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     auth: AuthToken,
 ) -> Result<String, Debug<Error>> {
-    match state.db.put(
-        Cursor::new(
-            data.open(10.megabytes())
-                .into_bytes() // TODO buffering 10Mb here is not wise, find a streaming way for this
-                .await
-                .map_err(|e| anyhow!(e))?
-                .value,
-        ),
-        codec,
-    ) {
+    match state.db.put(data.open(10.megabytes()), codec).await {
         Ok(cid) => Ok(cid
             .to_string_of_base(Base::Base64Url)
             .map_err(|e| anyhow!(e))?),
@@ -89,12 +81,12 @@ async fn put_content(
 
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<(), Debug<Error>> {
-    Ok(state.db.delete(hash.0)?)
+    Ok(state.db.delete(hash.0).await?)
 }
 
 #[launch]
