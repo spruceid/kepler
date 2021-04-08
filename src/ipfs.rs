@@ -1,6 +1,6 @@
 use super::cas::ContentAddressedStorage;
 use super::codec::SupportedCodecs;
-use ipfs_embed::Ipfs;
+use ipfs_embed::{Ipfs, Key};
 use libipld::{
     block::Block,
     cid::{
@@ -36,6 +36,7 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
         Ok(Some(self.get(address)?.data().to_vec()))
     }
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
-        todo!()
+        // TODO this does not enforce deletion across the network, we need to devise a method for that via the pubsub stuff
+        Ok(self.remove_record(&address.hash().to_bytes().into()))
     }
 }

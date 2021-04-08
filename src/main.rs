@@ -56,7 +56,7 @@ async fn get_content(
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
-    match ContentAddressedStorage::get(&state.db, hash.0).await {
+    match ContentAddressedStorage::get(&state.db, &hash.0).await {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
         Ok(None) => Ok(None),
         Err(e) => Err(e)?,
@@ -86,7 +86,7 @@ async fn delete_content(
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<(), Debug<Error>> {
-    Ok(state.db.delete(hash.0).await?)
+    Ok(state.db.delete(&hash.0).await?)
 }
 
 #[async_std::main]
