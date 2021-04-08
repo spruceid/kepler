@@ -1619,11 +1619,10 @@ dependencies = [
  "anyhow",
  "async-std",
  "bs58",
- "cid",
  "did-pkh",
  "hex",
  "ipfs-embed",
- "multihash",
+ "libipld",
  "nom",
  "rocket",
  "serde_json",
@@ -1680,12 +1679,40 @@ dependencies = [
  "async-trait",
  "cached",
  "fnv",
+ "libipld-cbor",
+ "libipld-cbor-derive",
  "libipld-core",
+ "libipld-json",
  "libipld-macro",
+ "libipld-pb",
  "log",
  "multihash",
  "parking_lot",
  "thiserror",
+]
+
+[[package]]
+name = "libipld-cbor"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0786a9762c8f187d5671c8fb4a30300f00ee867553c7f136e384bf5a3afb64f"
+dependencies = [
+ "byteorder",
+ "libipld-core",
+ "thiserror",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "libipld-cbor-derive"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f676e94329033adb8cbf3e8a64af60a4f5d5724e291a72f5766b5bfb9ca4b6a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "synstructure",
 ]
 
 [[package]]
@@ -1702,12 +1729,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "libipld-json"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "440c519cdc397b6c091f18548a71df06195a28f2d47e5cb51d1c20d744fde90a"
+dependencies = [
+ "base64 0.13.0",
+ "libipld-core",
+ "multihash",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "libipld-macro"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a2bdd797b0abb80a52c0b215d8721e31c4162216a7930f41af70517f0ed5193"
 dependencies = [
  "libipld-core",
+]
+
+[[package]]
+name = "libipld-pb"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65bafd670ca677df2d1c093b4bd47013876926215d980586fe95eaa9a1486fd5"
+dependencies = [
+ "libipld-core",
+ "prost",
+ "prost-build",
+ "thiserror",
 ]
 
 [[package]]

@@ -8,8 +8,6 @@ edition = "2018"
 
 [dependencies]
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d0110" }
-multihash = "0.13"
-cid = "0.6"
 ipfs-embed = "0.19"
 anyhow = "1.0"
 ssi = "0.2.0"
@@ -20,3 +18,4 @@ bs58 = "0.4"
 serde_json = "1"
 hex = "0.4"
 async-std = "1.9"
+libipld = "0.11"

@@ -6,8 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use cid::multibase::Base;
-use cid::Cid;
+use libipld::cid::{Cid, multibase::Base};
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     http::{ContentType, RawStr},
