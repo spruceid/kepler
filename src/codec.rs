@@ -22,10 +22,11 @@ impl From<&ContentType> for SupportedCodecs {
     }
 }
 
-impl<'a, 'r> FromRequest<'a, 'r> for SupportedCodecs {
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for SupportedCodecs {
     type Error = anyhow::Error;
 
-    fn from_request(req: &'a Request<'r>) -> Outcome<Self, Self::Error> {
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         Outcome::Success(match req.content_type() {
             Some(t) => Self::from(t),
             None => Self::Raw,

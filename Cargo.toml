@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocket = "0.4"
+rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d0110" }
 multihash = "0.13"
 cid = "0.6"
 rocksdb = "0.15"
