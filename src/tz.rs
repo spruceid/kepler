@@ -90,8 +90,30 @@ impl core::fmt::Display for TZAuth {
     }
 }
 
+#[derive(Deserialize)]
+struct TZStatsPubkeyResponse {
+    pubkey: String,
+}
+
+impl AsRef<str> for TZStatsPubkeyResponse {
+    fn as_ref(&self) -> &str {
+        &self.pubkey
+    }
+}
+
+impl TryFrom<TZStatsPubkeyResponse> for JWK {
+    type Error = anyhow::Error;
+    fn try_from(value: TZStatsPubkeyResponse) -> Result<Self, Self::Error> {
+        from_tezos_key(value.as_ref())
+    }
+}
+
 async fn fetch_tz_key(pkh: &str) -> Result<JWK> {
-    todo!()
+    reqwest::get(["https://api.tzstats.com/explorer/account/", pkh].join(""))
+        .await?
+        .json::<TZStatsPubkeyResponse>()
+        .await?
+        .try_into()
 }
 
 pub async fn verify(auth: &TZAuth) -> Result<()> {
