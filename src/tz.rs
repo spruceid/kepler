@@ -6,16 +6,19 @@ use nom::{
     bytes::complete::{tag, take_until},
     sequence::{preceded, tuple},
 };
+use serde::Deserialize;
 use ssi::{
     jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
     jws::verify_bytes,
 };
-use std::str::FromStr;
+use std::{
+    convert::{TryFrom, TryInto},
+    str::FromStr,
+};
 
 #[derive(Debug)]
 pub struct TZAuth {
     pub sig: String,
-    pub pk: String,
     pub pkh: String,
     pub timestamp: String,
     pub orbit: String,
@@ -31,25 +34,22 @@ impl FromStr for TZAuth {
             preceded(tag(" "), take_until(".kepler.net")), // get orbit
             tag(".kepler.net"),
             preceded(tag(" "), take_until(" ")), // get timestamp
-            preceded(tag(" "), take_until(" ")), // get pk
             preceded(tag(" "), take_until(" ")), // get pkh
             preceded(tag(" "), take_until(" ")), // get action
             preceded(tag(" "), take_until(" ")), // get CID
             tag(" "),
         ))(s)
         {
-            Ok((
-                sig_str,
-                (_, orbit_str, _, timestamp_str, pk_str, pkh_str, action_str, cid_str, _),
-            )) => Ok(TZAuth {
-                sig: sig_str.into(),
-                pk: pk_str.into(),
-                pkh: pkh_str.into(),
-                timestamp: timestamp_str.into(),
-                orbit: orbit_str.parse()?,
-                action: action_str.into(),
-                cid: cid_str.parse()?,
-            }),
+            Ok((sig_str, (_, orbit_str, _, timestamp_str, pkh_str, action_str, cid_str, _))) => {
+                Ok(TZAuth {
+                    sig: sig_str.into(),
+                    pkh: pkh_str.into(),
+                    timestamp: timestamp_str.into(),
+                    orbit: orbit_str.parse()?,
+                    action: action_str.into(),
+                    cid: cid_str.parse()?,
+                })
+            }
             Err(e) => Err(e.into()),
         }
     }
@@ -58,8 +58,8 @@ impl FromStr for TZAuth {
 impl TZAuth {
     fn serialize_for_verification(&self) -> Vec<u8> {
         let message = format!(
-            "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
-            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
+            "Tezos Signed Message: {}.kepler.net {} {} {} {}",
+            &self.orbit, &self.timestamp, &self.pkh, &self.action, &self.cid
         );
         Code::Blake2b256
             .digest(&encode_string(&message))
@@ -84,14 +84,18 @@ impl core::fmt::Display for TZAuth {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: {}.kepler.net {} {} {} {} {} {}",
-            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid, &self.sig
+            "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
+            &self.orbit, &self.timestamp, &self.pkh, &self.action, &self.cid, &self.sig
         )
     }
 }
 
-pub fn verify(auth: &TZAuth) -> Result<()> {
-    let key = from_tezos_key(&auth.pk)?;
+async fn fetch_tz_key(pkh: &str) -> Result<JWK> {
+    todo!()
+}
+
+pub async fn verify(auth: &TZAuth) -> Result<()> {
+    let key = fetch_tz_key(&auth.pkh).await?;
     verify_bytes(
         key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
         &auth.serialize_for_verification(),
@@ -168,7 +172,7 @@ async fn simple_verify_fail() {
     let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFKjqY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkN2QDv7TGEPfAwzs9qCujsB1CxtVSjeesSj7EfFQh5cj4PJiH9 tz1ZoKiKMuSEyQ9JTETx7ZTwmnRtCxXoxduN GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA edsigWUz8sUVeqTJgXW7SMzihcmJ2JPQxPx9T5G6hx6P2yJSs9gYQSDNLFEm3rPYVB8fajgRS6qqAEX4LHhUCuaucp1qKHxpU5";
     let tza: TZAuth = auth_str.parse().unwrap();
 
-    verify(&tza).unwrap();
+    verify(&tza).await.unwrap();
 }
 
 #[test]
@@ -176,7 +180,7 @@ async fn simple_verify_succeed() {
     let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 1617729172025 edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigu1XepfKcX2ec5Cn8pXxXSA3mX2ygWm5akw8bJgnNDDFQpAevK2vDxXfzL1gidopuHfkDci72Z7YahrZ7jaW8akgwGhR7Fc";
     let tza: TZAuth = auth_str.parse().unwrap();
 
-    verify(&tza).unwrap();
+    verify(&tza).await.unwrap();
 }
 
 #[test]
@@ -190,21 +194,8 @@ async fn round_trip() {
     let j = JWK::generate_ed25519().unwrap();
     let did = DIDPKH.generate(&Source::KeyAndPattern(&j, "tz")).unwrap();
     let pkh = did.split(":").last().unwrap();
-    let pk: String = match &j.params {
-        Params::OKP(p) => bs58::encode(
-            [13, 15, 37, 217]
-                .iter()
-                .chain(&p.public_key.0)
-                .map(|&x| x)
-                .collect::<Vec<u8>>(),
-        )
-        .with_check()
-        .into_string(),
-        _ => panic!(),
-    };
     let tz_unsigned = TZAuth {
         sig: "".into(),
-        pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
         orbit: dummy_orbit.into(),
@@ -225,5 +216,5 @@ async fn round_trip() {
     let tz = TZAuth { sig, ..tz_unsigned };
 
     assert_eq!(message, tz.serialize_for_verification());
-    assert!(verify(&tz).is_ok());
+    assert!(verify(&tz).await.is_ok());
 }

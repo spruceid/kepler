@@ -30,7 +30,7 @@ impl<'r> FromRequest<'r> for AuthToken {
         let auth_headers: Vec<&'r str> = request.headers().get("Authentication").collect();
         match auth_headers.first() {
             Some(auth_header) => match TZAuth::from_str(auth_header) {
-                Ok(tza) => match verify(&tza) {
+                Ok(tza) => match verify(&tza).await {
                     Ok(()) => Outcome::Success(Self::TezosSignature(tza)),
                     Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                 },
