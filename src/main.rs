@@ -94,7 +94,7 @@ async fn batch_put_content(
     Ok(cids.join("\n"))
 }
 
-#[put("/<orbit_id>", data = "<data>")]
+#[put("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
     state: State<'_, Store<CASDB>>,
     orbit_id: CidWrap,
