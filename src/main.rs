@@ -6,8 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use cid::multibase::Base;
-use cid::Cid;
+use libipld::cid::{Cid, multibase::Base};
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     http::{ContentType, RawStr},
@@ -23,11 +22,13 @@ use std::{
 mod auth;
 mod cas;
 mod codec;
+mod ipfs;
 mod tz;
 
 use auth::AuthToken;
-use cas::{ContentAddressedStorage, CASDB};
+use cas::ContentAddressedStorage;
 use codec::SupportedCodecs;
+use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
 
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
@@ -50,12 +51,12 @@ where
 
 #[get("/<orbit_id>/<hash>")]
 async fn get_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
-    match state.db.get(hash.0) {
+    match ContentAddressedStorage::get(&state.db, &hash.0).await {
         Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
         Ok(None) => Ok(None),
         Err(e) => Err(e)?,
@@ -64,22 +65,13 @@ async fn get_content(
 
 #[put("/<orbit_id>", data = "<data>")]
 async fn put_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     auth: AuthToken,
 ) -> Result<String, Debug<Error>> {
-    match state.db.put(
-        Cursor::new(
-            data.open(10.megabytes())
-                .into_bytes() // TODO buffering 10Mb here is not wise, find a streaming way for this
-                .await
-                .map_err(|e| anyhow!(e))?
-                .value,
-        ),
-        codec,
-    ) {
+    match state.db.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
             .to_string_of_base(Base::Base64Url)
             .map_err(|e| anyhow!(e))?),
@@ -89,19 +81,30 @@ async fn put_content(
 
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
-    state: State<'_, Store<CASDB>>,
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
 ) -> Result<(), Debug<Error>> {
-    Ok(state.db.delete(hash.0)?)
+    Ok(state.db.delete(&hash.0).await?)
 }
 
-#[launch]
-fn rocket() -> rocket::Rocket {
-    rocket::ignite()
-        .manage(Store {
-            db: CASDB::new(DB_PATH).unwrap(),
-        })
-        .mount("/", routes![get_content, put_content, delete_content])
+#[async_std::main]
+async fn main() -> Result<()> {
+    let mut cfg = Config::new(None, 10);
+    // cfg.network.enable_kad = false;
+    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    let peer: PeerId = "QmRSGx67Kq8w7xSBDia7hQfbfuvauMQGgxcwSWw976x4BS".parse()?;
+    let addr: Multiaddr = "/ip4/54.173.33.96/tcp/4001".parse()?;
+    ipfs.bootstrap(&[(peer, addr)]).await?;
+
+    rocket::tokio::runtime::Runtime::new()?
+        .spawn(
+            rocket::ignite()
+                .manage(Store { db: ipfs })
+                .mount("/", routes![get_content, put_content, delete_content])
+                .launch(),
+        )
+        .await??;
+    Ok(())
 }
