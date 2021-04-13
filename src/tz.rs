@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bs58;
 use hex;
-use multihash::{Code, MultihashDigest};
+use libipld::multihash::{Code, MultihashDigest};
 use nom::{
     bytes::complete::{tag, take_until},
     sequence::{preceded, tuple},
