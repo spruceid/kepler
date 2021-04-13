@@ -11,7 +11,6 @@ use cid::Cid;
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     form::Form,
-    http::{ContentType, RawStr},
     launch,
     response::{Debug, Stream},
     State,
@@ -70,7 +69,29 @@ async fn batch_put_content(
     batch: Form<Vec<PutContent>>,
     auth: AuthToken,
 ) -> Result<String, Debug<Error>> {
-    todo!()
+    let mut cids = Vec::<String>::new();
+    for content in batch.into_inner().into_iter() {
+        cids.push(
+            state
+                .db
+                .put(
+                    Cursor::new(
+                        content
+                            .content
+                            .into_bytes()
+                            .await
+                            .map_err(|e| anyhow!(e))?
+                            .value,
+                    ),
+                    content.codec,
+                )
+                .map_or("".into(), |cid| {
+                    cid.to_string_of_base(Base::Base64Url)
+                        .map_or("".into(), |s| s)
+                }),
+        );
+    }
+    Ok(cids.join("\n"))
 }
 
 #[put("/<orbit_id>", data = "<data>")]
