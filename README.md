@@ -56,10 +56,10 @@ Writing supports the following content types:
 
 #### Request
 
-POST request format:
+PUT request format:
 
 ``` http
-POST https://<host-url>/<orbit-id>/
+PUT https://<host-url>/<orbit-id>/
 Content-Type: <content-type | none>
 
 <content>
@@ -67,11 +67,32 @@ Content-Type: <content-type | none>
 
 Example:
 ``` http
-POST http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
+PUT http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
 Content-Type: application/json
 
 {
     "hello": "hey"
+}
+```
+
+Writing can also be batched using content-type `multipart/form-data`, like so:
+``` http
+PUT http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
+Content-Type: multipart/form-data; boundary=---------------------------735323031399963166993862150
+Content-Length: 100
+
+---------------------------735323031399963166993862150
+Content-Disposition: form-data;
+Content-Type: application/json
+{
+    "hello": "hey"
+}
+
+---------------------------735323031399963166993862150
+Content-Disposition: form-data;
+Content-Type: application/json
+{
+    "hello": "hey again"
 }
 ```
 
@@ -89,3 +110,5 @@ Content-Length: 51
 Date: Fri, 26 Mar 2021 13:12:41 GMT
 Request duration: 0.058104s
 ```
+
+For a batch write, the response will be a newline-delimited list of CIDs, the order of which corrosponds to the order of the multipart form-data elements. An empty line indicates a failure to write the content of that index.
