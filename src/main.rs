@@ -28,7 +28,7 @@ mod tz;
 use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::SupportedCodecs;
-use ipfs_embed::{Config, DefaultParams, Ipfs};
+use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
 
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
@@ -92,9 +92,11 @@ async fn delete_content(
 #[async_std::main]
 async fn main() -> Result<()> {
     let mut cfg = Config::new(None, 10);
-    cfg.network.enable_kad = false;
+    // cfg.network.enable_kad = false;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?).await?;
+    let peer: PeerId = "QmRSGx67Kq8w7xSBDia7hQfbfuvauMQGgxcwSWw976x4BS".parse()?;
+    let addr: Multiaddr = "/ip4/54.173.33.96/tcp/4001".parse()?;
+    ipfs.bootstrap(&[(peer, addr)]).await?;
 
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
