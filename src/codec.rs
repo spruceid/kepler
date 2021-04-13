@@ -1,4 +1,6 @@
 use rocket::{
+    data::{ByteUnit, DataStream, ToByteUnit},
+    form::{DataField, FromFormField, Result, ValueField},
     http::ContentType,
     request::{FromRequest, Outcome, Request},
 };
@@ -8,6 +10,11 @@ pub enum SupportedCodecs {
     Json = 0x0200,
     MsgPack = 0x0201,
     Cbor = 0x51,
+}
+
+pub struct PutContent {
+    pub codec: SupportedCodecs,
+    pub content: DataStream,
 }
 
 impl From<&ContentType> for SupportedCodecs {
@@ -30,6 +37,20 @@ impl<'r> FromRequest<'r> for SupportedCodecs {
         Outcome::Success(match req.content_type() {
             Some(t) => Self::from(t),
             None => Self::Raw,
+        })
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromFormField<'r> for PutContent {
+    fn from_value(field: ValueField<'r>) -> Result<'r, Self> {
+        todo!()
+    }
+
+    async fn from_data(field: DataField<'r, '_>) -> Result<'r, Self> {
+        Ok(PutContent {
+            codec: (&field.content_type).into(),
+            content: field.data.open(1.megabytes()),
         })
     }
 }

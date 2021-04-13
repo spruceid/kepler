@@ -10,6 +10,7 @@ use cid::multibase::Base;
 use cid::Cid;
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
+    form::Form,
     http::{ContentType, RawStr},
     launch,
     response::{Debug, Stream},
@@ -27,7 +28,7 @@ mod tz;
 
 use auth::AuthToken;
 use cas::{ContentAddressedStorage, CASDB};
-use codec::SupportedCodecs;
+use codec::{PutContent, SupportedCodecs};
 
 const DB_PATH: &'static str = "/tmp/kepler_cas";
 
@@ -60,6 +61,16 @@ async fn get_content(
         Ok(None) => Ok(None),
         Err(e) => Err(e)?,
     }
+}
+
+#[put("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
+async fn batch_put_content(
+    state: State<'_, Store<CASDB>>,
+    orbit_id: CidWrap,
+    batch: Form<Vec<PutContent>>,
+    auth: AuthToken,
+) -> Result<String, Debug<Error>> {
+    todo!()
 }
 
 #[put("/<orbit_id>", data = "<data>")]
@@ -103,5 +114,8 @@ fn rocket() -> rocket::Rocket {
         .manage(Store {
             db: CASDB::new(DB_PATH).unwrap(),
         })
-        .mount("/", routes![get_content, put_content, delete_content])
+        .mount(
+            "/",
+            routes![get_content, put_content, delete_content, batch_put_content],
+        )
 }
