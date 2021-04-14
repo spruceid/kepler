@@ -63,7 +63,7 @@ async fn get_content(
     }
 }
 
-#[put("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
+#[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_content(
     state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
@@ -86,7 +86,7 @@ async fn batch_put_content(
     Ok(cids.join("\n"))
 }
 
-#[put("/<orbit_id>", data = "<data>", rank = 2)]
+#[post("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
     state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
