@@ -1,11 +1,13 @@
 # Kepler
 
+For a high level project overview, see the [Product Requirements Document](./PRD.md).
+
 ## Introduction
 
 Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage. Kepler storage is bucketed by Orbits, authorization policies which determine who may perform certain actions on the bucket. Orbit policies may be defined using:
   * [X] None (operations are unpermissioned)
-  * [X] Public key whitelist
-  * [ ] DID Verification method ID whitelist
+  * [X] Public key allowlist
+  * [ ] DID Verification method ID allowlist
   * [ ] Verifiable Credential requirements
   * [ ] Object Capabilities framework
   
