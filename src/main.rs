@@ -6,10 +6,10 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::cid::{Cid, multibase::Base};
+use libipld::cid::{multibase::Base, Cid};
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
-    http::{ContentType, RawStr},
+    form::Form,
     launch,
     response::{Debug, Stream},
     State,
@@ -27,7 +27,7 @@ mod tz;
 
 use auth::AuthToken;
 use cas::ContentAddressedStorage;
-use codec::SupportedCodecs;
+use codec::{PutContent, SupportedCodecs};
 use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
 
 const DB_PATH: &'static str = "/tmp/kepler_cas";
@@ -63,7 +63,30 @@ async fn get_content(
     }
 }
 
-#[put("/<orbit_id>", data = "<data>")]
+#[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
+async fn batch_put_content(
+    state: State<'_, Store<Ipfs<DefaultParams>>>,
+    orbit_id: CidWrap,
+    batch: Form<Vec<PutContent>>,
+    auth: AuthToken,
+) -> Result<String, Debug<Error>> {
+    let mut cids = Vec::<String>::new();
+    for mut content in batch.into_inner().into_iter() {
+        cids.push(
+            state
+                .db
+                .put(&mut content.content, content.codec)
+                .await
+                .map_or("".into(), |cid| {
+                    cid.to_string_of_base(Base::Base64Url)
+                        .map_or("".into(), |s| s)
+                }),
+        );
+    }
+    Ok(cids.join("\n"))
+}
+
+#[post("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
     state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
@@ -102,7 +125,10 @@ async fn main() -> Result<()> {
         .spawn(
             rocket::ignite()
                 .manage(Store { db: ipfs })
-                .mount("/", routes![get_content, put_content, delete_content])
+                .mount(
+                    "/",
+                    routes![get_content, put_content, batch_put_content, delete_content],
+                )
                 .launch(),
         )
         .await??;
