@@ -4,7 +4,7 @@
 
 Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage. Kepler storage is bucketed by Orbits, authorization policies which determine who may perform certain actions on the bucket. Orbit policies may be defined using:
   * [X] None (operations are unpermissioned)
-  * [ ] Public key whitelist
+  * [X] Public key whitelist
   * [ ] DID Verification method ID whitelist
   * [ ] Verifiable Credential requirements
   * [ ] Object Capabilities framework
@@ -56,10 +56,10 @@ Writing supports the following content types:
 
 #### Request
 
-PUT request format:
+POST request format:
 
 ``` http
-PUT https://<host-url>/<orbit-id>/
+POST https://<host-url>/<orbit-id>/
 Content-Type: <content-type | none>
 
 <content>
@@ -67,7 +67,7 @@ Content-Type: <content-type | none>
 
 Example:
 ``` http
-PUT http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
+POST http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
 Content-Type: application/json
 
 {
@@ -77,7 +77,7 @@ Content-Type: application/json
 
 Writing can also be batched using content-type `multipart/form-data`, like so:
 ``` http
-PUT http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
+POST http://localhost:8000/uAYAEHiDoN2Q6QgzD6zqWuvgFoUj130OydcuzWRl8b5q5TpWuIg
 Content-Type: multipart/form-data; boundary=---------------------------735323031399963166993862150
 Content-Length: 100
 
