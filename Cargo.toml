@@ -25,6 +25,6 @@ rocket_cors = { git = "https://github.com/PhotonQuantum/rocket_cors", branch = "
 # this is vendored here by git path to also capture the dependancy used by rocket_cors, to prevent duplicate artifacts and a build issue.
 # The vendored repo must be checked out at revision 88d4d0110
 [patch."https://github.com/SergioBenitez/Rocket"]
-rocket = { path = "../Rocket/core/lib", features = ["tls"] }
-rocket_http = { path = "../Rocket/core/http", features = ["serde"] }
-rocket_codegen = { path = "../Rocket/core/codegen" }
+rocket = { path = "./Rocket/core/lib", features = ["tls"] }
+rocket_http = { path = "./Rocket/core/http", features = ["serde"] }
+rocket_codegen = { path = "./Rocket/core/codegen" }
