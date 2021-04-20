@@ -9,11 +9,13 @@ use anyhow::{anyhow, Error, Result};
 use libipld::cid::{multibase::Base, Cid};
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
+    fairing::Fairing,
     form::Form,
     launch,
     response::{Debug, Stream},
     State,
 };
+use rocket_cors::CorsOptions;
 use std::{
     io::{Cursor, Read},
     str::FromStr,
@@ -121,6 +123,8 @@ async fn main() -> Result<()> {
     let addr: Multiaddr = "/ip4/54.173.33.96/tcp/4001".parse()?;
     ipfs.bootstrap(&[(peer, addr)]).await?;
 
+    let cors = CorsOptions::default().to_cors()?;
+
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
             rocket::ignite()
@@ -129,6 +133,7 @@ async fn main() -> Result<()> {
                     "/",
                     routes![get_content, put_content, batch_put_content, delete_content],
                 )
+                .attach(cors)
                 .launch(),
         )
         .await??;

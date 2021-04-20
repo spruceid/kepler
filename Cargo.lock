@@ -1625,6 +1625,7 @@ dependencies = [
  "libipld",
  "nom",
  "rocket",
+ "rocket_cors",
  "serde_json",
  "ssi",
  "tokio",
@@ -3082,7 +3083,6 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=8d4d0110#8d4d01106e2e10b08100805d40bfa19a7357e900"
 dependencies = [
  "async-trait",
  "atomic",
@@ -3115,7 +3115,6 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=8d4d0110#8d4d01106e2e10b08100805d40bfa19a7357e900"
 dependencies = [
  "devise",
  "glob",
@@ -3126,9 +3125,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocket_cors"
+version = "0.5.2"
+source = "git+https://github.com/PhotonQuantum/rocket_cors?branch=master#868e8fd185cd1dc3b1f448f9b46c13f96f97e68d"
+dependencies = [
+ "log",
+ "regex",
+ "rocket",
+ "serde",
+ "serde_derive",
+ "unicase",
+ "unicase_serde",
+ "url",
+]
+
+[[package]]
 name = "rocket_http"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=8d4d0110#8d4d01106e2e10b08100805d40bfa19a7357e900"
 dependencies = [
  "cookie",
  "either",
@@ -3908,9 +3921,9 @@ dependencies = [
 
 [[package]]
 name = "uncased"
-version = "0.9.5"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "300932469d646d39929ffe84ad5c1837beecf602519ef5695e485b472de4082b"
+checksum = "5baeed7327e25054889b9bd4f975f32e5f4c5d434042d59ab6cd4142c0a76ed0"
 dependencies = [
  "serde",
  "version_check",
@@ -3921,6 +3934,25 @@ name = "unchecked-index"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eeba86d422ce181a719445e51872fa30f1f7413b62becb52e95ec91aa262d85c"
+
+[[package]]
+name = "unicase"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50f37be617794602aabbeee0be4f259dc1778fabe05e2d67ee8f79326d5cb4f6"
+dependencies = [
+ "version_check",
+]
+
+[[package]]
+name = "unicase_serde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ef53697679d874d69f3160af80bc28de12730a985d57bdf2b47456ccb8b11f1"
+dependencies = [
+ "serde",
+ "unicase",
+]
 
 [[package]]
 name = "unicode-bidi"
