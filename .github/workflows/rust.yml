@@ -22,13 +22,24 @@ jobs:
         toolchain: nightly
         override: true
         components: rustfmt, clippy
+
+    - name: Checkout Rocket
+      uses: actions/checkout@v2
+      with:
+        repository: SergioBenitez/Rocket
+        path: Rocket
+        ref: 8d4d01106e2e10b08100805d40bfa19a7357e900
+        submodules: true
+
       # `cargo check` command here will use installed `nightly`
       # as it is set as an "override" for current directory
     - name: Run cargo check
       uses: actions-rs/cargo@v1
       with:
         command: check
+
     - name: Build
       run: cargo build --verbose
+
     - name: Run tests
       run: cargo test --verbose
