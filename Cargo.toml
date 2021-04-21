@@ -8,7 +8,7 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d0110", features = ["tls"] }
+rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d01106e2e10b08100805d40bfa19a7357e900", features = ["tls"] }
 ipfs-embed = "0.19"
 anyhow = "1.0"
 ssi = "0.2.0"
@@ -21,10 +21,3 @@ hex = "0.4"
 async-std = "1.9"
 libipld = "0.11"
 rocket_cors = { git = "https://github.com/PhotonQuantum/rocket_cors", branch = "master" }
-
-# this is vendored here by git path to also capture the dependancy used by rocket_cors, to prevent duplicate artifacts and a build issue.
-# The vendored repo must be checked out at revision 88d4d0110
-[patch."https://github.com/SergioBenitez/Rocket"]
-rocket = { path = "./Rocket/core/lib", features = ["tls"] }
-rocket_http = { path = "./Rocket/core/http", features = ["serde"] }
-rocket_codegen = { path = "./Rocket/core/codegen" }
