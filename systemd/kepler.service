@@ -1,0 +1,13 @@
+[Unit]
+Description=Kepler Service
+
+[Service]
+Type=simple
+User=kepler
+Group=kepler
+Environment=ROCKET_PORT=443
+Environment=ROCKET_TLS={certs="/etc/letsencrypt/live/kepler.tzprofiles.com/fullchain.pem",key="/etc/letsencrypt/live/kepler.tzprofiles.com/privkey.pem"}
+ExecStart=/opt/kepler/kepler
+Restart=always
+
+[Install]
