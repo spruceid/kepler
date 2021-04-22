@@ -11,6 +11,7 @@ use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     fairing::Fairing,
     form::Form,
+    futures::stream::StreamExt,
     launch,
     response::{Debug, Stream},
     State,
@@ -117,11 +118,13 @@ async fn delete_content(
 #[async_std::main]
 async fn main() -> Result<()> {
     let mut cfg = Config::new(None, 10);
-    // cfg.network.enable_kad = false;
+    // TODO enable dht once orbits are defined
+    cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    let peer: PeerId = "QmRSGx67Kq8w7xSBDia7hQfbfuvauMQGgxcwSWw976x4BS".parse()?;
-    let addr: Multiaddr = "/ip4/54.173.33.96/tcp/4001".parse()?;
-    ipfs.bootstrap(&[(peer, addr)]).await?;
+    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
+        .next()
+        .await
+        .unwrap();
 
     let cors = CorsOptions::default().to_cors()?;
 

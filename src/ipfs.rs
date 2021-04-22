@@ -27,7 +27,7 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
         content.read_to_end(&mut buf).await?;
         // TODO impl support for chunking with linked data (e.g. use IpldCodec)
         let block = Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, &buf)?;
-        self.insert(&block)?.await?;
+        self.insert(&block)?;
         Ok(*block.cid())
     }
     async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {

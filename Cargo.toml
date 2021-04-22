@@ -9,10 +9,9 @@ license = "Apache-2.0"
 
 [dependencies]
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "8d4d01106e2e10b08100805d40bfa19a7357e900", features = ["tls"] }
-ipfs-embed = "0.19"
+ipfs-embed = { git = "https://github.com/ipfs-rust/ipfs-embed", rev = "ba82076d4950c31f974425827635bfd0adb28c62" }
 anyhow = "1.0"
-ssi = "0.2.0"
-did-pkh = "0.0.1"
+ssi = { git = "https://github.com/spruceid/ssi", rev = "df98fabf6b86a816a0a2fb22b191f49f95e0a952", features = ["secp256k1", "secp256r1", "ripemd160"] }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"
@@ -21,3 +20,6 @@ hex = "0.4"
 async-std = "1.9"
 libipld = "0.11"
 rocket_cors = { git = "https://github.com/PhotonQuantum/rocket_cors", branch = "master" }
+
+[dev-dependancies]
+did_pkh = "0.0.1"
