@@ -17,6 +17,7 @@ use rocket::{
     State,
 };
 use rocket_cors::CorsOptions;
+use serde::Deserialize;
 use std::{
     io::{Cursor, Read},
     str::FromStr,
@@ -32,8 +33,6 @@ use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
-
-const DB_PATH: &'static str = "/tmp/kepler_cas";
 
 struct CidWrap(Cid);
 
@@ -117,7 +116,19 @@ async fn delete_content(
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    let mut cfg = Config::new(None, 10);
+    let rocket_config = rocket::Config::figment();
+
+    #[derive(Deserialize, Debug)]
+    struct DBConfig {
+        db_path: std::path::PathBuf,
+    }
+
+    let mut cfg = Config::new(
+        // use ROCKET_DB_PATH for block store if present
+        rocket_config.extract::<DBConfig>().ok().map(|c| c.db_path),
+        0,
+    );
+
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
@@ -126,17 +137,15 @@ async fn main() -> Result<()> {
         .await
         .unwrap();
 
-    let cors = CorsOptions::default().to_cors()?;
-
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
-            rocket::ignite()
+            rocket::custom(rocket_config)
                 .manage(Store { db: ipfs })
                 .mount(
                     "/",
                     routes![get_content, put_content, batch_put_content, delete_content],
                 )
-                .attach(cors)
+                .attach(CorsOptions::default().to_cors()?)
                 .launch(),
         )
         .await??;

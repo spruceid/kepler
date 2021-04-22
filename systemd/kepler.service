@@ -5,8 +5,8 @@ Description=Kepler Service
 Type=simple
 User=kepler
 Group=kepler
-Environment=ROCKET_PORT=443
-Environment=ROCKET_TLS={certs="/etc/letsencrypt/live/kepler.tzprofiles.com/fullchain.pem",key="/etc/letsencrypt/live/kepler.tzprofiles.com/privkey.pem"}
+Environment=ROCKET_DB_PATH=/data/kepler
+Environment=ROCKET_PORT=8000
 ExecStart=/opt/kepler/kepler
 Restart=always
 
