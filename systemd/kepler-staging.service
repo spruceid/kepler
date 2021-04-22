@@ -5,7 +5,7 @@ Description=Kepler Service (Staging)
 Type=simple
 User=kepler-staging
 Group=kepler-staging
-Environment=ROCKET_DB_PATH=/data/kepler-staging
+Environment=ROCKET_DB_PATH=/data/kepler-staging/storage
 Environment=ROCKET_PORT=8001
 ExecStart=/opt/kepler/kepler
 Restart=always
