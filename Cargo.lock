@@ -1702,6 +1702,7 @@ dependencies = [
  "hex",
  "ipfs-embed",
  "libipld",
+ "libp2p-core",
  "nom",
  "rocket",
  "rocket_cors",

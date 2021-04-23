@@ -28,11 +28,13 @@ mod cas;
 mod codec;
 mod ipfs;
 mod tz;
+mod orbit;
 
 use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
+use orbit::{Orbit, SimpleOrbit};
 
 struct CidWrap(Cid);
 
@@ -44,11 +46,29 @@ impl<'a> rocket::request::FromParam<'a> for CidWrap {
     }
 }
 
-struct Store<T>
+struct Orbits<'a, O>
 where
-    T: ContentAddressedStorage,
+    O: Orbit,
 {
-    pub db: T,
+    stores: BTreeMap<&'a Cid, O>,
+    base_path: PathBuf,
+}
+
+impl<'a, O: Orbit> Orbits<'a, O> {
+    fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self {
+            stores: BTreeMap::new(),
+            base_path: path.as_ref().to_path_buf(),
+        }
+    }
+
+    fn orbit(&self, id: &Cid) -> Option<&O> {
+        self.stores.get(id)
+    }
+
+    fn add(&mut self, id: &'a Cid, orbit: O) {
+        self.stores.insert(id, orbit);
+    }
 }
 
 #[get("/<orbit_id>/<hash>")]
@@ -123,24 +143,14 @@ async fn main() -> Result<()> {
         db_path: std::path::PathBuf,
     }
 
-    let mut cfg = Config::new(
-        // use ROCKET_DB_PATH for block store if present
-        rocket_config.extract::<DBConfig>().ok().map(|c| c.db_path),
-        0,
-    );
-
-    // TODO enable dht once orbits are defined
-    cfg.network.kad = None;
-    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
-        .next()
-        .await
-        .unwrap();
+    let path = rocket_config
+        .extract::<DBConfig>()
+        .expect("db path missing").db_path;
 
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
             rocket::custom(rocket_config)
-                .manage(Store { db: ipfs })
+                .manage(Orbits::<'_, SimpleOrbit>::new(&path))
                 .mount(
                     "/",
                     routes![get_content, put_content, batch_put_content, delete_content],

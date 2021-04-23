@@ -21,6 +21,7 @@ hex = "0.4"
 async-std = "1.9"
 libipld = "0.11"
 rocket_cors = { git = "https://github.com/PhotonQuantum/rocket_cors", branch = "master" }
+libp2p-core = "0.28"
 
 [dev-dependencies]
 did-pkh = "0.0.1"
