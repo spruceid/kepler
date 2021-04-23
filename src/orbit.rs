@@ -55,3 +55,63 @@ pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrb
 
     Ok(SimpleOrbit { ipfs, oid })
 }
+
+#[rocket::async_trait]
+impl ContentAddressedStorage for SimpleOrbit {
+    type Error = anyhow::Error;
+    async fn put<C: AsyncRead + Send + Unpin>(
+        &self,
+        content: &mut C,
+        codec: SupportedCodecs,
+    ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
+        self.ipfs.put(content, codec).await
+    }
+    async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
+        self.get(address).await
+    }
+    async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
+        self.delete(address).await
+    }
+}
+
+#[rocket::async_trait]
+impl Orbit for SimpleOrbit {
+    type Error = anyhow::Error;
+    type UpdateMessage = ();
+
+    fn id(&self) -> &Cid {
+        &self.oid
+    }
+
+    fn hosts(&self) -> Vec<PeerId> {
+        vec![self.ipfs.local_peer_id()]
+    }
+
+    fn admins(&self) -> &[&DIDURL] {
+        todo!()
+    }
+
+    async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
+        todo!()
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for &'r SimpleOrbit {
+    type Error = anyhow::Error;
+
+    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match req.param::<CidWrap>(0) {
+            Some(Ok(oid)) => match req.rocket().state::<Orbits<'_, SimpleOrbit>>() {
+                Some(orbits) => match orbits.orbit(&oid.0) {
+                    Some(orbit) => Outcome::Success(orbit),
+                    None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+                },
+                // TODO check filesystem and init/cache if unused orbit db found
+                None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+            },
+            Some(Err(e)) => Outcome::Failure((Status::NotFound, e)),
+            None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+        }
+    }
+}

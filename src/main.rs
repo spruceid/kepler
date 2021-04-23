@@ -6,7 +6,10 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::cid::{multibase::Base, Cid};
+use libipld::{
+    cid::{multibase::Base, Cid},
+    store::StoreParams,
+};
 use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     fairing::Fairing,
@@ -14,12 +17,16 @@ use rocket::{
     futures::stream::StreamExt,
     launch,
     response::{Debug, Stream},
+    request::{FromRequest, Outcome, Request},
     State,
+    http::Status,
 };
 use rocket_cors::CorsOptions;
 use serde::Deserialize;
 use std::{
+    collections::BTreeMap,
     io::{Cursor, Read},
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -73,30 +80,29 @@ impl<'a, O: Orbit> Orbits<'a, O> {
 
 #[get("/<orbit_id>/<hash>")]
 async fn get_content(
-    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
+    orbit: &SimpleOrbit
 ) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
-    match ContentAddressedStorage::get(&state.db, &hash.0).await {
-        Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
-        Ok(None) => Ok(None),
-        Err(e) => Err(e)?,
-    }
+        match ContentAddressedStorage::get(orbit, &hash.0).await {
+            Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e)?,
+        }
 }
 
 #[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_content(
-    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
     auth: AuthToken,
+    orbit: &SimpleOrbit
 ) -> Result<String, Debug<Error>> {
     let mut cids = Vec::<String>::new();
     for mut content in batch.into_inner().into_iter() {
         cids.push(
-            state
-                .db
+            orbit
                 .put(&mut content.content, content.codec)
                 .await
                 .map_or("".into(), |cid| {
@@ -110,13 +116,13 @@ async fn batch_put_content(
 
 #[post("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
-    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     auth: AuthToken,
+    orbit: &SimpleOrbit
 ) -> Result<String, Debug<Error>> {
-    match state.db.put(&mut data.open(10u8.megabytes()), codec).await {
+    match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
             .to_string_of_base(Base::Base64Url)
             .map_err(|e| anyhow!(e))?),
@@ -126,12 +132,12 @@ async fn put_content(
 
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
-    state: State<'_, Store<Ipfs<DefaultParams>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
+    orbit: &SimpleOrbit
 ) -> Result<(), Debug<Error>> {
-    Ok(state.db.delete(&hash.0).await?)
+    Ok(orbit.delete(&hash.0).await?)
 }
 
 #[async_std::main]
