@@ -51,7 +51,7 @@ pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrb
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
     .next()
-    .await.ok_or(anyhow!("IPFS Listening Failed"));
+    .await.ok_or(anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid })
 }
@@ -102,7 +102,7 @@ impl<'r> FromRequest<'r> for &'r SimpleOrbit {
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match req.param::<CidWrap>(0) {
-            Some(Ok(oid)) => match req.rocket().state::<Orbits<'_, SimpleOrbit>>() {
+            Some(Ok(oid)) => match req.rocket().state::<Orbits<SimpleOrbit>>() {
                 Some(orbits) => match orbits.orbit(&oid.0) {
                     Some(orbit) => Outcome::Success(orbit),
                     None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
