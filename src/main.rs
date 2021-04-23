@@ -166,7 +166,7 @@ async fn delete_content(
     Ok(orbit.delete(&hash.0).await?)
 }
 
-#[async_std::main]
+#[rocket::main]
 async fn main() -> Result<()> {
     let rocket_config = rocket::Config::figment();
 
@@ -177,21 +177,18 @@ async fn main() -> Result<()> {
 
     let path = rocket_config
         .extract::<DBConfig>()
-        .expect("db path missing").db_path;
+        .expect("db path missing")
+        .db_path;
 
-    let orbits = load_orbits(path).await?;
-
-    rocket::tokio::runtime::Runtime::new()?
-        .spawn(
-            rocket::custom(rocket_config)
-                .manage(orbits)
-                .mount(
-                    "/",
-                    routes![get_content, put_content, batch_put_content, delete_content],
-                )
-                .attach(CorsOptions::default().to_cors()?)
-                .launch(),
+    rocket::custom(rocket_config)
+        .manage(load_orbits(path).await?)
+        .mount(
+            "/",
+            routes![get_content, put_content, batch_put_content, delete_content],
         )
-        .await??;
+        .attach(CorsOptions::default().to_cors()?)
+        .launch()
+        .await?;
+
     Ok(())
 }
