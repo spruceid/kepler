@@ -11,11 +11,13 @@ use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     fairing::Fairing,
     form::Form,
+    futures::stream::StreamExt,
     launch,
     response::{Debug, Stream},
     State,
 };
 use rocket_cors::CorsOptions;
+use serde::Deserialize;
 use std::{
     io::{Cursor, Read},
     str::FromStr,
@@ -31,8 +33,6 @@ use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
-
-const DB_PATH: &'static str = "/tmp/kepler_cas";
 
 struct CidWrap(Cid);
 
@@ -116,24 +116,36 @@ async fn delete_content(
 
 #[async_std::main]
 async fn main() -> Result<()> {
-    let mut cfg = Config::new(None, 10);
-    // cfg.network.enable_kad = false;
-    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    let peer: PeerId = "QmRSGx67Kq8w7xSBDia7hQfbfuvauMQGgxcwSWw976x4BS".parse()?;
-    let addr: Multiaddr = "/ip4/54.173.33.96/tcp/4001".parse()?;
-    ipfs.bootstrap(&[(peer, addr)]).await?;
+    let rocket_config = rocket::Config::figment();
 
-    let cors = CorsOptions::default().to_cors()?;
+    #[derive(Deserialize, Debug)]
+    struct DBConfig {
+        db_path: std::path::PathBuf,
+    }
+
+    let mut cfg = Config::new(
+        // use ROCKET_DB_PATH for block store if present
+        rocket_config.extract::<DBConfig>().ok().map(|c| c.db_path),
+        0,
+    );
+
+    // TODO enable dht once orbits are defined
+    cfg.network.kad = None;
+    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
+        .next()
+        .await
+        .unwrap();
 
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
-            rocket::ignite()
+            rocket::custom(rocket_config)
                 .manage(Store { db: ipfs })
                 .mount(
                     "/",
                     routes![get_content, put_content, batch_put_content, delete_content],
                 )
-                .attach(cors)
+                .attach(CorsOptions::default().to_cors()?)
                 .launch(),
         )
         .await??;
