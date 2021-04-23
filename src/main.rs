@@ -14,34 +14,37 @@ use rocket::{
     data::{ByteUnit, Data, ToByteUnit},
     fairing::Fairing,
     form::Form,
-    futures::stream::StreamExt,
-    launch,
-    response::{Debug, Stream},
-    request::{FromRequest, Outcome, Request},
-    State,
+    futures::stream::{FuturesUnordered, Stream, StreamExt},
     http::Status,
+    launch,
+    request::{FromRequest, Outcome, Request},
+    response::{Debug, Stream as RocketStream},
+    tokio::fs::read_dir,
+    State,
 };
 use rocket_cors::CorsOptions;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     io::{Cursor, Read},
+    iter::Extend,
     path::{Path, PathBuf},
     str::FromStr,
 };
+use tokio_stream::wrappers::ReadDirStream;
 
 mod auth;
 mod cas;
 mod codec;
 mod ipfs;
-mod tz;
 mod orbit;
+mod tz;
 
 use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
-use orbit::{Orbit, SimpleOrbit};
+use orbit::{create_orbit, Orbit, SimpleOrbit};
 
 struct CidWrap(Cid);
 
@@ -53,15 +56,15 @@ impl<'a> rocket::request::FromParam<'a> for CidWrap {
     }
 }
 
-struct Orbits<'a, O>
+struct Orbits<O>
 where
     O: Orbit,
 {
-    stores: BTreeMap<&'a Cid, O>,
+    stores: BTreeMap<Cid, O>,
     base_path: PathBuf,
 }
 
-impl<'a, O: Orbit> Orbits<'a, O> {
+impl<O: Orbit> Orbits<O> {
     fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
             stores: BTreeMap::new(),
@@ -73,9 +76,29 @@ impl<'a, O: Orbit> Orbits<'a, O> {
         self.stores.get(id)
     }
 
-    fn add(&mut self, id: &'a Cid, orbit: O) {
+    fn add(&mut self, id: Cid, orbit: O) {
         self.stores.insert(id, orbit);
     }
+}
+
+async fn load_orbits<P: AsRef<Path>>(path: P) -> Result<Orbits<SimpleOrbit>> {
+    let path_ref: &Path = path.as_ref();
+    let mut orbits = Orbits::new(path_ref);
+    // for entries in the dir
+    let orbit_list: Vec<SimpleOrbit> = ReadDirStream::new(read_dir(path_ref).await?)
+        // filter for those with valid CID filenames
+        .filter_map(|p| async { Cid::from_str(p.ok()?.file_name().to_str()?).ok() })
+        // get a future to load each
+        .filter_map(|cid| async move { create_orbit(cid, path_ref).await.ok() })
+        // load them all
+        .collect()
+        .await;
+
+    orbit_list
+        .into_iter()
+        .for_each(|orbit: SimpleOrbit| orbits.add(*orbit.id(), orbit));
+
+    Ok(orbits)
 }
 
 #[get("/<orbit_id>/<hash>")]
@@ -83,13 +106,16 @@ async fn get_content(
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
-    orbit: &SimpleOrbit
-) -> Result<Option<Stream<Cursor<Vec<u8>>>>, Debug<Error>> {
-        match ContentAddressedStorage::get(orbit, &hash.0).await {
-            Ok(Some(content)) => Ok(Some(Stream::chunked(Cursor::new(content.to_owned()), 1024))),
-            Ok(None) => Ok(None),
-            Err(e) => Err(e)?,
-        }
+    orbit: &SimpleOrbit,
+) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
+    match ContentAddressedStorage::get(orbit, &hash.0).await {
+        Ok(Some(content)) => Ok(Some(RocketStream::chunked(
+            Cursor::new(content.to_owned()),
+            1024,
+        ))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e)?,
+    }
 }
 
 #[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
@@ -97,7 +123,7 @@ async fn batch_put_content(
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
     auth: AuthToken,
-    orbit: &SimpleOrbit
+    orbit: &SimpleOrbit,
 ) -> Result<String, Debug<Error>> {
     let mut cids = Vec::<String>::new();
     for mut content in batch.into_inner().into_iter() {
@@ -120,7 +146,7 @@ async fn put_content(
     data: Data,
     codec: SupportedCodecs,
     auth: AuthToken,
-    orbit: &SimpleOrbit
+    orbit: &SimpleOrbit,
 ) -> Result<String, Debug<Error>> {
     match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
@@ -135,7 +161,7 @@ async fn delete_content(
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthToken,
-    orbit: &SimpleOrbit
+    orbit: &SimpleOrbit,
 ) -> Result<(), Debug<Error>> {
     Ok(orbit.delete(&hash.0).await?)
 }
@@ -153,10 +179,12 @@ async fn main() -> Result<()> {
         .extract::<DBConfig>()
         .expect("db path missing").db_path;
 
+    let orbits = load_orbits(path).await?;
+
     rocket::tokio::runtime::Runtime::new()?
         .spawn(
             rocket::custom(rocket_config)
-                .manage(Orbits::<'_, SimpleOrbit>::new(&path))
+                .manage(orbits)
                 .mount(
                     "/",
                     routes![get_content, put_content, batch_put_content, delete_content],
