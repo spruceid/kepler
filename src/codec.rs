@@ -1,10 +1,13 @@
+use super::CidWrap;
+use libipld::cid::Cid;
 use rocket::{
-    data::{DataStream, ToByteUnit},
-    form::{DataField, FromFormField, Result, ValueField},
+    data::{ByteUnit, DataStream, ToByteUnit},
+    form::{DataField, FromForm, FromFormField, Result, ValueField},
     http::ContentType,
     request::{FromRequest, Outcome, Request},
 };
 
+#[derive(Clone, Copy)]
 pub enum SupportedCodecs {
     Raw = 0x55,
     Json = 0x0200,
@@ -43,10 +46,6 @@ impl<'r> FromRequest<'r> for SupportedCodecs {
 
 #[rocket::async_trait]
 impl<'r> FromFormField<'r> for PutContent {
-    fn from_value(field: ValueField<'r>) -> Result<'r, Self> {
-        todo!()
-    }
-
     async fn from_data(field: DataField<'r, '_>) -> Result<'r, Self> {
         Ok(PutContent {
             codec: (&field.content_type).into(),

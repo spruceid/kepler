@@ -6,20 +6,18 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::cid::{
-    multibase::Base,
-    multihash::{Code, MultihashDigest},
-    Cid,
-};
+use libipld::cid::{multibase::Base, Cid};
 use rocket::{
     data::{Data, ToByteUnit},
-    form::Form,
+    fairing::AdHoc,
+    form::{DataField, Form, FromFormField},
     futures::stream::StreamExt,
+    http::Header,
     response::{Debug, Stream as RocketStream},
     tokio::fs::read_dir,
     State,
 };
-use rocket_cors::CorsOptions;
+// use rocket_cors::CorsOptions;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -43,13 +41,27 @@ use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use orbit::{create_orbit, Orbit, SimpleOrbit};
 
-struct CidWrap(Cid);
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CidWrap(Cid);
 
 // Orphan rule requires a wrapper type for this :(
 impl<'a> rocket::request::FromParam<'a> for CidWrap {
     type Error = anyhow::Error;
     fn from_param(param: &'a str) -> Result<CidWrap> {
         Ok(CidWrap(Cid::from_str(param)?))
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromFormField<'r> for CidWrap {
+    async fn from_data(field: DataField<'r, '_>) -> rocket::form::Result<'r, Self> {
+        Ok(CidWrap(
+            field
+                .name
+                .source()
+                .parse()
+                .map_err(|_| field.unexpected())?,
+        ))
     }
 }
 
@@ -152,10 +164,10 @@ async fn batch_put_content(
         .get(&orbit_id.0)
         .ok_or(anyhow!("No Orbit Found"))?;
     let mut cids = Vec::<String>::new();
-    for mut content in batch.into_inner().into_iter() {
+    for content in batch.into_inner().into_iter() {
         cids.push(
             orbit
-                .put(&mut content.content, content.codec)
+                .put(&content.content, content.codec)
                 .await
                 .map_or("".into(), |cid| {
                     cid.to_string_of_base(Base::Base58Btc)
@@ -288,7 +300,17 @@ async fn main() -> Result<()> {
                 batch_put_create
             ],
         )
-        .attach(CorsOptions::default().to_cors()?)
+        .attach(AdHoc::on_response("CORS", |_, resp| {
+            Box::pin(async move {
+                resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+                resp.set_header(Header::new(
+                    "Access-Control-Allow-Methods",
+                    "POST, GET, OPTIONS, DELETE",
+                ));
+                resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+                resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+            })
+        }))
         .launch()
         .await?;
 
