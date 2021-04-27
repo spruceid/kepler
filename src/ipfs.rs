@@ -14,16 +14,10 @@ const MAX_BLOCK_SIZE: usize = 1024 * 1024 * 4;
 #[rocket::async_trait]
 impl ContentAddressedStorage for Ipfs<DefaultParams> {
     type Error = anyhow::Error;
-    async fn put<C: AsyncRead + Send + Unpin>(
-        &self,
-        content: &mut C,
-        codec: SupportedCodecs,
-    ) -> Result<Cid, Self::Error> {
+    async fn put(&self, content: &[u8], codec: SupportedCodecs) -> Result<Cid, Self::Error> {
         // TODO find a way to stream this better? (use .take with max block size?)
-        let mut buf = Vec::<u8>::new();
-        content.read_to_end(&mut buf).await?;
         // TODO impl support for chunking with linked data (e.g. use IpldCodec)
-        let block = Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, &buf)?;
+        let block = Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, content)?;
         self.insert(&block)?;
         Ok(*block.cid())
     }

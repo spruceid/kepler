@@ -1,7 +1,8 @@
 use super::CidWrap;
 use libipld::cid::Cid;
 use rocket::{
-    data::{ByteUnit, DataStream, ToByteUnit},
+    data::Data,
+    data::{ByteUnit, Capped, DataStream, ToByteUnit},
     form::{DataField, FromForm, FromFormField, Result, ValueField},
     http::ContentType,
     request::{FromRequest, Outcome, Request},
@@ -17,7 +18,8 @@ pub enum SupportedCodecs {
 
 pub struct PutContent {
     pub codec: SupportedCodecs,
-    pub content: DataStream,
+    // TODO dont use a Vec, but passing the datastream results in a hang
+    pub content: Capped<Vec<u8>>,
 }
 
 impl From<&ContentType> for SupportedCodecs {
@@ -49,7 +51,7 @@ impl<'r> FromFormField<'r> for PutContent {
     async fn from_data(field: DataField<'r, '_>) -> Result<'r, Self> {
         Ok(PutContent {
             codec: (&field.content_type).into(),
-            content: field.data.open(1.megabytes()),
+            content: field.data.open(1u8.megabytes()).into_bytes().await?,
         })
     }
 }
