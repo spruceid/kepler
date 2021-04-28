@@ -71,9 +71,9 @@ where
     A: AuthorizationPolicy + Send + Sync,
 {
     type Error = anyhow::Error;
-    async fn put<C: AsyncRead + Send + Unpin>(
+    async fn put(
         &self,
-        content: &mut C,
+        content: &[u8],
         codec: SupportedCodecs,
     ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
         self.ipfs.put(content, codec).await
