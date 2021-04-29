@@ -1,20 +1,46 @@
-use crate::tz::{verify, TZAuth};
+use crate::{
+    codec::PutContent,
+    orbit::SimpleOrbit,
+    tz::{verify, TZAuth},
+    Orbits,
+};
 use anyhow::Result;
 use core::str::FromStr;
+use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
 
-pub trait AuthorizationToken: Sized {
-    fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self>;
-    fn header_key() -> &'static str;
+pub enum ContentAction {
+    Put(Vec<PutContent>),
+    Get(Vec<Cid>),
+    Del(Vec<Cid>),
 }
 
-pub trait AuthrorizationStrategy: Sized {
+pub struct CreateOrbit {
+    pkh: String,
+    action: Option<ContentAction>,
+}
+
+pub enum Action {
+    Content {
+        orbit_id: Cid,
+        action: ContentAction,
+    },
+    Orbit(CreateOrbit),
+}
+
+pub trait AuthorizationToken: Sized {
+    const header_key: &'static str;
+    fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self>;
+    fn action(&self) -> &Action;
+}
+
+#[rocket::async_trait]
+pub trait AuthorizationPolicy {
     type Token: AuthorizationToken;
-    type Action;
-    fn authorize(&self, auth_token: Self::Token) -> Result<Self::Action>;
+    async fn authorize(&self, auth_token: &Self::Token) -> Result<ContentAction>;
 }
 
 pub enum AuthToken {
