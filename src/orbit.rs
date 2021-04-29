@@ -1,30 +1,36 @@
-use anyhow::{anyhow, Error, Result};
-use libp2p_core::{PublicKey, PeerId};
-use ssi::did::DIDURL;
-use super::{codec::SupportedCodecs, cas::ContentAddressedStorage, CidWrap, Orbits};
-use ipfs_embed::{Ipfs, Config};
-use rocket::{
-    http::Status,
-    request::{FromRequest, Outcome, Request},
-    futures::stream::StreamExt,
-    tokio::io::AsyncRead
+use crate::auth::AuthorizationPolicy;
+
+use super::{
+    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs, CidWrap,
+    Orbits,
 };
+use anyhow::{anyhow, Error, Result};
+use ipfs_embed::{Config, Ipfs};
 use libipld::{
     block::Block,
     cid::{
-        multihash::{Code, MultihashDigest},
         multibase::Base,
+        multihash::{Code, MultihashDigest},
         Cid,
     },
     raw::RawCodec,
     store::DefaultParams,
 };
+use libp2p_core::{PeerId, PublicKey};
+use rocket::{
+    futures::stream::StreamExt,
+    http::Status,
+    request::{FromRequest, Outcome, Request},
+    tokio::io::AsyncRead,
+};
+use ssi::did::DIDURL;
 use std::path::Path;
 
 #[rocket::async_trait]
 pub trait Orbit: ContentAddressedStorage {
     type Error;
     type UpdateMessage;
+    type Auth: AuthorizationPolicy;
 
     fn id(&self) -> &Cid;
 
@@ -32,12 +38,18 @@ pub trait Orbit: ContentAddressedStorage {
 
     fn admins(&self) -> &[&DIDURL];
 
-    async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as ContentAddressedStorage>::Error>;
+    fn auth(&self) -> &Self::Auth;
+
+    async fn update(
+        &self,
+        update: Self::UpdateMessage,
+    ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
 }
 
-pub struct SimpleOrbit {
+pub struct SimpleOrbit<A: AuthorizationPolicy> {
     ipfs: Ipfs<DefaultParams>,
-    oid: Cid
+    oid: Cid,
+    policy: A,
 }
 
 pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrbit> {
@@ -57,7 +69,7 @@ pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrb
 }
 
 #[rocket::async_trait]
-impl ContentAddressedStorage for SimpleOrbit {
+impl ContentAddressedStorage for SimpleOrbit<_> {
     type Error = anyhow::Error;
     async fn put<C: AsyncRead + Send + Unpin>(
         &self,
@@ -75,9 +87,10 @@ impl ContentAddressedStorage for SimpleOrbit {
 }
 
 #[rocket::async_trait]
-impl Orbit for SimpleOrbit {
+impl<A: AuthorizationPolicy> Orbit for SimpleOrbit<A> {
     type Error = anyhow::Error;
     type UpdateMessage = ();
+    type Auth = A;
 
     fn id(&self) -> &Cid {
         &self.oid
@@ -91,13 +104,17 @@ impl Orbit for SimpleOrbit {
         todo!()
     }
 
+    fn auth(&self) -> &Self::Auth {
+        &self.policy
+    }
+
     async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
         todo!()
     }
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for &'r SimpleOrbit {
+impl<'r, A: AuthorizationPolicy> FromRequest<'r> for &'r SimpleOrbit<A> {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
