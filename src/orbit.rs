@@ -1,8 +1,8 @@
 use crate::auth::AuthorizationPolicy;
 
 use super::{
-    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs, CidWrap,
-    Orbits,
+    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs,
+    tz::TezosBasicAuthorization, CidWrap, Orbits,
 };
 use anyhow::{anyhow, Error, Result};
 use ipfs_embed::{Config, Ipfs};
@@ -62,14 +62,19 @@ pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrb
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
-    .next()
-    .await.ok_or(anyhow!("IPFS Listening Failed"))?;
+        .next()
+        .await
+        .ok_or(anyhow!("IPFS Listening Failed"))?;
 
-    Ok(SimpleOrbit { ipfs, oid })
+    Ok(SimpleOrbit {
+        ipfs,
+        oid,
+        policy: TezosBasicAuthorization,
+    })
 }
 
 #[rocket::async_trait]
-impl ContentAddressedStorage for SimpleOrbit<_> {
+impl<A> ContentAddressedStorage for SimpleOrbit<A> {
     type Error = anyhow::Error;
     async fn put<C: AsyncRead + Send + Unpin>(
         &self,
