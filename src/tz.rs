@@ -1,3 +1,4 @@
+use crate::auth::{AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use bs58;
 use hex;
@@ -65,6 +66,18 @@ impl TZAuth {
             .digest(&encode_string(&message))
             .digest()
             .to_vec()
+    }
+}
+
+impl AuthorizationToken for TZAuth {
+    const header_key: &'static str = "Authorization";
+
+    fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
+        todo!()
+    }
+
+    fn action(&self) -> &Action {
+        todo!()
     }
 }
 
@@ -146,6 +159,17 @@ pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
         x509_thumbprint_sha256: None,
         params,
     })
+}
+
+pub struct TezosBasicAuthorization;
+
+#[rocket::async_trait]
+impl AuthorizationPolicy for TezosBasicAuthorization {
+    type Token = TZAuth;
+
+    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a ContentAction> {
+        verify(auth_token).map(|_| auth_token.action())
+    }
 }
 
 #[test]

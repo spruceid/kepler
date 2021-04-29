@@ -32,6 +32,7 @@ use std::{
     str::FromStr,
 };
 use tokio_stream::wrappers::ReadDirStream;
+use tz::TezosBasicAuthorization;
 
 mod auth;
 mod cas;
@@ -182,6 +183,7 @@ async fn main() -> Result<()> {
 
     rocket::custom(rocket_config)
         .manage(load_orbits(path).await?)
+        .manage(TezosBasicAuthorization)
         .mount(
             "/",
             routes![get_content, put_content, batch_put_content, delete_content],
