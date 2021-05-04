@@ -1,22 +1,14 @@
-use crate::auth::AuthorizationPolicy;
-
 use super::{
-    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs,
-    tz::TezosBasicAuthorization, CidWrap, Orbits,
+    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs, CidWrap,
+    Orbits,
 };
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs};
 use libipld::{
-    block::Block,
-    cid::{
-        multibase::Base,
-        multihash::{Code, MultihashDigest},
-        Cid,
-    },
-    raw::RawCodec,
+    cid::{multibase::Base, Cid},
     store::DefaultParams,
 };
-use libp2p_core::{PeerId, PublicKey};
+use libp2p_core::PeerId;
 use rocket::{
     futures::stream::StreamExt,
     http::Status,

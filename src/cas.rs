@@ -1,5 +1,5 @@
 use super::codec::SupportedCodecs;
-use libipld::cid::{Cid, Version};
+use libipld::cid::Cid;
 use rocket::tokio::io::AsyncRead;
 
 #[rocket::async_trait]

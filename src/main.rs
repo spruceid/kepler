@@ -6,33 +6,24 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::{
-    cid::{multibase::Base, Cid},
-    store::StoreParams,
-};
+use libipld::cid::{multibase::Base, Cid};
 use rocket::{
-    data::{ByteUnit, Data, ToByteUnit},
-    fairing::Fairing,
+    data::{Data, ToByteUnit},
     form::Form,
-    futures::stream::{FuturesUnordered, Stream, StreamExt},
-    http::Status,
-    launch,
-    request::{FromRequest, Outcome, Request},
+    futures::stream::StreamExt,
     response::{Debug, Stream as RocketStream},
     tokio::fs::read_dir,
-    State,
 };
 use rocket_cors::CorsOptions;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
-    iter::Extend,
+    io::Cursor,
     path::{Path, PathBuf},
     str::FromStr,
 };
 use tokio_stream::wrappers::ReadDirStream;
-use tz::TezosBasicAuthorization;
+use tz::{TZAuth, TezosBasicAuthorization};
 
 mod auth;
 mod cas;
@@ -44,7 +35,6 @@ mod tz;
 use auth::AuthToken;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
-use ipfs_embed::{Config, DefaultParams, Ipfs, Multiaddr, PeerId};
 use orbit::{create_orbit, Orbit, SimpleOrbit};
 
 struct CidWrap(Cid);
