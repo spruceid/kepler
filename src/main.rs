@@ -32,7 +32,7 @@ mod ipfs;
 mod orbit;
 mod tz;
 
-use auth::AuthToken;
+use auth::AuthWrapper;
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use orbit::{create_orbit, Orbit, SimpleOrbit};
@@ -72,22 +72,29 @@ impl<O: Orbit> Orbits<O> {
     }
 }
 
-async fn load_orbits<P: AsRef<Path>>(path: P) -> Result<Orbits<SimpleOrbit>> {
+async fn load_orbits<P: AsRef<Path>>(
+    path: P,
+) -> Result<Orbits<SimpleOrbit<TezosBasicAuthorization>>> {
     let path_ref: &Path = path.as_ref();
     let mut orbits = Orbits::new(path_ref);
     // for entries in the dir
-    let orbit_list: Vec<SimpleOrbit> = ReadDirStream::new(read_dir(path_ref).await?)
-        // filter for those with valid CID filenames
-        .filter_map(|p| async { Cid::from_str(p.ok()?.file_name().to_str()?).ok() })
-        // get a future to load each
-        .filter_map(|cid| async move { create_orbit(cid, path_ref).await.ok() })
-        // load them all
-        .collect()
-        .await;
+    let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
+        ReadDirStream::new(read_dir(path_ref).await?)
+            // filter for those with valid CID filenames
+            .filter_map(|p| async { Cid::from_str(p.ok()?.file_name().to_str()?).ok() })
+            // get a future to load each
+            .filter_map(|cid| async move {
+                create_orbit(cid, path_ref, TezosBasicAuthorization)
+                    .await
+                    .ok()
+            })
+            // load them all
+            .collect()
+            .await;
 
     orbit_list
         .into_iter()
-        .for_each(|orbit: SimpleOrbit| orbits.add(*orbit.id(), orbit));
+        .for_each(|orbit| orbits.add(*orbit.id(), orbit));
 
     Ok(orbits)
 }
@@ -96,8 +103,8 @@ async fn load_orbits<P: AsRef<Path>>(path: P) -> Result<Orbits<SimpleOrbit>> {
 async fn get_content(
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: AuthToken,
-    orbit: &SimpleOrbit,
+    auth: Option<AuthWrapper<TZAuth>>,
+    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
     match ContentAddressedStorage::get(orbit, &hash.0).await {
         Ok(Some(content)) => Ok(Some(RocketStream::chunked(
@@ -113,8 +120,8 @@ async fn get_content(
 async fn batch_put_content(
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
-    auth: AuthToken,
-    orbit: &SimpleOrbit,
+    auth: AuthWrapper<TZAuth>,
+    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
     let mut cids = Vec::<String>::new();
     for mut content in batch.into_inner().into_iter() {
@@ -136,8 +143,8 @@ async fn put_content(
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    auth: AuthToken,
-    orbit: &SimpleOrbit,
+    auth: AuthWrapper<TZAuth>,
+    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
     match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
@@ -151,8 +158,8 @@ async fn put_content(
 async fn delete_content(
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: AuthToken,
-    orbit: &SimpleOrbit,
+    auth: AuthWrapper<TZAuth>,
+    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<(), Debug<Error>> {
     Ok(orbit.delete(&hash.0).await?)
 }
