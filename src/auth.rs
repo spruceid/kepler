@@ -34,6 +34,7 @@ pub enum Action {
 }
 
 pub trait AuthorizationToken: Sized {
+    type Policy: AuthorizationPolicy<Token = Self> + Send + Sync;
     const header_key: &'static str;
     fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self>;
     fn action(&self) -> &Action;
@@ -41,19 +42,14 @@ pub trait AuthorizationToken: Sized {
 
 #[rocket::async_trait]
 pub trait AuthorizationPolicy {
-    type Token: AuthorizationToken;
+    type Token: AuthorizationToken<Policy = Self>;
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a Action>;
-}
-
-pub enum AuthToken {
-    None,
-    TezosSignature(TZAuth),
 }
 
 pub struct AuthWrapper<T: AuthorizationToken>(T);
 
 #[rocket::async_trait]
-impl<'r, T: AuthorizationToken> FromRequest<'r> for AuthWrapper<T> {
+impl<'r, T: AuthorizationToken + Send + Sync> FromRequest<'r> for AuthWrapper<T> {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -63,7 +59,7 @@ impl<'r, T: AuthorizationToken> FromRequest<'r> for AuthWrapper<T> {
             Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
         };
         // get orbits state object
-        let orbits = match req.rocket().state::<Orbits<SimpleOrbit>>() {
+        let orbits = match req.rocket().state::<Orbits<SimpleOrbit<T::Policy>>>() {
             Some(orbits) => orbits,
             None => {
                 return Outcome::Failure((
@@ -87,7 +83,7 @@ impl<'r, T: AuthorizationToken> FromRequest<'r> for AuthWrapper<T> {
                         ))
                     }
                 };
-                match orbit.auth().authorize(&token) {
+                match orbit.auth().authorize(&token).await {
                     Ok(_) => Outcome::Success(AuthWrapper(token)),
                     Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                 }
@@ -95,8 +91,14 @@ impl<'r, T: AuthorizationToken> FromRequest<'r> for AuthWrapper<T> {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
             Action::Create { pkh, salt, put } => {
-                match req.rocket().state::<TezosBasicAuthorization>() {
-                    Some(auth) => match auth.authorize(&token) {
+                // ad-hoc v0 orbit creation, concat pkh and salt
+                let orbit_id = Cid::new_v1(
+                    SupportedCodecs::Raw as u64,
+                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
+                );
+
+                match req.rocket().state::<T::Policy>() {
+                    Some(auth) => match auth.authorize(&token).await {
                         Ok(_) => Outcome::Success(AuthWrapper(token)),
                         Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                     },

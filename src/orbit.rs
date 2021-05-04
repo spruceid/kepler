@@ -38,13 +38,17 @@ pub trait Orbit: ContentAddressedStorage {
     ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
 }
 
-pub struct SimpleOrbit<A: AuthorizationPolicy> {
+pub struct SimpleOrbit<A: AuthorizationPolicy + Send + Sync> {
     ipfs: Ipfs<DefaultParams>,
     oid: Cid,
     policy: A,
 }
 
-pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrbit> {
+pub async fn create_orbit<P, A>(oid: Cid, path: P, policy: A) -> Result<SimpleOrbit<A>>
+where
+    A: AuthorizationPolicy + Send + Sync,
+    P: AsRef<Path>,
+{
     let mut cfg = Config::new(
         Some(path.as_ref().join(oid.to_string_of_base(Base::Base64Url)?)),
         0,
@@ -58,15 +62,14 @@ pub async fn create_orbit<P: AsRef<Path>>(oid: Cid, path: P) -> Result<SimpleOrb
         .await
         .ok_or(anyhow!("IPFS Listening Failed"))?;
 
-    Ok(SimpleOrbit {
-        ipfs,
-        oid,
-        policy: TezosBasicAuthorization,
-    })
+    Ok(SimpleOrbit { ipfs, oid, policy })
 }
 
 #[rocket::async_trait]
-impl<A> ContentAddressedStorage for SimpleOrbit<A> {
+impl<A> ContentAddressedStorage for SimpleOrbit<A>
+where
+    A: AuthorizationPolicy + Send + Sync,
+{
     type Error = anyhow::Error;
     async fn put<C: AsyncRead + Send + Unpin>(
         &self,
@@ -84,7 +87,10 @@ impl<A> ContentAddressedStorage for SimpleOrbit<A> {
 }
 
 #[rocket::async_trait]
-impl<A: AuthorizationPolicy> Orbit for SimpleOrbit<A> {
+impl<A> Orbit for SimpleOrbit<A>
+where
+    A: AuthorizationPolicy + Send + Sync,
+{
     type Error = anyhow::Error;
     type UpdateMessage = ();
     type Auth = A;
@@ -111,21 +117,24 @@ impl<A: AuthorizationPolicy> Orbit for SimpleOrbit<A> {
 }
 
 #[rocket::async_trait]
-impl<'r, A: AuthorizationPolicy> FromRequest<'r> for &'r SimpleOrbit<A> {
+impl<'r, A> FromRequest<'r> for &'r SimpleOrbit<A>
+where
+    A: 'static + AuthorizationPolicy + Send + Sync,
+{
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match req.param::<CidWrap>(0) {
-            Some(Ok(oid)) => match req.rocket().state::<Orbits<SimpleOrbit>>() {
+            Some(Ok(oid)) => match req.rocket().state::<Orbits<SimpleOrbit<A>>>() {
                 Some(orbits) => match orbits.orbit(&oid.0) {
                     Some(orbit) => Outcome::Success(orbit),
-                    None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+                    None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
                 },
                 // TODO check filesystem and init/cache if unused orbit db found
-                None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+                None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
             },
             Some(Err(e)) => Outcome::Failure((Status::NotFound, e)),
-            None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit")))
+            None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
         }
     }
 }

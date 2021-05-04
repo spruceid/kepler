@@ -71,6 +71,7 @@ impl TZAuth {
 
 impl AuthorizationToken for TZAuth {
     const header_key: &'static str = "Authorization";
+    type Policy = TezosBasicAuthorization;
 
     fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
         todo!()
@@ -167,7 +168,7 @@ pub struct TezosBasicAuthorization;
 impl AuthorizationPolicy for TezosBasicAuthorization {
     type Token = TZAuth;
 
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a ContentAction> {
+    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a Action> {
         verify(auth_token).map(|_| auth_token.action())
     }
 }
