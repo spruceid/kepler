@@ -1,5 +1,5 @@
 use rocket::{
-    data::{ByteUnit, DataStream, ToByteUnit},
+    data::{DataStream, ToByteUnit},
     form::{DataField, FromFormField, Result, ValueField},
     http::ContentType,
     request::{FromRequest, Outcome, Request},

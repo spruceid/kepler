@@ -1,12 +1,9 @@
 use super::cas::ContentAddressedStorage;
 use super::codec::SupportedCodecs;
-use ipfs_embed::{Ipfs, Key};
+use ipfs_embed::Ipfs;
 use libipld::{
     block::Block,
-    cid::{
-        multihash::{Code, MultihashDigest},
-        Cid,
-    },
+    cid::{multihash::Code, Cid},
     raw::RawCodec,
     store::DefaultParams,
 };

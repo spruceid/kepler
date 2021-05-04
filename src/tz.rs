@@ -1,4 +1,4 @@
-use crate::auth::{AuthorizationPolicy, AuthorizationToken};
+use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use bs58;
 use hex;
