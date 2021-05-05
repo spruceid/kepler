@@ -13,6 +13,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
+#[derive(Debug)]
 pub enum Action {
     Put {
         orbit_id: Cid,
