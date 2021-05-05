@@ -1,7 +1,7 @@
 use crate::{
     codec::SupportedCodecs,
     orbit::{Orbit, SimpleOrbit},
-    Orbits,
+    OrbitCollection, Orbits,
 };
 use anyhow::Result;
 use libipld::{
@@ -74,7 +74,7 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
             Action::Put { orbit_id, content }
             | Action::Get { orbit_id, content }
             | Action::Del { orbit_id, content } => {
-                let read_orbits = orbits.orbits();
+                let read_orbits = orbits.orbits().await;
                 let orbit = match read_orbits.get(orbit_id) {
                     Some(o) => o,
                     None => {

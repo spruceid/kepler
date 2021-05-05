@@ -26,8 +26,8 @@ use std::{
     io::Cursor,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{RwLock, RwLockReadGuard},
 };
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio_stream::wrappers::ReadDirStream;
 use tz::{TZAuth, TezosBasicAuthorization};
 
@@ -61,6 +61,12 @@ where
     pub base_path: PathBuf,
 }
 
+#[rocket::async_trait]
+pub trait OrbitCollection<O: Orbit> {
+    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>>;
+    async fn add(&self, orbit: O) -> ();
+}
+
 impl<O: Orbit> Orbits<O> {
     fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
@@ -68,17 +74,20 @@ impl<O: Orbit> Orbits<O> {
             base_path: path.as_ref().to_path_buf(),
         }
     }
+}
 
-    fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
-        self.stores.read().expect("read orbit set")
+#[rocket::async_trait]
+impl<O: Orbit> OrbitCollection<O> for Orbits<O> {
+    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
+        self.stores.read().await
     }
 
     // fn orbit(&self, id: &Cid) -> Option<&O> {
     //     self.stores.read().expect("read orbit set").get(id)
     // }
 
-    fn add(&self, orbit: O) {
-        let mut lock = self.stores.write().expect("lock orbit set");
+    async fn add(&self, orbit: O) {
+        let mut lock = self.stores.write().await;
         lock.insert(*orbit.id(), orbit);
     }
 }
@@ -103,18 +112,24 @@ async fn load_orbits<P: AsRef<Path>>(
             .collect()
             .await;
 
-    orbit_list.into_iter().for_each(|orbit| orbits.add(orbit));
+    for orbit in orbit_list.into_iter() {
+        orbits.add(orbit).await
+    }
 
     Ok(orbits)
 }
 
-#[get("/<_orbit_id>/<hash>")]
+#[get("/<orbit_id>/<hash>")]
 async fn get_content(
-    _orbit_id: CidWrap,
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbit_id: CidWrap,
     hash: CidWrap,
     _auth: Option<AuthWrapper<TZAuth>>,
-    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
+    let orbits_read = orbits.orbits().await;
+    let orbit = orbits_read
+        .get(&orbit_id.0)
+        .ok_or(anyhow!("No Orbit Found"))?;
     match ContentAddressedStorage::get(orbit, &hash.0).await {
         Ok(Some(content)) => Ok(Some(RocketStream::chunked(
             Cursor::new(content.to_owned()),
@@ -125,13 +140,17 @@ async fn get_content(
     }
 }
 
-#[post("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
+#[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_content(
-    _orbit_id: CidWrap,
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
     _auth: AuthWrapper<TZAuth>,
-    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
+    let orbits_read = orbits.orbits().await;
+    let orbit = orbits_read
+        .get(&orbit_id.0)
+        .ok_or(anyhow!("No Orbit Found"))?;
     let mut cids = Vec::<String>::new();
     for mut content in batch.into_inner().into_iter() {
         cids.push(
@@ -147,14 +166,18 @@ async fn batch_put_content(
     Ok(cids.join("\n"))
 }
 
-#[post("/<_orbit_id>", data = "<data>", rank = 2)]
+#[post("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
-    _orbit_id: CidWrap,
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
     _auth: AuthWrapper<TZAuth>,
-    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
+    let orbits_read = orbits.orbits().await;
+    let orbit = orbits_read
+        .get(&orbit_id.0)
+        .ok_or(anyhow!("No Orbit Found"))?;
     match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
             .to_string_of_base(Base::Base64Url)
@@ -165,11 +188,15 @@ async fn put_content(
 
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     auth: AuthWrapper<TZAuth>,
-    orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<(), Debug<Error>> {
+    let orbits_read = orbits.orbits().await;
+    let orbit = orbits_read
+        .get(&orbit_id.0)
+        .ok_or(anyhow!("No Orbit Found"))?;
     Ok(orbit.delete(&hash.0).await?)
 }
 

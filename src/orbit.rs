@@ -1,6 +1,6 @@
 use super::{
     auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs, CidWrap,
-    Orbits,
+    OrbitCollection, Orbits,
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs};
@@ -116,28 +116,5 @@ where
 
     async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
         todo!()
-    }
-}
-
-#[rocket::async_trait]
-impl<'r, A> FromRequest<'r> for &'r SimpleOrbit<A>
-where
-    A: 'static + AuthorizationPolicy + Send + Sync,
-{
-    type Error = anyhow::Error;
-
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        match req.param::<CidWrap>(0) {
-            Some(Ok(oid)) => match req.rocket().state::<Orbits<SimpleOrbit<A>>>() {
-                Some(orbits) => match orbits.orbits().get(&oid.0) {
-                    Some(orbit) => Outcome::Success(orbit),
-                    None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
-                },
-                // TODO check filesystem and init/cache if unused orbit db found
-                None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
-            },
-            Some(Err(e)) => Outcome::Failure((Status::NotFound, e)),
-            None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
-        }
     }
 }
