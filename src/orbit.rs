@@ -78,7 +78,10 @@ where
     ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
         self.ipfs.put(content, codec).await
     }
-    async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
+    async fn get(
+        &self,
+        address: &Cid,
+    ) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
         self.get(address).await
     }
     async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
@@ -126,7 +129,7 @@ where
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match req.param::<CidWrap>(0) {
             Some(Ok(oid)) => match req.rocket().state::<Orbits<SimpleOrbit<A>>>() {
-                Some(orbits) => match orbits.orbit(&oid.0) {
+                Some(orbits) => match orbits.orbits().get(&oid.0) {
                     Some(orbit) => Outcome::Success(orbit),
                     None => Outcome::Failure((Status::NotFound, anyhow!("No Orbit"))),
                 },

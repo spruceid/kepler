@@ -6,13 +6,18 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::cid::{multibase::Base, Cid};
+use libipld::cid::{
+    multibase::Base,
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
     futures::stream::StreamExt,
     response::{Debug, Stream as RocketStream},
     tokio::fs::read_dir,
+    State,
 };
 use rocket_cors::CorsOptions;
 use serde::Deserialize;
@@ -21,6 +26,7 @@ use std::{
     io::Cursor,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{RwLock, RwLockReadGuard},
 };
 use tokio_stream::wrappers::ReadDirStream;
 use tz::{TZAuth, TezosBasicAuthorization};
@@ -32,7 +38,7 @@ mod ipfs;
 mod orbit;
 mod tz;
 
-use auth::AuthWrapper;
+use auth::{Action, AuthWrapper, AuthorizationToken};
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
 use orbit::{create_orbit, Orbit, SimpleOrbit};
@@ -51,24 +57,29 @@ struct Orbits<O>
 where
     O: Orbit,
 {
-    stores: BTreeMap<Cid, O>,
-    base_path: PathBuf,
+    pub stores: RwLock<BTreeMap<Cid, O>>,
+    pub base_path: PathBuf,
 }
 
 impl<O: Orbit> Orbits<O> {
     fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
-            stores: BTreeMap::new(),
+            stores: RwLock::new(BTreeMap::new()),
             base_path: path.as_ref().to_path_buf(),
         }
     }
 
-    fn orbit(&self, id: &Cid) -> Option<&O> {
-        self.stores.get(id)
+    fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
+        self.stores.read().expect("read orbit set")
     }
 
-    fn add(&mut self, id: Cid, orbit: O) {
-        self.stores.insert(id, orbit);
+    // fn orbit(&self, id: &Cid) -> Option<&O> {
+    //     self.stores.read().expect("read orbit set").get(id)
+    // }
+
+    fn add(&self, orbit: O) {
+        let mut lock = self.stores.write().expect("lock orbit set");
+        lock.insert(*orbit.id(), orbit);
     }
 }
 
@@ -76,7 +87,7 @@ async fn load_orbits<P: AsRef<Path>>(
     path: P,
 ) -> Result<Orbits<SimpleOrbit<TezosBasicAuthorization>>> {
     let path_ref: &Path = path.as_ref();
-    let mut orbits = Orbits::new(path_ref);
+    let orbits = Orbits::new(path_ref);
     // for entries in the dir
     let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
         ReadDirStream::new(read_dir(path_ref).await?)
@@ -92,18 +103,16 @@ async fn load_orbits<P: AsRef<Path>>(
             .collect()
             .await;
 
-    orbit_list
-        .into_iter()
-        .for_each(|orbit| orbits.add(*orbit.id(), orbit));
+    orbit_list.into_iter().for_each(|orbit| orbits.add(orbit));
 
     Ok(orbits)
 }
 
-#[get("/<orbit_id>/<hash>")]
+#[get("/<_orbit_id>/<hash>")]
 async fn get_content(
-    orbit_id: CidWrap,
+    _orbit_id: CidWrap,
     hash: CidWrap,
-    auth: Option<AuthWrapper<TZAuth>>,
+    _auth: Option<AuthWrapper<TZAuth>>,
     orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
     match ContentAddressedStorage::get(orbit, &hash.0).await {
@@ -116,11 +125,11 @@ async fn get_content(
     }
 }
 
-#[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
+#[post("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_content(
-    orbit_id: CidWrap,
+    _orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
-    auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TZAuth>,
     orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
     let mut cids = Vec::<String>::new();
@@ -138,12 +147,12 @@ async fn batch_put_content(
     Ok(cids.join("\n"))
 }
 
-#[post("/<orbit_id>", data = "<data>", rank = 2)]
+#[post("/<_orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
-    orbit_id: CidWrap,
+    _orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TZAuth>,
     orbit: &SimpleOrbit<TezosBasicAuthorization>,
 ) -> Result<String, Debug<Error>> {
     match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
