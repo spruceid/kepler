@@ -2,10 +2,18 @@ use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use bs58;
 use hex;
-use libipld::multihash::{Code, MultihashDigest};
+use libipld::{
+    cid::multibase::Base,
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
 use nom::{
+    branch::alt,
     bytes::complete::{tag, take_until},
+    combinator::map_parser,
+    multi::many1,
     sequence::{preceded, tuple},
+    IResult,
 };
 use ssi::{
     jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
@@ -19,53 +27,142 @@ pub struct TZAuth {
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
-    pub orbit: String,
-    pub action: String,
-    pub cid: String,
+    pub action: Action,
 }
 
 impl FromStr for TZAuth {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
-        match tuple::<_, _, (), _>((
-            tag("Tezos Signed Message:"),                  // remove
-            preceded(tag(" "), take_until(".kepler.net")), // get orbit
-            tag(".kepler.net"),
-            preceded(tag(" "), take_until(" ")), // get timestamp
-            preceded(tag(" "), take_until(" ")), // get pk
-            preceded(tag(" "), take_until(" ")), // get pkh
-            preceded(tag(" "), take_until(" ")), // get action
-            preceded(tag(" "), take_until(" ")), // get CID
+        match tuple((
+            tag("Tezos Signed Message: kepler.net"), // remove
+            space_delimit,                           // get timestamp
+            space_delimit,                           // get pk
+            space_delimit,                           // get pkh
+            map_parser(space_delimit, parse_action), // get action
             tag(" "),
         ))(s)
         {
-            Ok((
-                sig_str,
-                (_, orbit_str, _, timestamp_str, pk_str, pkh_str, action_str, cid_str, _),
-            )) => Ok(TZAuth {
+            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, action, _))) => Ok(TZAuth {
                 sig: sig_str.into(),
                 pk: pk_str.into(),
                 pkh: pkh_str.into(),
                 timestamp: timestamp_str.into(),
-                orbit: orbit_str.parse()?,
-                action: action_str.into(),
-                cid: cid_str.parse()?,
+                action,
             }),
-            Err(e) => Err(e.into()),
+            Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
         }
     }
 }
 
+fn space_delimit(s: &str) -> IResult<&str, &str> {
+    preceded(tag(" "), take_until(" "))(s)
+}
+
+// NOTE this will consume the whole string, it should only be called on fragments which are already separated
+fn parse_cid(s: &str) -> IResult<&str, Cid> {
+    Cid::from_str(s)
+        .map(|c| ("", c))
+        .map_err(|_| nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot)))
+}
+
+fn parse_get(s: &str) -> IResult<&str, Action> {
+    tuple((
+        parse_cid,
+        tag(" GET"),
+        many1(map_parser(space_delimit, parse_cid)),
+    ))(s)
+    .map(|(rest, (orbit_id, _, content))| (rest, Action::Get { orbit_id, content }))
+}
+
+fn parse_put(s: &str) -> IResult<&str, Action> {
+    tuple((
+        parse_cid,
+        tag(" PUT"),
+        many1(map_parser(space_delimit, parse_cid)),
+    ))(s)
+    .map(|(rest, (orbit_id, _, content))| (rest, Action::Put { orbit_id, content }))
+}
+
+fn parse_del(s: &str) -> IResult<&str, Action> {
+    tuple((
+        parse_cid,
+        tag(" DEL"),
+        many1(map_parser(space_delimit, parse_cid)),
+    ))(s)
+    .map(|(rest, (orbit_id, _, content))| (rest, Action::Del { orbit_id, content }))
+}
+
+fn parse_create(s: &str) -> IResult<&str, Action> {
+    tuple((
+        parse_cid,
+        tag(" CREATE"),
+        space_delimit, // salt (orbit secret + nonce)
+        many1(map_parser(space_delimit, parse_cid)),
+    ))(s)
+    .map(|(rest, (orbit_id, _, salt, content))| {
+        (
+            rest,
+            Action::Create {
+                orbit_id,
+                content,
+                salt: salt.into(),
+            },
+        )
+    })
+}
+
+fn parse_action(s: &str) -> IResult<&str, Action> {
+    alt((parse_get, parse_put, parse_del, parse_create))(s)
+}
+
+fn serialize_action(action: &Action) -> Result<String> {
+    match action {
+        Action::Put { orbit_id, content } => serialize_content_action("PUT", orbit_id, content),
+        Action::Get { orbit_id, content } => serialize_content_action("GET", orbit_id, content),
+        Action::Del { orbit_id, content } => serialize_content_action("DEL", orbit_id, content),
+        Action::Create {
+            orbit_id,
+            content,
+            salt,
+        } => Ok([
+            &orbit_id.to_string_of_base(Base::Base64Url)?,
+            "CREATE",
+            &salt,
+            &content
+                .iter()
+                .map(|c| c.to_string_of_base(Base::Base64Url))
+                .collect::<Result<Vec<String>, libipld::cid::Error>>()?
+                .join(" "),
+        ]
+        .join(" ")),
+    }
+}
+
+fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Result<String> {
+    Ok([
+        &orbit_id.to_string_of_base(Base::Base64Url)?,
+        action,
+        &content
+            .iter()
+            .map(|c| c.to_string_of_base(Base::Base64Url))
+            .collect::<Result<Vec<String>, libipld::cid::Error>>()?
+            .join(" "),
+    ]
+    .join(" "))
+}
+
 impl TZAuth {
-    fn serialize_for_verification(&self) -> Vec<u8> {
+    fn serialize_for_verification(&self) -> Result<Vec<u8>> {
         let message = format!(
-            "Tezos Signed Message: {}.kepler.net {} {} {} {} {}",
-            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid
+            "Tezos Signed Message: kepler.net {} {} {}",
+            &self.timestamp,
+            serialize_action(&self.action)?,
+            &self.pk
         );
-        Code::Blake2b256
+        Ok(Code::Blake2b256
             .digest(&encode_string(&message))
             .digest()
-            .to_vec()
+            .to_vec())
     }
 }
 
@@ -98,8 +195,11 @@ impl core::fmt::Display for TZAuth {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: {}.kepler.net {} {} {} {} {} {}",
-            &self.orbit, &self.timestamp, &self.pk, &self.pkh, &self.action, &self.cid, &self.sig
+            "Tezos Signed Message: kepler.net {} {} {} {}",
+            &self.timestamp,
+            serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
+            &self.pk,
+            &self.sig
         )
     }
 }
@@ -108,7 +208,7 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
     let key = from_tezos_key(&auth.pk)?;
     verify_bytes(
         key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
-        &auth.serialize_for_verification(),
+        &auth.serialize_for_verification()?,
         &key,
         &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
     )?;

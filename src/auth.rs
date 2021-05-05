@@ -28,9 +28,9 @@ pub enum Action {
         content: Vec<Cid>,
     },
     Create {
-        pkh: String,
+        orbit_id: Cid,
         salt: String,
-        put: Option<Vec<Cid>>,
+        content: Vec<Cid>,
     },
 }
 
@@ -92,21 +92,17 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
             }
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create { pkh, salt, put } => {
-                // ad-hoc v0 orbit creation, concat pkh and salt
-                let orbit_id = Cid::new_v1(
-                    SupportedCodecs::Raw as u64,
-                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
-                );
-
-                match req.rocket().state::<T::Policy>() {
-                    Some(auth) => match auth.authorize(&token).await {
-                        Ok(_) => Outcome::Success(AuthWrapper(token)),
-                        Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-                    },
-                    None => Outcome::Success(AuthWrapper(token)),
-                }
-            }
+            Action::Create {
+                orbit_id,
+                salt,
+                content,
+            } => match req.rocket().state::<T::Policy>() {
+                Some(auth) => match auth.authorize(&token).await {
+                    Ok(_) => Outcome::Success(AuthWrapper(token)),
+                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+                },
+                None => Outcome::Success(AuthWrapper(token)),
+            },
         }
     }
 }

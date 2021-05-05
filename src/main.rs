@@ -194,16 +194,12 @@ async fn batch_put_create(
     auth: AuthWrapper<TZAuth>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create { pkh, salt, put } => {
-            let orbit = create_orbit(
-                Cid::new_v1(
-                    SupportedCodecs::Raw as u64,
-                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
-                ),
-                &orbits.base_path,
-                TezosBasicAuthorization,
-            )
-            .await?;
+        Action::Create {
+            orbit_id,
+            salt,
+            content,
+        } => {
+            let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
             let mut cids = Vec::<String>::new();
             for mut content in batch.into_inner().into_iter() {
@@ -231,16 +227,12 @@ async fn put_create(
     auth: AuthWrapper<TZAuth>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create { pkh, salt, put } => {
-            let orbit = create_orbit(
-                Cid::new_v1(
-                    SupportedCodecs::Raw as u64,
-                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
-                ),
-                &orbits.base_path,
-                TezosBasicAuthorization,
-            )
-            .await?;
+        Action::Create {
+            orbit_id,
+            salt,
+            content,
+        } => {
+            let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
             let cid = orbit.put(&mut data.open(10u8.megabytes()), codec).await?;
 
