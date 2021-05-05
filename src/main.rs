@@ -186,6 +186,74 @@ async fn put_content(
     }
 }
 
+#[post("/", format = "multipart/form-data", data = "<batch>")]
+async fn batch_put_create(
+    // TODO find a good way to not restrict all orbits to the same Type
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    batch: Form<Vec<PutContent>>,
+    auth: AuthWrapper<TZAuth>,
+) -> Result<String, Debug<Error>> {
+    match auth.0.action() {
+        Action::Create { pkh, salt, put } => {
+            let orbit = create_orbit(
+                Cid::new_v1(
+                    SupportedCodecs::Raw as u64,
+                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
+                ),
+                &orbits.base_path,
+                TezosBasicAuthorization,
+            )
+            .await?;
+
+            let mut cids = Vec::<String>::new();
+            for mut content in batch.into_inner().into_iter() {
+                cids.push(orbit.put(&mut content.content, content.codec).await.map_or(
+                    "".into(),
+                    |cid| {
+                        cid.to_string_of_base(Base::Base64Url)
+                            .map_or("".into(), |s| s)
+                    },
+                ));
+            }
+            orbits.add(orbit);
+            Ok(cids.join("\n"))
+        }
+        _ => Err(anyhow!("Invalid Authorization"))?,
+    }
+}
+
+#[post("/", data = "<data>", rank = 2)]
+async fn put_create(
+    // TODO find a good way to not restrict all orbits to the same Type
+    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    data: Data,
+    codec: SupportedCodecs,
+    auth: AuthWrapper<TZAuth>,
+) -> Result<String, Debug<Error>> {
+    match auth.0.action() {
+        Action::Create { pkh, salt, put } => {
+            let orbit = create_orbit(
+                Cid::new_v1(
+                    SupportedCodecs::Raw as u64,
+                    Code::Blake3_256.digest([&pkh, ":", &salt].join("").as_bytes()),
+                ),
+                &orbits.base_path,
+                TezosBasicAuthorization,
+            )
+            .await?;
+
+            let cid = orbit.put(&mut data.open(10u8.megabytes()), codec).await?;
+
+            orbits.add(orbit);
+
+            Ok(cid
+                .to_string_of_base(Base::Base64Url)
+                .map_err(|e| anyhow!(e))?)
+        }
+        _ => Err(anyhow!("Invalid Authorization"))?,
+    }
+}
+
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
