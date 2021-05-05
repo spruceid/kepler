@@ -46,10 +46,10 @@ pub trait AuthorizationPolicy {
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a Action>;
 }
 
-pub struct AuthWrapper<T: AuthorizationToken>(T);
+pub struct AuthWrapper<T: AuthorizationToken>(pub T);
 
 #[rocket::async_trait]
-impl<'r, T: AuthorizationToken + Send + Sync> FromRequest<'r> for AuthWrapper<T> {
+impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for AuthWrapper<T> {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -74,7 +74,8 @@ impl<'r, T: AuthorizationToken + Send + Sync> FromRequest<'r> for AuthWrapper<T>
             Action::Put { orbit_id, content }
             | Action::Get { orbit_id, content }
             | Action::Del { orbit_id, content } => {
-                let orbit = match orbits.orbit(orbit_id) {
+                let read_orbits = orbits.orbits();
+                let orbit = match read_orbits.get(orbit_id) {
                     Some(o) => o,
                     None => {
                         return Outcome::Failure((
