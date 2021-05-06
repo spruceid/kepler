@@ -36,7 +36,7 @@ pub enum Action {
 
 pub trait AuthorizationToken: Sized {
     type Policy: AuthorizationPolicy<Token = Self> + Send + Sync;
-    const header_key: &'static str;
+    const HEADER_KEY: &'static str;
     fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self>;
     fn action(&self) -> &Action;
 }
@@ -55,7 +55,7 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         // get token from headers
-        let token = match T::extract(req.headers().get(T::header_key)) {
+        let token = match T::extract(req.headers().get(T::HEADER_KEY)) {
             Ok(t) => t,
             Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
         };
