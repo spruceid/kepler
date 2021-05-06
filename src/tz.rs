@@ -130,12 +130,12 @@ fn serialize_action(action: &Action) -> Result<String> {
             content,
             salt,
         } => Ok([
-            &orbit_id.to_string_of_base(Base::Base64Url)?,
+            &orbit_id.to_string_of_base(Base::Base58Btc)?,
             "CREATE",
             &salt,
             &content
                 .iter()
-                .map(|c| c.to_string_of_base(Base::Base64Url))
+                .map(|c| c.to_string_of_base(Base::Base58Btc))
                 .collect::<Result<Vec<String>, libipld::cid::Error>>()?
                 .join(" "),
         ]
@@ -145,11 +145,11 @@ fn serialize_action(action: &Action) -> Result<String> {
 
 fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Result<String> {
     Ok([
-        &orbit_id.to_string_of_base(Base::Base64Url)?,
+        &orbit_id.to_string_of_base(Base::Base58Btc)?,
         action,
         &content
             .iter()
-            .map(|c| c.to_string_of_base(Base::Base64Url))
+            .map(|c| c.to_string_of_base(Base::Base58Btc))
             .collect::<Result<Vec<String>, libipld::cid::Error>>()?
             .join(" "),
     ]

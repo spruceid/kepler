@@ -50,7 +50,7 @@ where
     P: AsRef<Path>,
 {
     let mut cfg = Config::new(
-        Some(path.as_ref().join(oid.to_string_of_base(Base::Base64Url)?)),
+        Some(path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?)),
         0,
     );
 
