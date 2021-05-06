@@ -233,7 +233,7 @@ async fn batch_put_create(
                     },
                 ));
             }
-            orbits.add(orbit);
+            orbits.add(orbit).await;
             Ok(cids.join("\n"))
         }
         _ => Err(anyhow!("Invalid Authorization"))?,
@@ -267,7 +267,7 @@ async fn put_create(
                 )
                 .await?;
 
-            orbits.add(orbit);
+            orbits.add(orbit).await;
 
             Ok(cid
                 .to_string_of_base(Base::Base58Btc)
