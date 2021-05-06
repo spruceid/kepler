@@ -12,8 +12,8 @@ use nom::{
     bytes::complete::{tag, take_until},
     combinator::map_parser,
     multi::many1,
-    sequence::{preceded, tuple},
-    IResult,
+    sequence::{delimited, preceded, tuple},
+    IResult, ParseTo,
 };
 use ssi::{
     jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
@@ -33,68 +33,73 @@ pub struct TZAuth {
 impl FromStr for TZAuth {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
-        match tuple((
+        match tuple::<_, _, nom::error::Error<&'a str>, _>((
             tag("Tezos Signed Message: kepler.net"), // remove
             space_delimit,                           // get timestamp
             space_delimit,                           // get pk
             space_delimit,                           // get pkh
-            map_parser(space_delimit, parse_action), // get action
+            tag(" "),
+            parse_action, // get action
             tag(" "),
         ))(s)
         {
-            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, action, _))) => Ok(TZAuth {
+            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, _, action, _))) => Ok(TZAuth {
                 sig: sig_str.into(),
                 pk: pk_str.into(),
                 pkh: pkh_str.into(),
                 timestamp: timestamp_str.into(),
                 action,
             }),
+            // TODO there is a lifetime issue which prevents using the nom error here
             Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
         }
     }
 }
 
-fn space_delimit(s: &str) -> IResult<&str, &str> {
+fn space_delimit<'a>(s: &'a str) -> IResult<&str, &str> {
     preceded(tag(" "), take_until(" "))(s)
 }
 
 // NOTE this will consume the whole string, it should only be called on fragments which are already separated
-fn parse_cid(s: &str) -> IResult<&str, Cid> {
-    Cid::from_str(s)
-        .map(|c| ("", c))
-        .map_err(|_| nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot)))
+fn parse_cid<'a>(s: &'a str) -> IResult<&str, Cid> {
+    s.parse_to()
+        .ok_or(nom::Err::Failure(nom::error::make_error(
+            s,
+            nom::error::ErrorKind::IsNot,
+        )))
+        .map(|cid| ("", cid))
 }
 
-fn parse_get(s: &str) -> IResult<&str, Action> {
+fn parse_get<'a>(s: &'a str) -> IResult<&str, Action> {
     tuple((
-        parse_cid,
+        map_parser(take_until(" "), parse_cid),
         tag(" GET"),
         many1(map_parser(space_delimit, parse_cid)),
     ))(s)
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Get { orbit_id, content }))
 }
 
-fn parse_put(s: &str) -> IResult<&str, Action> {
+fn parse_put<'a>(s: &'a str) -> IResult<&str, Action> {
     tuple((
-        parse_cid,
+        map_parser(take_until(" "), parse_cid),
         tag(" PUT"),
         many1(map_parser(space_delimit, parse_cid)),
     ))(s)
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Put { orbit_id, content }))
 }
 
-fn parse_del(s: &str) -> IResult<&str, Action> {
+fn parse_del<'a>(s: &'a str) -> IResult<&str, Action> {
     tuple((
-        parse_cid,
+        map_parser(take_until(" "), parse_cid),
         tag(" DEL"),
         many1(map_parser(space_delimit, parse_cid)),
     ))(s)
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Del { orbit_id, content }))
 }
 
-fn parse_create(s: &str) -> IResult<&str, Action> {
+fn parse_create<'a>(s: &'a str) -> IResult<&str, Action> {
     tuple((
-        parse_cid,
+        map_parser(take_until(" "), parse_cid),
         tag(" CREATE"),
         space_delimit, // salt (orbit secret + nonce)
         many1(map_parser(space_delimit, parse_cid)),
@@ -111,7 +116,7 @@ fn parse_create(s: &str) -> IResult<&str, Action> {
     })
 }
 
-fn parse_action(s: &str) -> IResult<&str, Action> {
+fn parse_action<'a>(s: &'a str) -> IResult<&str, Action> {
     alt((parse_get, parse_put, parse_del, parse_create))(s)
 }
 
@@ -167,7 +172,7 @@ impl TZAuth {
 }
 
 impl AuthorizationToken for TZAuth {
-    const header_key: &'static str = "Authorization";
+    const HEADER_KEY: &'static str = "Authorization";
     type Policy = TezosBasicAuthorization;
 
     fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
@@ -175,7 +180,7 @@ impl AuthorizationToken for TZAuth {
     }
 
     fn action(&self) -> &Action {
-        todo!()
+        &self.action
     }
 }
 
@@ -195,10 +200,11 @@ impl core::fmt::Display for TZAuth {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: kepler.net {} {} {} {}",
+            "Tezos Signed Message: kepler.net {} {} {} {} {}",
             &self.timestamp,
-            serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
             &self.pk,
+            &self.pkh,
+            serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
             &self.sig
         )
     }
@@ -283,14 +289,14 @@ async fn string_encoding() {
 
 #[test]
 async fn simple_parse() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkN2QDv7TGEPfAwzs9qCujsB1CxtVSjeesSj7EfFQh5cj4PJiH9 tz1ZoKiKMuSEyQ9JTETx7ZTwmnRtCxXoxduN GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA edsigWUz8sUVeqTJgXW7SMzihcmJ2JPQxPx9T5G6hx6P2yJSs9gYQSDNLFEm3rPYVB8fajgRS6qqAEX4LHhUCuaucp1qKHxpU5";
-    let tza: TZAuth = auth_str.parse().unwrap();
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let _: TZAuth = auth_str.parse().unwrap();
 }
 
 #[test]
 #[should_panic]
 async fn simple_verify_fail() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFKjqY6zejzKoA.kepler.net 2021-01-14T15:16:04Z edpkN2QDv7TGEPfAwzs9qCujsB1CxtVSjeesSj7EfFQh5cj4PJiH9 tz1ZoKiKMuSEyQ9JTETx7ZTwmnRtCxXoxduN GET uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA edsigWUz8sUVeqTJgXW7SMzihcmJ2JPQxPx9T5G6hx6P2yJSs9gYQSDNLFEm3rPYVB8fajgRS6qqAEX4LHhUCuaucp1qKHxpU5";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
@@ -298,7 +304,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA.kepler.net 1617729172025 edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd GET uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigu1XepfKcX2ec5Cn8pXxXSA3mX2ygWm5akw8bJgnNDDFQpAevK2vDxXfzL1gidopuHfkDci72Z7YahrZ7jaW8akgwGhR7Fc";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
@@ -332,11 +338,14 @@ async fn round_trip() {
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
-        orbit: dummy_orbit.into(),
-        action: "PUT".into(),
-        cid: dummy_cid.into(),
+        action: Action::Put {
+            orbit_id: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
+            content: vec![Cid::from_str(dummy_cid).expect("failed to parse CID")],
+        },
     };
-    let message = tz_unsigned.serialize_for_verification();
+    let message = tz_unsigned
+        .serialize_for_verification()
+        .expect("failed to serialize authz message");
     let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message, &j).unwrap();
     let sig = bs58::encode(
         [9, 245, 205, 134, 18]
@@ -349,6 +358,10 @@ async fn round_trip() {
     .into_string();
     let tz = TZAuth { sig, ..tz_unsigned };
 
-    assert_eq!(message, tz.serialize_for_verification());
+    assert_eq!(
+        message,
+        tz.serialize_for_verification()
+            .expect("failed to serialize authz message")
+    );
     assert!(verify(&tz).is_ok());
 }
