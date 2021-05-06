@@ -279,7 +279,14 @@ async fn main() -> Result<()> {
         .manage(TezosBasicAuthorization)
         .mount(
             "/",
-            routes![get_content, put_content, batch_put_content, delete_content],
+            routes![
+                get_content,
+                put_content,
+                batch_put_content,
+                delete_content,
+                put_create,
+                batch_put_create
+            ],
         )
         .attach(CorsOptions::default().to_cors()?)
         .launch()
