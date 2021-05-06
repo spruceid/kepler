@@ -158,7 +158,7 @@ async fn batch_put_content(
                 .put(&mut content.content, content.codec)
                 .await
                 .map_or("".into(), |cid| {
-                    cid.to_string_of_base(Base::Base64Url)
+                    cid.to_string_of_base(Base::Base58Btc)
                         .map_or("".into(), |s| s)
                 }),
         );
@@ -180,7 +180,7 @@ async fn put_content(
         .ok_or(anyhow!("No Orbit Found"))?;
     match orbit.put(&mut data.open(10u8.megabytes()), codec).await {
         Ok(cid) => Ok(cid
-            .to_string_of_base(Base::Base64Url)
+            .to_string_of_base(Base::Base58Btc)
             .map_err(|e| anyhow!(e))?),
         Err(e) => Err(e)?,
     }
@@ -206,7 +206,7 @@ async fn batch_put_create(
                 cids.push(orbit.put(&mut content.content, content.codec).await.map_or(
                     "".into(),
                     |cid| {
-                        cid.to_string_of_base(Base::Base64Url)
+                        cid.to_string_of_base(Base::Base58Btc)
                             .map_or("".into(), |s| s)
                     },
                 ));
@@ -239,7 +239,7 @@ async fn put_create(
             orbits.add(orbit);
 
             Ok(cid
-                .to_string_of_base(Base::Base64Url)
+                .to_string_of_base(Base::Base58Btc)
                 .map_err(|e| anyhow!(e))?)
         }
         _ => Err(anyhow!("Invalid Authorization"))?,
