@@ -305,7 +305,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkvR6aAd12AiVyh9UJUntyNtLM2usrpCq4avG8KozdSMU7vvu7qU tz1c5eqtBarJ9brFnmUy2n7Bvg1RCpWk29eU z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my PUT z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtmtSYSCCB8yyvj3BiFHSgbS21UAoR2jrQMWEr3eA99Czyph3duzEVAVYnG8chBKBPMhxD9ZyTwQSAoMuGr6bnotP9m9wvK";
     let tza: TZAuth = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
