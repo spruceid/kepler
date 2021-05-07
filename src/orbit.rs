@@ -32,6 +32,8 @@ pub trait Orbit: ContentAddressedStorage {
 
     fn auth(&self) -> &Self::Auth;
 
+    fn make_uri(&self, cid: &Cid) -> Result<String, <Self as Orbit>::Error>;
+
     async fn update(
         &self,
         update: Self::UpdateMessage,
@@ -112,6 +114,14 @@ where
 
     fn auth(&self) -> &Self::Auth {
         &self.policy
+    }
+
+    fn make_uri(&self, cid: &Cid) -> Result<String, <Self as Orbit>::Error> {
+        Ok(format!(
+            "kepler://v0:{}/{}",
+            self.id().to_string_of_base(Base::Base58Btc)?,
+            cid.to_string_of_base(Base::Base58Btc)?
+        ))
     }
 
     async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
