@@ -84,7 +84,7 @@ where
         &self,
         address: &Cid,
     ) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
-        self.get(address).await
+        ContentAddressedStorage::get(&self.ipfs, address).await
     }
     async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
         self.delete(address).await
