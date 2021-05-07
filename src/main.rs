@@ -341,42 +341,33 @@ async fn main() -> Result<()> {
 }
 
 #[test]
+#[should_panic]
 async fn test_form() {
     use rocket::{http::ContentType, local::asynchronous::Client};
-    let cid1 = "mAYAEFiAGoa04sUYQ7G8LD2+Rx1Tc2aOCVzj6Sw+tQJ8j20S52Q";
-    let cid2 = "mAYAEFiD5JYqnqRB2lKxvMzl17mpZlcdUR7aRjhP1zyECXgr0XA";
-    let p1 = r#"{"@context":["https://www.w3.org/2018/credentials/v1",{"BasicProfile":"https://tzprofiles.me/BasicProfile","logo":"https://schema.org/logo","website":"https://schema.org/url","description":"https://schema.org/description","alias":"https://schema.org/name"}],"id":"urn:uuid:a8d2fa78-49f3-44e7-b8dc-2592917455c1","type":["VerifiableCredential","BasicProfile"],"credentialSubject":{"id":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy","alias":"gfdwgd","logo":"fdsgdsg","description":"fdsgfads","website":"fdsagds"},"issuer":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy","issuanceDate":"2021-04-27T10:30:53.939Z","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"assertionMethod","proofValue":"edsigtdmHmWuXsdCqnkWnc5QJuUAk9tLTd73JjRJEL7qrC79iSStj91AU3U1faq85XhqgHyNoLBh6Fqod415aovQh73dRcbbpFj","verificationMethod":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy#TezosMethod2021","created":"2021-04-27T10:30:53.940Z","publicKeyJwk":{"alg":"EdDSA","crv":"Ed25519","kty":"OKP","x":"tA2T93-4HFNQ7TIfWyN-nXOgqbO5M9NJLB_JsTRXuwI"}}}"#;
-    let p2 = r#"{"dummy":"obj"}"#;
 
-    #[post("/", data = "<form>")]
+    #[post("/", format = "multipart/form-data", data = "<form>")]
     async fn stub_batch(form: Form<Vec<PutContent>>) {
         let content1 = &form.get(0).unwrap().content.value;
         let content2 = &form.get(1).unwrap().content.value;
-        let p1 = r#"{"@context":["https://www.w3.org/2018/credentials/v1",{"BasicProfile":"https://tzprofiles.me/BasicProfile","logo":"https://schema.org/logo","website":"https://schema.org/url","description":"https://schema.org/description","alias":"https://schema.org/name"}],"id":"urn:uuid:a8d2fa78-49f3-44e7-b8dc-2592917455c1","type":["VerifiableCredential","BasicProfile"],"credentialSubject":{"id":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy","alias":"gfdwgd","logo":"fdsgdsg","description":"fdsgfads","website":"fdsagds"},"issuer":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy","issuanceDate":"2021-04-27T10:30:53.939Z","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"assertionMethod","proofValue":"edsigtdmHmWuXsdCqnkWnc5QJuUAk9tLTd73JjRJEL7qrC79iSStj91AU3U1faq85XhqgHyNoLBh6Fqod415aovQh73dRcbbpFj","verificationMethod":"did:pkh:tz:tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy#TezosMethod2021","created":"2021-04-27T10:30:53.940Z","publicKeyJwk":{"alg":"EdDSA","crv":"Ed25519","kty":"OKP","x":"tA2T93-4HFNQ7TIfWyN-nXOgqbO5M9NJLB_JsTRXuwI"}}}"#;
-        let p2 = r#"{"dummy":"obj"}"#;
+        let p1 = r#"{"dummy":"obj"}"#;
+        let p2 = r#"{"amother":"obj"}"#;
         assert_eq!(&content1, &p1.as_bytes());
         assert_eq!(&content2, &p2.as_bytes());
     }
-    let header_boundary = "multipartdelimiter";
-    let boundary = &format!("--{}", header_boundary);
-    let pre = r#"Content-Disposition: form-data; name=""#;
-    let post = r#""; filename="blob""#;
-    let ct = "Content-Type: application/json";
 
-    let form = [
-        boundary,
-        &format!("{}{}{}", pre, cid1, post),
-        ct,
-        "",
-        p1,
-        boundary,
-        &format!("{}{}{}", pre, cid2, post),
-        ct,
-        "",
-        p2,
-        &format!("{}--", boundary),
-    ]
-    .join("\n\r");
+    let form = r#"
+-----------------------------28081028282221432566755324225
+Content-Disposition: form-data; name="zyop8PQypg8QWqGNG92jJacYtEa56Mnaf9tLxDadXc8kPPxNVWZye"; filename="blob"
+Content-Type: application/json
+
+{"dummy":"obj"}
+-----------------------------28081028282221432566755324225
+Content-Disposition: form-data; name="zyop8PQypZnwFc58SPAxZTSCuG6R13jWSxQp8iBGNmBuV3HsrVyLx"; filename="blob"
+Content-Type: application/json
+
+{"amother":"obj"}
+-----------------------------28081028282221432566755324225--
+"#;
 
     let client = Client::debug_with(rocket::routes![stub_batch])
         .await
@@ -384,9 +375,9 @@ async fn test_form() {
     let res = client
         .post("/")
         .header(
-            format!("multipart/form-data; boundary={}", header_boundary)
+            "multipart/form-data; boundary=-----------------------------28081028282221432566755324225"
                 .parse::<ContentType>()
-                .unwrap(),
+                .unwrap()
         )
         .body(&form)
         .dispatch()

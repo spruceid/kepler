@@ -8,7 +8,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SupportedCodecs {
     Raw = 0x55,
     Json = 0x0200,
@@ -16,6 +16,7 @@ pub enum SupportedCodecs {
     Cbor = 0x51,
 }
 
+#[derive(Debug)]
 pub struct PutContent {
     pub codec: SupportedCodecs,
     // TODO dont use a Vec, but passing the datastream results in a hang
