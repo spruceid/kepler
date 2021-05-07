@@ -163,19 +163,18 @@ async fn batch_put_content(
     let orbit = orbits_read
         .get(&orbit_id.0)
         .ok_or(anyhow!("No Orbit Found"))?;
-    let mut cids = Vec::<String>::new();
+    let mut uris = Vec::<String>::new();
     for content in batch.into_inner().into_iter() {
-        cids.push(
+        uris.push(
             orbit
                 .put(&content.content, content.codec)
                 .await
                 .map_or("".into(), |cid| {
-                    cid.to_string_of_base(Base::Base58Btc)
-                        .map_or("".into(), |s| s)
+                    orbit.make_uri(&cid).map_or("".into(), |s| s)
                 }),
         );
     }
-    Ok(cids.join("\n"))
+    Ok(uris.join("\n"))
 }
 
 #[post("/<orbit_id>", data = "<data>", rank = 2)]
@@ -201,9 +200,7 @@ async fn put_content(
         )
         .await
     {
-        Ok(cid) => Ok(cid
-            .to_string_of_base(Base::Base58Btc)
-            .map_err(|e| anyhow!(e))?),
+        Ok(cid) => Ok(orbit.make_uri(&cid)?),
         Err(e) => Err(e)?,
     }
 }
@@ -223,18 +220,19 @@ async fn batch_put_create(
         } => {
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
-            let mut cids = Vec::<String>::new();
+            let mut uris = Vec::<String>::new();
             for content in batch.into_inner().into_iter() {
-                cids.push(orbit.put(&content.content, content.codec).await.map_or(
-                    "".into(),
-                    |cid| {
-                        cid.to_string_of_base(Base::Base58Btc)
-                            .map_or("".into(), |s| s)
-                    },
-                ));
+                uris.push(
+                    orbit
+                        .put(&content.content, content.codec)
+                        .await
+                        .map_or("".into(), |cid| {
+                            orbit.make_uri(&cid).map_or("".into(), |s| s)
+                        }),
+                );
             }
             orbits.add(orbit).await;
-            Ok(cids.join("\n"))
+            Ok(uris.join("\n"))
         }
         _ => Err(anyhow!("Invalid Authorization"))?,
     }
@@ -256,22 +254,22 @@ async fn put_create(
         } => {
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
-            let cid = orbit
-                .put(
-                    &data
-                        .open(10u8.megabytes())
-                        .into_bytes()
-                        .await
-                        .map_err(|e| anyhow!(e))?,
-                    codec,
-                )
-                .await?;
+            let uri = orbit.make_uri(
+                &orbit
+                    .put(
+                        &data
+                            .open(10u8.megabytes())
+                            .into_bytes()
+                            .await
+                            .map_err(|e| anyhow!(e))?,
+                        codec,
+                    )
+                    .await?,
+            )?;
 
             orbits.add(orbit).await;
 
-            Ok(cid
-                .to_string_of_base(Base::Base58Btc)
-                .map_err(|e| anyhow!(e))?)
+            Ok(uri)
         }
         _ => Err(anyhow!("Invalid Authorization"))?,
     }
