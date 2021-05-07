@@ -159,10 +159,11 @@ fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Re
 impl TZAuth {
     fn serialize_for_verification(&self) -> Result<Vec<u8>> {
         let message = format!(
-            "Tezos Signed Message: kepler.net {} {} {}",
+            "Tezos Signed Message: kepler.net {} {} {} {}",
             &self.timestamp,
-            serialize_action(&self.action)?,
-            &self.pk
+            &self.pk,
+            &self.pkh,
+            serialize_action(&self.action)?
         );
         Ok(Code::Blake2b256
             .digest(&encode_string(&message))
@@ -175,8 +176,8 @@ impl AuthorizationToken for TZAuth {
     const HEADER_KEY: &'static str = "Authorization";
     type Policy = TezosBasicAuthorization;
 
-    fn extract<'a, T: Iterator<Item = &'a str>>(auth_data: T) -> Result<Self> {
-        todo!()
+    fn extract<'a>(auth_data: &'a str) -> Result<Self> {
+        TZAuth::from_str(auth_data)
     }
 
     fn action(&self) -> &Action {
