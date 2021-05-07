@@ -18,6 +18,7 @@ use nom::{
 use ssi::{
     jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
     jws::verify_bytes,
+    tzkey::jwk_from_tezos_key,
 };
 use std::str::FromStr;
 
@@ -212,7 +213,7 @@ impl core::fmt::Display for TZAuth {
 }
 
 pub fn verify(auth: &TZAuth) -> Result<()> {
-    let key = from_tezos_key(&auth.pk)?;
+    let key = jwk_from_tezos_key(&auth.pk)?;
     verify_bytes(
         key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
         &auth.serialize_for_verification()?,
@@ -220,53 +221,6 @@ pub fn verify(auth: &TZAuth) -> Result<()> {
         &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
     )?;
     Ok(())
-}
-
-pub fn from_tezos_key(tz_pk: &str) -> Result<JWK> {
-    let (alg, params) = match &tz_pk[..4] {
-        "edpk" => (
-            Algorithm::EdDSA,
-            Params::OKP(OctetParams {
-                curve: "Ed25519".into(),
-                public_key: Base64urlUInt(
-                    bs58::decode(&tz_pk).with_check(None).into_vec()?[4..].to_owned(),
-                ),
-                private_key: None,
-            }),
-        ),
-        "sppk" => (
-            Algorithm::ES256KR,
-            Params::EC(ECParams {
-                curve: Some("secp256k1".into()),
-                // TODO
-                x_coordinate: None,
-                y_coordinate: None,
-                ecc_private_key: None,
-            }),
-        ),
-        "p2pk" => (
-            Algorithm::PS256,
-            Params::EC(ECParams {
-                curve: Some("P-256".into()),
-                // TODO
-                x_coordinate: None,
-                y_coordinate: None,
-                ecc_private_key: None,
-            }),
-        ),
-        _ => Err(anyhow!("Invalid Tezos Public Key"))?,
-    };
-    Ok(JWK {
-        public_key_use: None,
-        key_operations: None,
-        algorithm: Some(alg),
-        key_id: None,
-        x509_url: None,
-        x509_certificate_chain: None,
-        x509_thumbprint_sha1: None,
-        x509_thumbprint_sha256: None,
-        params,
-    })
 }
 
 pub struct TezosBasicAuthorization;
