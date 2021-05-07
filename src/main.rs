@@ -142,7 +142,7 @@ async fn get_content(
     let orbit = orbits_read
         .get(&orbit_id.0)
         .ok_or(anyhow!("No Orbit Found"))?;
-    match ContentAddressedStorage::get(orbit, &hash.0).await {
+    match orbit.get(&hash.0).await {
         Ok(Some(content)) => Ok(Some(RocketStream::chunked(
             Cursor::new(content.to_owned()),
             1024,
