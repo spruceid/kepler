@@ -291,6 +291,11 @@ async fn delete_content(
     Ok(orbit.delete(&hash.0).await?)
 }
 
+#[options("/<s..>")]
+async fn cors(s: PathBuf) -> Result<(), Debug<Error>> {
+    Ok(())
+}
+
 #[rocket::main]
 async fn main() -> Result<()> {
     let rocket_config = rocket::Config::figment();
@@ -316,7 +321,8 @@ async fn main() -> Result<()> {
                 batch_put_content,
                 delete_content,
                 put_create,
-                batch_put_create
+                batch_put_create,
+                cors
             ],
         )
         .attach(AdHoc::on_response("CORS", |_, resp| {
