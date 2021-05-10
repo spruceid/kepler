@@ -1,0 +1,8 @@
+[global]
+# log_level = "normal"
+# port = 8000
+
+## Example of nest config variable: KEPLER_DATABASE_PATH
+[global.database]
+## Directory where the database will be stored.
+# path = "/tmp"

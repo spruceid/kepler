@@ -10,6 +10,7 @@ use libipld::cid::{multibase::Base, Cid};
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
+    figment::providers::{Env, Format, Serialized, Toml},
     form::{DataField, Form, FromFormField},
     futures::stream::StreamExt,
     http::Header,
@@ -18,7 +19,6 @@ use rocket::{
     State,
 };
 // use rocket_cors::CorsOptions;
-use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     io::Cursor,
@@ -32,6 +32,7 @@ use tz::{TZAuth, TezosBasicAuthorization};
 mod auth;
 mod cas;
 mod codec;
+mod config;
 mod ipfs;
 mod orbit;
 mod tz;
@@ -295,21 +296,17 @@ async fn cors(s: PathBuf) -> Result<(), Debug<Error>> {
 }
 
 #[rocket::main]
-async fn main() -> Result<()> {
-    let rocket_config = rocket::Config::figment();
+async fn main() {
+    let config = rocket::figment::Figment::from(rocket::Config::default())
+        .merge(Serialized::defaults(config::Config::default()))
+        .merge(Toml::file("kepler.toml").nested())
+        .merge(Env::prefixed("KEPLER_").split("_").global())
+        .merge(Env::prefixed("ROCKET_").global()); // That's just for easy access to ROCKET_LOG_LEVEL
 
-    #[derive(Deserialize, Debug)]
-    struct DBConfig {
-        db_path: std::path::PathBuf,
-    }
+    let kepler_config = config.extract::<config::Config>().unwrap();
 
-    let path = rocket_config
-        .extract::<DBConfig>()
-        .expect("db path missing")
-        .db_path;
-
-    rocket::custom(rocket_config)
-        .manage(load_orbits(path).await?)
+    rocket::custom(config.clone())
+        .manage(load_orbits(kepler_config.database.path).await.unwrap())
         .manage(TezosBasicAuthorization)
         .mount(
             "/",
@@ -335,9 +332,8 @@ async fn main() -> Result<()> {
             })
         }))
         .launch()
-        .await?;
-
-    Ok(())
+        .await
+        .unwrap();
 }
 
 #[test]
