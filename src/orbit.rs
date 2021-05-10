@@ -1,7 +1,4 @@
-use super::{
-    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs, CidWrap,
-    OrbitCollection, Orbits,
-};
+use super::{auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs};
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs};
 use libipld::{
@@ -13,12 +10,7 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::{
-    futures::stream::StreamExt,
-    http::Status,
-    request::{FromRequest, Outcome, Request},
-    tokio::io::AsyncRead,
-};
+use rocket::futures::stream::StreamExt;
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::Path};
 
@@ -138,7 +130,7 @@ where
         ))
     }
 
-    async fn update(&self, update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
+    async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
         todo!()
     }
 }

@@ -12,14 +12,10 @@ use nom::{
     bytes::complete::{tag, take_until},
     combinator::map_parser,
     multi::many1,
-    sequence::{delimited, preceded, tuple},
+    sequence::{preceded, tuple},
     IResult, ParseTo,
 };
-use ssi::{
-    jwk::{Algorithm, Base64urlUInt, ECParams, OctetParams, Params, JWK},
-    jws::verify_bytes,
-    tzkey::jwk_from_tezos_key,
-};
+use ssi::{jws::verify_bytes, tzkey::jwk_from_tezos_key};
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -268,7 +264,10 @@ async fn simple_verify_succeed() {
 #[test]
 async fn round_trip() {
     use did_pkh::DIDPKH;
-    use ssi::did::{DIDMethod, Source};
+    use ssi::{
+        did::{DIDMethod, Source},
+        jwk::{Algorithm, Params, JWK},
+    };
 
     let ts = "2021-01-14T15:16:04Z";
     let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";

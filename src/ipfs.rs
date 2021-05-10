@@ -7,14 +7,11 @@ use libipld::{
     raw::RawCodec,
     store::DefaultParams,
 };
-use rocket::tokio::io::{AsyncRead, AsyncReadExt};
-
-const MAX_BLOCK_SIZE: usize = 1024 * 1024 * 4;
 
 #[rocket::async_trait]
 impl ContentAddressedStorage for Ipfs<DefaultParams> {
     type Error = anyhow::Error;
-    async fn put(&self, content: &[u8], codec: SupportedCodecs) -> Result<Cid, Self::Error> {
+    async fn put(&self, content: &[u8], _codec: SupportedCodecs) -> Result<Cid, Self::Error> {
         // TODO find a way to stream this better? (use .take with max block size?)
         // TODO impl support for chunking with linked data (e.g. use IpldCodec)
         let block = Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, content)?;

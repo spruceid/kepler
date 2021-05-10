@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::{anyhow, Error, Result};
-use libipld::cid::{multibase::Base, Cid};
+use libipld::cid::Cid;
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
@@ -214,11 +214,7 @@ async fn batch_put_create(
     auth: AuthWrapper<TZAuth>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create {
-            orbit_id,
-            salt,
-            content,
-        } => {
+        Action::Create { orbit_id, salt, .. } => {
             verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
@@ -250,11 +246,7 @@ async fn put_create(
     auth: AuthWrapper<TZAuth>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create {
-            orbit_id,
-            salt,
-            content,
-        } => {
+        Action::Create { orbit_id, salt, .. } => {
             verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
@@ -285,7 +277,7 @@ async fn delete_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TZAuth>,
 ) -> Result<(), Debug<Error>> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
@@ -294,8 +286,8 @@ async fn delete_content(
     Ok(orbit.delete(&hash.0).await?)
 }
 
-#[options("/<s..>")]
-async fn cors(s: PathBuf) -> Result<(), Debug<Error>> {
+#[options("/<_s..>")]
+async fn cors(_s: PathBuf) -> Result<(), Debug<Error>> {
     Ok(())
 }
 

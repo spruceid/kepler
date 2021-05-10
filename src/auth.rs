@@ -1,13 +1,9 @@
 use crate::{
-    codec::SupportedCodecs,
     orbit::{Orbit, SimpleOrbit},
     OrbitCollection, Orbits,
 };
 use anyhow::Result;
-use libipld::{
-    cid::Cid,
-    multihash::{Code, MultihashDigest},
-};
+use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -79,9 +75,9 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
 
         match token.action() {
             // content actions have the same authz process
-            Action::Put { orbit_id, content }
-            | Action::Get { orbit_id, content }
-            | Action::Del { orbit_id, content } => {
+            Action::Put { orbit_id, .. }
+            | Action::Get { orbit_id, .. }
+            | Action::Del { orbit_id, .. } => {
                 let read_orbits = orbits.orbits().await;
                 let orbit = match read_orbits.get(orbit_id) {
                     Some(o) => o,
@@ -99,11 +95,7 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
             }
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create {
-                orbit_id,
-                salt,
-                content,
-            } => match req.rocket().state::<T::Policy>() {
+            Action::Create { .. } => match req.rocket().state::<T::Policy>() {
                 Some(auth) => match auth.authorize(&token).await {
                     Ok(_) => Outcome::Success(AuthWrapper(token)),
                     Err(e) => Outcome::Failure((Status::Unauthorized, e)),
