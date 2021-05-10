@@ -10,7 +10,12 @@ Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage.
   * [ ] DID Verification method ID allowlist
   * [ ] Verifiable Credential requirements
   * [ ] Object Capabilities framework
-  
+
+## Configuration
+All configuration variables are documented in [kepler.toml](kepler.toml). You
+can either modify them in this file, or specify them through environment
+variable using the prefix `KEPLER_`.
+
 ## API
 
 Kepler exposes a basic HTTP API with POST and GET requests for putting and reading stored entries.
