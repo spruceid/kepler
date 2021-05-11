@@ -5,7 +5,11 @@ use super::{
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs};
 use libipld::{
-    cid::{multibase::Base, Cid},
+    cid::{
+        multibase::Base,
+        multihash::{Code, MultihashDigest},
+        Cid,
+    },
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
@@ -16,7 +20,7 @@ use rocket::{
     tokio::io::AsyncRead,
 };
 use ssi::did::DIDURL;
-use std::path::Path;
+use std::{convert::TryFrom, path::Path};
 
 #[rocket::async_trait]
 pub trait Orbit: ContentAddressedStorage {
@@ -65,6 +69,13 @@ where
         .ok_or(anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid, policy })
+}
+
+pub fn verify_oid_v0(oid: &Cid, pkh: &str, salt: &str) -> bool {
+    match Code::try_from(oid.hash().code()) {
+        Ok(code) => &code.digest(format!("{}:{}", salt, pkh).as_bytes()) == oid.hash(),
+        _ => false,
+    }
 }
 
 #[rocket::async_trait]
