@@ -40,7 +40,7 @@ mod tz;
 use auth::{Action, AuthWrapper, AuthorizationToken};
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
-use orbit::{create_orbit, Orbit, SimpleOrbit};
+use orbit::{create_orbit, verify_oid_v0, Orbit, SimpleOrbit};
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CidWrap(Cid);
@@ -219,6 +219,10 @@ async fn batch_put_create(
             salt,
             content,
         } => {
+            if !verify_oid_v0(orbit_id, &auth.0.pkh, salt) {
+                Err(anyhow!("Invalid Orbit ID"))?;
+            }
+
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
             let mut uris = Vec::<String>::new();
@@ -253,6 +257,10 @@ async fn put_create(
             salt,
             content,
         } => {
+            if !verify_oid_v0(orbit_id, &auth.0.pkh, salt) {
+                Err(anyhow!("Invalid Orbit ID"))?;
+            }
+
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
             let uri = orbit.make_uri(
