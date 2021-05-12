@@ -71,10 +71,13 @@ where
     Ok(SimpleOrbit { ipfs, oid, policy })
 }
 
-pub fn verify_oid_v0(oid: &Cid, pkh: &str, salt: &str) -> bool {
-    match Code::try_from(oid.hash().code()) {
-        Ok(code) => &code.digest(format!("{}:{}", salt, pkh).as_bytes()) == oid.hash(),
-        _ => false,
+pub fn verify_oid_v0(oid: &Cid, pkh: &str, salt: &str) -> Result<()> {
+    if &Code::try_from(oid.hash().code())?.digest(format!("{}:{}", salt, pkh).as_bytes())
+        == oid.hash()
+    {
+        Ok(())
+    } else {
+        Err(anyhow!("Failed to verify Orbit ID"))
     }
 }
 
