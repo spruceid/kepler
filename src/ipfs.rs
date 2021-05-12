@@ -27,6 +27,7 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         // TODO this does not enforce deletion across the network, we need to devise a method for that via the pubsub stuff
         self.alias(address.to_bytes(), None)?;
-        Ok(self.remove_record(&address.hash().to_bytes().into()))
+        self.remove_record(&address.hash().to_bytes().into());
+        Ok(())
     }
 }

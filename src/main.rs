@@ -142,14 +142,11 @@ async fn get_content(
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or(anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| anyhow!("No Orbit Found"))?;
     match orbit.get(&hash.0).await {
-        Ok(Some(content)) => Ok(Some(RocketStream::chunked(
-            Cursor::new(content.to_owned()),
-            1024,
-        ))),
+        Ok(Some(content)) => Ok(Some(RocketStream::chunked(Cursor::new(content), 1024))),
         Ok(None) => Ok(None),
-        Err(e) => Err(e)?,
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -163,7 +160,7 @@ async fn batch_put_content(
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or(anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| anyhow!("No Orbit Found"))?;
     let mut uris = Vec::<String>::new();
     for content in batch.into_inner().into_iter() {
         uris.push(
@@ -189,7 +186,7 @@ async fn put_content(
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or(anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| anyhow!("No Orbit Found"))?;
     match orbit
         .put(
             &data
@@ -202,7 +199,7 @@ async fn put_content(
         .await
     {
         Ok(cid) => Ok(orbit.make_uri(&cid)?),
-        Err(e) => Err(e)?,
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -233,7 +230,7 @@ async fn batch_put_create(
             orbits.add(orbit).await;
             Ok(uris.join("\n"))
         }
-        _ => Err(anyhow!("Invalid Authorization"))?,
+        _ => Err(anyhow!("Invalid Authorization").into()),
     }
 }
 
@@ -268,7 +265,7 @@ async fn put_create(
 
             Ok(uri)
         }
-        _ => Err(anyhow!("Invalid Authorization"))?,
+        _ => Err(anyhow!("Invalid Authorization").into()),
     }
 }
 
@@ -282,7 +279,7 @@ async fn delete_content(
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or(anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| anyhow!("No Orbit Found"))?;
     Ok(orbit.delete(&hash.0).await?)
 }
 

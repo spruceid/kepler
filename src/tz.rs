@@ -1,7 +1,5 @@
 use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
-use bs58;
-use hex;
 use libipld::{
     cid::multibase::Base,
     multihash::{Code, MultihashDigest},
@@ -55,21 +53,18 @@ impl FromStr for TezosAuthorizationString {
     }
 }
 
-fn space_delimit<'a>(s: &'a str) -> IResult<&str, &str> {
+fn space_delimit(s: &str) -> IResult<&str, &str> {
     preceded(tag(" "), take_until(" "))(s)
 }
 
 // NOTE this will consume the whole string, it should only be called on fragments which are already separated
-fn parse_cid<'a>(s: &'a str) -> IResult<&str, Cid> {
+fn parse_cid(s: &str) -> IResult<&str, Cid> {
     s.parse_to()
-        .ok_or(nom::Err::Failure(nom::error::make_error(
-            s,
-            nom::error::ErrorKind::IsNot,
-        )))
+        .ok_or_else(|| nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot)))
         .map(|cid| ("", cid))
 }
 
-fn parse_get<'a>(s: &'a str) -> IResult<&str, Action> {
+fn parse_get(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
         tag(" GET"),
@@ -78,7 +73,7 @@ fn parse_get<'a>(s: &'a str) -> IResult<&str, Action> {
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Get { orbit_id, content }))
 }
 
-fn parse_put<'a>(s: &'a str) -> IResult<&str, Action> {
+fn parse_put(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
         tag(" PUT"),
@@ -87,7 +82,7 @@ fn parse_put<'a>(s: &'a str) -> IResult<&str, Action> {
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Put { orbit_id, content }))
 }
 
-fn parse_del<'a>(s: &'a str) -> IResult<&str, Action> {
+fn parse_del(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
         tag(" DEL"),
@@ -96,7 +91,7 @@ fn parse_del<'a>(s: &'a str) -> IResult<&str, Action> {
     .map(|(rest, (orbit_id, _, content))| (rest, Action::Del { orbit_id, content }))
 }
 
-fn parse_create<'a>(s: &'a str) -> IResult<&str, Action> {
+fn parse_create(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
         tag(" CREATE"),
@@ -115,7 +110,7 @@ fn parse_create<'a>(s: &'a str) -> IResult<&str, Action> {
     })
 }
 
-fn parse_action<'a>(s: &'a str) -> IResult<&str, Action> {
+fn parse_action(s: &str) -> IResult<&str, Action> {
     alt((parse_get, parse_put, parse_del, parse_create))(s)
 }
 
@@ -213,7 +208,8 @@ impl core::fmt::Display for TezosAuthorizationString {
 pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
     let key = jwk_from_tezos_key(&auth.pk)?;
     verify_bytes(
-        key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
+        key.algorithm
+            .ok_or_else(|| anyhow!("Invalid Signature Scheme"))?,
         &auth.serialize_for_verification()?,
         &key,
         &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
