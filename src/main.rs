@@ -218,9 +218,7 @@ async fn batch_put_create(
             salt,
             content,
         } => {
-            if !verify_oid_v0(orbit_id, &auth.0.pkh, salt) {
-                Err(anyhow!("Invalid Orbit ID"))?;
-            }
+            verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
@@ -256,9 +254,7 @@ async fn put_create(
             salt,
             content,
         } => {
-            if !verify_oid_v0(orbit_id, &auth.0.pkh, salt) {
-                Err(anyhow!("Invalid Orbit ID"))?;
-            }
+            verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
             let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
 
