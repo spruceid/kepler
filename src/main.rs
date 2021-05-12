@@ -27,7 +27,7 @@ use std::{
 };
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio_stream::wrappers::ReadDirStream;
-use tz::{TZAuth, TezosBasicAuthorization};
+use tz::{TezosAuthorizationString, TezosBasicAuthorization};
 
 mod auth;
 mod cas;
@@ -137,7 +137,7 @@ async fn get_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    _auth: Option<AuthWrapper<TZAuth>>,
+    _auth: Option<AuthWrapper<TezosAuthorizationString>>,
 ) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
@@ -158,7 +158,7 @@ async fn batch_put_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
-    _auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
@@ -184,7 +184,7 @@ async fn put_content(
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    _auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
@@ -211,7 +211,7 @@ async fn batch_put_create(
     // TODO find a good way to not restrict all orbits to the same Type
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     batch: Form<Vec<PutContent>>,
-    auth: AuthWrapper<TZAuth>,
+    auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
         Action::Create { orbit_id, salt, .. } => {
@@ -243,7 +243,7 @@ async fn put_create(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     data: Data,
     codec: SupportedCodecs,
-    auth: AuthWrapper<TZAuth>,
+    auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
         Action::Create { orbit_id, salt, .. } => {
@@ -277,7 +277,7 @@ async fn delete_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
-    _auth: AuthWrapper<TZAuth>,
+    _auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<(), Debug<Error>> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read

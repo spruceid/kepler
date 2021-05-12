@@ -19,7 +19,7 @@ use ssi::{jws::verify_bytes, tzkey::jwk_from_tezos_key};
 use std::str::FromStr;
 
 #[derive(Debug)]
-pub struct TZAuth {
+pub struct TezosAuthorizationString {
     pub sig: String,
     pub pk: String,
     pub pkh: String,
@@ -27,7 +27,7 @@ pub struct TZAuth {
     pub action: Action,
 }
 
-impl FromStr for TZAuth {
+impl FromStr for TezosAuthorizationString {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
         match tuple::<_, _, nom::error::Error<&'a str>, _>((
@@ -40,13 +40,15 @@ impl FromStr for TZAuth {
             tag(" "),
         ))(s)
         {
-            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, _, action, _))) => Ok(TZAuth {
-                sig: sig_str.into(),
-                pk: pk_str.into(),
-                pkh: pkh_str.into(),
-                timestamp: timestamp_str.into(),
-                action,
-            }),
+            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, _, action, _))) => {
+                Ok(TezosAuthorizationString {
+                    sig: sig_str.into(),
+                    pk: pk_str.into(),
+                    pkh: pkh_str.into(),
+                    timestamp: timestamp_str.into(),
+                    action,
+                })
+            }
             // TODO there is a lifetime issue which prevents using the nom error here
             Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
         }
@@ -153,7 +155,7 @@ fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Re
     .join(" "))
 }
 
-impl TZAuth {
+impl TezosAuthorizationString {
     fn serialize_for_verification(&self) -> Result<Vec<u8>> {
         let message = format!(
             "Tezos Signed Message: kepler.net {} {} {} {}",
@@ -169,12 +171,12 @@ impl TZAuth {
     }
 }
 
-impl AuthorizationToken for TZAuth {
+impl AuthorizationToken for TezosAuthorizationString {
     const HEADER_KEY: &'static str = "Authorization";
     type Policy = TezosBasicAuthorization;
 
-    fn extract<'a>(auth_data: &'a str) -> Result<Self> {
-        TZAuth::from_str(auth_data)
+    fn extract(auth_data: &str) -> Result<Self> {
+        TezosAuthorizationString::from_str(auth_data)
     }
 
     fn action(&self) -> &Action {
@@ -194,7 +196,7 @@ fn encode_string(s: &str) -> Vec<u8> {
     .unwrap()
 }
 
-impl core::fmt::Display for TZAuth {
+impl core::fmt::Display for TezosAuthorizationString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -208,7 +210,7 @@ impl core::fmt::Display for TZAuth {
     }
 }
 
-pub fn verify(auth: &TZAuth) -> Result<()> {
+pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
     let key = jwk_from_tezos_key(&auth.pk)?;
     verify_bytes(
         key.algorithm.ok_or(anyhow!("Invalid Signature Scheme"))?,
@@ -223,7 +225,7 @@ pub struct TezosBasicAuthorization;
 
 #[rocket::async_trait]
 impl AuthorizationPolicy for TezosBasicAuthorization {
-    type Token = TZAuth;
+    type Token = TezosAuthorizationString;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a Action> {
         verify(auth_token).map(|_| auth_token.action())
@@ -241,14 +243,14 @@ async fn string_encoding() {
 #[test]
 async fn simple_parse() {
     let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
-    let _: TZAuth = auth_str.parse().unwrap();
+    let _: TezosAuthorizationString = auth_str.parse().unwrap();
 }
 
 #[test]
 #[should_panic]
 async fn simple_verify_fail() {
     let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
-    let tza: TZAuth = auth_str.parse().unwrap();
+    let tza: TezosAuthorizationString = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
 }
@@ -256,7 +258,7 @@ async fn simple_verify_fail() {
 #[test]
 async fn simple_verify_succeed() {
     let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkvR6aAd12AiVyh9UJUntyNtLM2usrpCq4avG8KozdSMU7vvu7qU tz1c5eqtBarJ9brFnmUy2n7Bvg1RCpWk29eU z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my PUT z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtmtSYSCCB8yyvj3BiFHSgbS21UAoR2jrQMWEr3eA99Czyph3duzEVAVYnG8chBKBPMhxD9ZyTwQSAoMuGr6bnotP9m9wvK";
-    let tza: TZAuth = auth_str.parse().unwrap();
+    let tza: TezosAuthorizationString = auth_str.parse().unwrap();
 
     verify(&tza).unwrap();
 }
@@ -287,7 +289,7 @@ async fn round_trip() {
         .into_string(),
         _ => panic!(),
     };
-    let tz_unsigned = TZAuth {
+    let tz_unsigned = TezosAuthorizationString {
         sig: "".into(),
         pk,
         pkh: pkh.into(),
@@ -310,7 +312,7 @@ async fn round_trip() {
     )
     .with_check()
     .into_string();
-    let tz = TZAuth { sig, ..tz_unsigned };
+    let tz = TezosAuthorizationString { sig, ..tz_unsigned };
 
     assert_eq!(
         message,
