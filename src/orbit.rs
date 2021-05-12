@@ -58,7 +58,7 @@ where
     ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
         .next()
         .await
-        .ok_or(anyhow!("IPFS Listening Failed"))?;
+        .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid, policy })
 }

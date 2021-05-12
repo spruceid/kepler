@@ -33,7 +33,7 @@ pub enum Action {
 pub trait AuthorizationToken: Sized {
     type Policy: AuthorizationPolicy<Token = Self> + Send + Sync;
     const HEADER_KEY: &'static str;
-    fn extract<'a>(auth_data: &'a str) -> Result<Self>;
+    fn extract(auth_data: &str) -> Result<Self>;
     fn action(&self) -> &Action;
 }
 
