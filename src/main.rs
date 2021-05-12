@@ -18,6 +18,7 @@ use rocket::{
     tokio::fs::read_dir,
     State,
 };
+use ssi::did::DIDURL;
 // use rocket_cors::CorsOptions;
 use std::{
     collections::BTreeMap,
@@ -40,7 +41,7 @@ mod tz;
 use auth::{Action, AuthWrapper, AuthorizationToken};
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
-use orbit::{create_orbit, verify_oid_v0, Orbit, SimpleOrbit};
+use orbit::{create_orbit, load_orbit, verify_oid_v0, Orbit, SimpleOrbit};
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CidWrap(Cid);
@@ -113,11 +114,9 @@ async fn load_orbits<P: AsRef<Path>>(
     // for entries in the dir
     let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
         ReadDirStream::new(read_dir(path_ref).await?)
-            // filter for those with valid CID filenames
-            .filter_map(|p| async { Cid::from_str(p.ok()?.file_name().to_str()?).ok() })
-            // get a future to load each
-            .filter_map(|cid| async move {
-                create_orbit(cid, path_ref, TezosBasicAuthorization)
+            // try to load each as an orbit
+            .filter_map(|p| async {
+                load_orbit(p.ok()?.file_name().to_str()?, TezosBasicAuthorization)
                     .await
                     .ok()
             })
@@ -214,7 +213,19 @@ async fn batch_put_create(
         Action::Create { orbit_id, salt, .. } => {
             verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
-            let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
+            let vm = DIDURL {
+                did: format!("did:pkh:tz:{}", &auth.0.pkh),
+                fragment: Some("TezosMethod2021".to_string()),
+                ..Default::default()
+            };
+
+            let orbit = create_orbit(
+                *orbit_id,
+                &orbits.base_path,
+                TezosBasicAuthorization,
+                vec![vm],
+            )
+            .await?;
 
             let mut uris = Vec::<String>::new();
             for content in batch.into_inner().into_iter() {
@@ -246,7 +257,19 @@ async fn put_create(
         Action::Create { orbit_id, salt, .. } => {
             verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
 
-            let orbit = create_orbit(*orbit_id, &orbits.base_path, TezosBasicAuthorization).await?;
+            let vm = DIDURL {
+                did: format!("did:pkh:tz:{}", &auth.0.pkh),
+                fragment: Some("TezosMethod2021".to_string()),
+                ..Default::default()
+            };
+
+            let orbit = create_orbit(
+                *orbit_id,
+                &orbits.base_path,
+                TezosBasicAuthorization,
+                vec![vm],
+            )
+            .await?;
 
             let uri = orbit.make_uri(
                 &orbit

@@ -10,9 +10,45 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::futures::stream::StreamExt;
+use rocket::{futures::stream::StreamExt, tokio::fs};
+use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::Path};
+
+#[derive(Serialize, Deserialize)]
+pub struct OrbitMetadata {
+    // NOTE This will always serialize in b58check
+    #[serde(with = "cid_serde")]
+    pub id: Cid,
+    pub controllers: Vec<DIDURL>,
+    pub read_delegators: Vec<DIDURL>,
+    pub write_delegators: Vec<DIDURL>,
+    // TODO placeholder type
+    pub revocations: Vec<String>,
+}
+
+mod cid_serde {
+    use libipld::cid::{multibase::Base, Cid};
+    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ser.serialize_str(
+            &cid.to_string_of_base(Base::Base58Btc)
+                .map_err(S::Error::custom)?,
+        )
+    }
+
+    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deser)?;
+        s.parse().map_err(D::Error::custom)
+    }
+}
 
 #[rocket::async_trait]
 pub trait Orbit: ContentAddressedStorage {
@@ -42,15 +78,31 @@ pub struct SimpleOrbit<A: AuthorizationPolicy + Send + Sync> {
     policy: A,
 }
 
-pub async fn create_orbit<P, A>(oid: Cid, path: P, policy: A) -> Result<SimpleOrbit<A>>
+pub async fn create_orbit<P, A>(
+    oid: Cid,
+    path: P,
+    policy: A,
+    controllers: Vec<DIDURL>,
+) -> Result<SimpleOrbit<A>>
 where
     A: AuthorizationPolicy + Send + Sync,
     P: AsRef<Path>,
 {
-    let mut cfg = Config::new(
-        Some(path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?)),
-        0,
-    );
+    let dir = path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?);
+
+    fs::create_dir(&dir).await?;
+
+    let mut cfg = Config::new(Some(dir.join("block_store")), 0);
+
+    let md = OrbitMetadata {
+        id: oid.clone(),
+        controllers,
+        read_delegators: vec![],
+        write_delegators: vec![],
+        revocations: vec![],
+    };
+
+    fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
 
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
@@ -61,6 +113,31 @@ where
         .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid, policy })
+}
+
+pub async fn load_orbit<P, A>(path: P, policy: A) -> Result<SimpleOrbit<A>>
+where
+    A: AuthorizationPolicy + Send + Sync,
+    P: AsRef<Path>,
+{
+    let mut cfg = Config::new(Some(path.as_ref().join("block_store")), 0);
+
+    let md: OrbitMetadata =
+        serde_json::from_slice(&fs::read(path.as_ref().join("metadata")).await?)?;
+
+    // TODO enable dht once orbits are defined
+    cfg.network.kad = None;
+    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
+        .next()
+        .await
+        .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
+
+    Ok(SimpleOrbit {
+        ipfs,
+        oid: md.id,
+        policy,
+    })
 }
 
 pub fn verify_oid_v0(oid: &Cid, pkh: &str, salt: &str) -> Result<()> {
