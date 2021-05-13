@@ -90,10 +90,14 @@ where
 {
     let dir = path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?);
 
-    fs::create_dir(&dir).await?;
+    // fails if DIR exists, this is Create, not Open
+    fs::create_dir(&dir)
+        .await
+        .map_err(|_| anyhow!("Orbit already exists"))?;
 
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
 
+    // create default and write
     let md = OrbitMetadata {
         id: oid.clone(),
         controllers,
