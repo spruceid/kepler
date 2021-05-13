@@ -14,7 +14,7 @@ pub struct Database {
 impl Default for Database {
     fn default() -> Database {
         Database {
-            path: PathBuf::from(r"/tmp"),
+            path: PathBuf::from(r"/tmp/kepler"),
         }
     }
 }
