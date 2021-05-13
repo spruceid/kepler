@@ -324,9 +324,9 @@ async fn main() {
     let kepler_config = config.extract::<config::Config>().unwrap();
 
     // ensure KEPLER_DATABASE_PATH exists
-    tokio::fs::create_dir_all(&kepler_config.database.path)
-        .await
-        .unwrap();
+    if kepler_config.database.path.is_dir() {
+        panic!("KEPLER_DATABASE_PATH does not exist or is not a directory");
+    }
 
     rocket::custom(config.clone())
         .manage(load_orbits(kepler_config.database.path).await.unwrap())
