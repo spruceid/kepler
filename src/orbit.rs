@@ -83,6 +83,7 @@ pub async fn create_orbit<P, A>(
     path: P,
     policy: A,
     controllers: Vec<DIDURL>,
+    auth: &[u8],
 ) -> Result<SimpleOrbit<A>>
 where
     A: AuthorizationPolicy + Send + Sync,
@@ -108,13 +109,15 @@ where
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
 
+    fs::write(dir.join("access_log"), auth).await?;
+
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
         .next()
-        .await
-        .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
+        .await;
+    // .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid, policy })
 }

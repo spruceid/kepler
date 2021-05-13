@@ -224,6 +224,7 @@ async fn batch_put_create(
                 &orbits.base_path,
                 TezosBasicAuthorization,
                 vec![vm],
+                auth.0.to_string().as_bytes(),
             )
             .await?;
 
@@ -268,6 +269,7 @@ async fn put_create(
                 &orbits.base_path,
                 TezosBasicAuthorization,
                 vec![vm],
+                auth.0.to_string().as_bytes(),
             )
             .await?;
 
