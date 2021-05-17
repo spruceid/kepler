@@ -10,7 +10,7 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::{futures::stream::StreamExt, tokio::fs};
+use rocket::{futures::stream::StreamExt, http::uri::Absolute, tokio::fs};
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::Path};
@@ -147,9 +147,12 @@ where
     })
 }
 
-pub fn verify_oid_v0(oid: &Cid, pkh: &str, salt: &str) -> Result<()> {
-    if &Code::try_from(oid.hash().code())?.digest(format!("{}:{}", salt, pkh).as_bytes())
-        == oid.hash()
+pub fn verify_oid_v0(oid: &Cid, pkh: &str, params: &str) -> Result<()> {
+    let uri = format!("tz:{}{}", pkh, params);
+    // try to parse as a URL with query params
+    Absolute::parse(&uri).map_err(|_| anyhow!("Orbit Parameters Invalid"))?;
+    if &Code::try_from(oid.hash().code())?.digest(uri.as_bytes()) == oid.hash()
+        && oid.codec() == 0x55
     {
         Ok(())
     } else {

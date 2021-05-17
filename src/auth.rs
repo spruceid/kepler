@@ -25,7 +25,7 @@ pub enum Action {
     },
     Create {
         orbit_id: Cid,
-        salt: String,
+        parameters: String,
         content: Vec<Cid>,
     },
 }
