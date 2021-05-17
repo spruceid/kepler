@@ -332,8 +332,11 @@ async fn main() {
     let kepler_config = config.extract::<config::Config>().unwrap();
 
     // ensure KEPLER_DATABASE_PATH exists
-    if kepler_config.database.path.is_dir() {
-        panic!("KEPLER_DATABASE_PATH does not exist or is not a directory");
+    if !kepler_config.database.path.is_dir() {
+        panic!(
+            "KEPLER_DATABASE_PATH does not exist or is not a directory: {}",
+            kepler_config.database.path.to_str().unwrap()
+        );
     }
 
     rocket::custom(config.clone())
