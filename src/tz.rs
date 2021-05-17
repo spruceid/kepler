@@ -95,16 +95,16 @@ fn parse_create(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
         tag(" CREATE"),
-        space_delimit, // salt (orbit secret + nonce)
+        space_delimit, // parameters
         many1(map_parser(space_delimit, parse_cid)),
     ))(s)
-    .map(|(rest, (orbit_id, _, salt, content))| {
+    .map(|(rest, (orbit_id, _, params, content))| {
         (
             rest,
             Action::Create {
                 orbit_id,
                 content,
-                salt: salt.into(),
+                parameters: params.into(),
             },
         )
     })
@@ -122,11 +122,11 @@ fn serialize_action(action: &Action) -> Result<String> {
         Action::Create {
             orbit_id,
             content,
-            salt,
+            parameters,
         } => Ok([
             &orbit_id.to_string_of_base(Base::Base58Btc)?,
             "CREATE",
-            &salt,
+            &parameters,
             &content
                 .iter()
                 .map(|c| c.to_string_of_base(Base::Base58Btc))

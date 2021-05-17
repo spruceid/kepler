@@ -210,8 +210,12 @@ async fn batch_put_create(
     auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create { orbit_id, salt, .. } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
+        Action::Create {
+            orbit_id,
+            parameters,
+            ..
+        } => {
+            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)?;
 
             let vm = DIDURL {
                 did: format!("did:pkh:tz:{}", &auth.0.pkh),
@@ -255,8 +259,12 @@ async fn put_create(
     auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, Debug<Error>> {
     match auth.0.action() {
-        Action::Create { orbit_id, salt, .. } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, salt)?;
+        Action::Create {
+            orbit_id,
+            parameters,
+            ..
+        } => {
+            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)?;
 
             let vm = DIDURL {
                 did: format!("did:pkh:tz:{}", &auth.0.pkh),
