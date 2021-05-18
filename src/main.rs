@@ -5,7 +5,7 @@ extern crate anyhow;
 #[macro_use]
 extern crate tokio;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::Result;
 use libipld::cid::Cid;
 use rocket::{
     data::{Data, ToByteUnit},
@@ -13,8 +13,8 @@ use rocket::{
     figment::providers::{Env, Format, Serialized, Toml},
     form::{DataField, Form, FromFormField},
     futures::stream::StreamExt,
-    http::Header,
-    response::{Debug, Stream as RocketStream},
+    http::{Header, Status},
+    response::Stream as RocketStream,
     tokio::fs::read_dir,
     State,
 };
@@ -137,15 +137,15 @@ async fn get_content(
     orbit_id: CidWrap,
     hash: CidWrap,
     _auth: Option<AuthWrapper<TezosAuthorizationString>>,
-) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, Debug<Error>> {
+) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or_else(|| anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
     match orbit.get(&hash.0).await {
         Ok(Some(content)) => Ok(Some(RocketStream::chunked(Cursor::new(content), 1024))),
         Ok(None) => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(_) => Ok(None),
     }
 }
 
@@ -155,11 +155,11 @@ async fn batch_put_content(
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
     _auth: AuthWrapper<TezosAuthorizationString>,
-) -> Result<String, Debug<Error>> {
+) -> Result<String, (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or_else(|| anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
     let mut uris = Vec::<String>::new();
     for content in batch.into_inner().into_iter() {
         uris.push(
@@ -181,24 +181,26 @@ async fn put_content(
     data: Data,
     codec: SupportedCodecs,
     _auth: AuthWrapper<TezosAuthorizationString>,
-) -> Result<String, Debug<Error>> {
+) -> Result<String, (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or_else(|| anyhow!("No Orbit Found"))?;
+        .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
     match orbit
         .put(
             &data
-                .open(10u8.megabytes())
+                .open(1u8.megabytes())
                 .into_bytes()
                 .await
-                .map_err(|e| anyhow!(e))?,
+                .map_err(|_| (Status::BadRequest, "Failed to stream content"))?,
             codec,
         )
         .await
     {
-        Ok(cid) => Ok(orbit.make_uri(&cid)?),
-        Err(e) => Err(e.into()),
+        Ok(cid) => Ok(orbit
+            .make_uri(&cid)
+            .map_err(|_| (Status::InternalServerError, "Failed to generate URI"))?),
+        Err(_) => Err((Status::InternalServerError, "Failed to store content")),
     }
 }
 
@@ -208,14 +210,15 @@ async fn batch_put_create(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     batch: Form<Vec<PutContent>>,
     auth: AuthWrapper<TezosAuthorizationString>,
-) -> Result<String, Debug<Error>> {
+) -> Result<String, (Status, &'static str)> {
     match auth.0.action() {
         Action::Create {
             orbit_id,
             parameters,
             ..
         } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)?;
+            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)
+                .map_err(|_| (Status::BadRequest, "Incorrect Orbit ID"))?;
 
             let vm = DIDURL {
                 did: format!("did:pkh:tz:{}", &auth.0.pkh),
@@ -230,7 +233,8 @@ async fn batch_put_create(
                 vec![vm],
                 auth.0.to_string().as_bytes(),
             )
-            .await?;
+            .await
+            .map_err(|_| (Status::Conflict, "Orbit Already Exists"))?;
 
             let mut uris = Vec::<String>::new();
             for content in batch.into_inner().into_iter() {
@@ -246,7 +250,7 @@ async fn batch_put_create(
             orbits.add(orbit).await;
             Ok(uris.join("\n"))
         }
-        _ => Err(anyhow!("Invalid Authorization").into()),
+        _ => Err((Status::Unauthorized, "Incorrectly Authorized Action")),
     }
 }
 
@@ -257,14 +261,15 @@ async fn put_create(
     data: Data,
     codec: SupportedCodecs,
     auth: AuthWrapper<TezosAuthorizationString>,
-) -> Result<String, Debug<Error>> {
+) -> Result<String, (Status, &'static str)> {
     match auth.0.action() {
         Action::Create {
             orbit_id,
             parameters,
             ..
         } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)?;
+            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)
+                .map_err(|_| (Status::BadRequest, "Incorrect Orbit ID"))?;
 
             let vm = DIDURL {
                 did: format!("did:pkh:tz:{}", &auth.0.pkh),
@@ -279,26 +284,30 @@ async fn put_create(
                 vec![vm],
                 auth.0.to_string().as_bytes(),
             )
-            .await?;
+            .await
+            .map_err(|_| (Status::Conflict, "Orbit Already Exists"))?;
 
-            let uri = orbit.make_uri(
-                &orbit
-                    .put(
-                        &data
-                            .open(10u8.megabytes())
-                            .into_bytes()
-                            .await
-                            .map_err(|e| anyhow!(e))?,
-                        codec,
-                    )
-                    .await?,
-            )?;
+            let uri = orbit
+                .make_uri(
+                    &orbit
+                        .put(
+                            &data
+                                .open(1u8.megabytes())
+                                .into_bytes()
+                                .await
+                                .map_err(|_| (Status::BadRequest, "Failed to stream content"))?,
+                            codec,
+                        )
+                        .await
+                        .map_err(|_| (Status::InternalServerError, "Failed to store content"))?,
+                )
+                .map_err(|_| (Status::InternalServerError, "Failed to generate URI"))?;
 
             orbits.add(orbit).await;
 
             Ok(uri)
         }
-        _ => Err(anyhow!("Invalid Authorization").into()),
+        _ => Err((Status::Unauthorized, "Incorrectly Authorized Action")),
     }
 }
 
@@ -308,17 +317,20 @@ async fn delete_content(
     orbit_id: CidWrap,
     hash: CidWrap,
     _auth: AuthWrapper<TezosAuthorizationString>,
-) -> Result<(), Debug<Error>> {
+) -> Result<(), (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
-        .ok_or_else(|| anyhow!("No Orbit Found"))?;
-    Ok(orbit.delete(&hash.0).await?)
+        .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
+    Ok(orbit
+        .delete(&hash.0)
+        .await
+        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
 #[options("/<_s..>")]
-async fn cors(_s: PathBuf) -> Result<(), Debug<Error>> {
-    Ok(())
+async fn cors(_s: PathBuf) -> () {
+    ()
 }
 
 #[rocket::main]
