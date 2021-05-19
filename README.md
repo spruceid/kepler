@@ -11,14 +11,20 @@ Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage.
   * [ ] Verifiable Credential requirements
   * [ ] Object Capabilities framework
 
+Orbits are buckets of content which are access-controlled with a policy defined by the Orbit Administrators. They consitute a bounded replication environment, where only Hosts which are authorized by the Administrator may replicate the content inside the Orbit. Orbits are conceptually similar to private IPFS peer-groups/networks, where the peers are designated by Administrators and only serve content to those who are also authorized by the Administrators.
+
 ## Configuration
-All configuration variables are documented in [kepler.toml](kepler.toml). You
-can either modify them in this file, or specify them through environment
-variable using the prefix `KEPLER_`.
+All configuration variables are documented in [kepler.toml](kepler.toml). You can either modify them in this file, or specify them through environment variable using the prefix `KEPLER_`.
+
+Configuration Options:
+- `KEPLER_PORT`: Port which Kepler will serve HTTP requests on. Default: `8000`
+- `KEPLER_DATABASE_PATH`: Path which Kepler will use for storage. This path MUST point to a directory which Kepler can write to. This option is REQUIRED.
 
 ## API
 
 Kepler exposes a basic HTTP API with POST and GET requests for putting and reading stored entries.
+
+### Open an Orbit
 
 ### Read
 
@@ -56,10 +62,10 @@ Successful requests will result in a 200 response containing the fetched content
 ### Write
 
 Writing supports the following content types:
-* [X] None: corrosponds to the Raw multicodec
 * [X] `application/octet-stream`: corrosponds to the Raw multicodec
 * [X] `application/json`: corrosponds to the Json multicodec
 * [X] `application/msgpack`: corrosponds to the MsgPack multicodec
+* [X] None or any: corrosponds to the Raw multicodec
 
 #### Request
 
