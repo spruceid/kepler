@@ -19,6 +19,7 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub struct TezosAuthorizationString {
     pub sig: String,
+    pub domain: String,
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
@@ -29,18 +30,20 @@ impl FromStr for TezosAuthorizationString {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
         match tuple::<_, _, nom::error::Error<&'a str>, _>((
-            tag("Tezos Signed Message: kepler.net"), // remove
-            space_delimit,                           // get timestamp
-            space_delimit,                           // get pk
-            space_delimit,                           // get pkh
+            tag("Tezos Signed Message:"), // remove
+            space_delimit,                // domain string
+            space_delimit,                // get timestamp
+            space_delimit,                // get pk
+            space_delimit,                // get pkh
             tag(" "),
             parse_action, // get action
             tag(" "),
         ))(s)
         {
-            Ok((sig_str, (_, timestamp_str, pk_str, pkh_str, _, action, _))) => {
+            Ok((sig_str, (_, domain_str, timestamp_str, pk_str, pkh_str, _, action, _))) => {
                 Ok(TezosAuthorizationString {
                     sig: sig_str.into(),
+                    domain: domain_str.into(),
                     pk: pk_str.into(),
                     pkh: pkh_str.into(),
                     timestamp: timestamp_str.into(),
@@ -153,7 +156,8 @@ fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Re
 impl TezosAuthorizationString {
     fn serialize_for_verification(&self) -> Result<Vec<u8>> {
         let message = format!(
-            "Tezos Signed Message: kepler.net {} {} {} {}",
+            "Tezos Signed Message: {} {} {} {} {}",
+            &self.domain,
             &self.timestamp,
             &self.pk,
             &self.pkh,
@@ -195,7 +199,8 @@ impl core::fmt::Display for TezosAuthorizationString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: kepler.net {} {} {} {} {}",
+            "Tezos Signed Message: {} {} {} {} {} {}",
+            &self.domain,
             &self.timestamp,
             &self.pk,
             &self.pkh,
@@ -287,6 +292,7 @@ async fn round_trip() {
     };
     let tz_unsigned = TezosAuthorizationString {
         sig: "".into(),
+        domain: "kepler.net".into(),
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
