@@ -1,7 +1,4 @@
-use crate::{
-    orbit::{Orbit, SimpleOrbit},
-    OrbitCollection, Orbits,
-};
+use crate::orbit::{Orbit, OrbitCollection, Orbits, SimpleOrbit};
 use anyhow::Result;
 use libipld::cid::Cid;
 use rocket::{
