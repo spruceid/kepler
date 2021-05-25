@@ -1,12 +1,10 @@
 use anyhow::Result;
 use rocket::{
     data::{Data, ToByteUnit},
-    fairing::AdHoc,
-    figment::Figment,
     form::Form,
-    http::{Header, Status},
+    http::Status,
     response::Stream,
-    Build, Rocket, State,
+    State,
 };
 use ssi::did::DIDURL;
 use std::{io::Cursor, path::PathBuf};
@@ -14,14 +12,11 @@ use std::{io::Cursor, path::PathBuf};
 use crate::auth::{Action, AuthWrapper, AuthorizationToken};
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
-use crate::config::Config;
-use crate::orbit::{
-    create_orbit, load_orbits, verify_oid_v0, Orbit, OrbitCollection, Orbits, SimpleOrbit,
-};
+use crate::orbit::{create_orbit, verify_oid_v0, Orbit, OrbitCollection, Orbits, SimpleOrbit};
 use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
 
 #[get("/<orbit_id>/<hash>")]
-async fn get_content(
+pub async fn get_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
@@ -39,7 +34,7 @@ async fn get_content(
 }
 
 #[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
-async fn batch_put_content(
+pub async fn batch_put_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
@@ -64,7 +59,7 @@ async fn batch_put_content(
 }
 
 #[post("/<orbit_id>", data = "<data>", rank = 2)]
-async fn put_content(
+pub async fn put_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     data: Data,
@@ -94,7 +89,7 @@ async fn put_content(
 }
 
 #[post("/", format = "multipart/form-data", data = "<batch>")]
-async fn batch_put_create(
+pub async fn batch_put_create(
     // TODO find a good way to not restrict all orbits to the same Type
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     batch: Form<Vec<PutContent>>,
@@ -144,7 +139,7 @@ async fn batch_put_create(
 }
 
 #[post("/", data = "<data>", rank = 2)]
-async fn put_create(
+pub async fn put_create(
     // TODO find a good way to not restrict all orbits to the same Type
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     data: Data,
@@ -201,7 +196,7 @@ async fn put_create(
 }
 
 #[delete("/<orbit_id>/<hash>")]
-async fn delete_content(
+pub async fn delete_content(
     orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
@@ -218,45 +213,6 @@ async fn delete_content(
 }
 
 #[options("/<_s..>")]
-async fn cors(_s: PathBuf) -> () {
+pub async fn cors(_s: PathBuf) -> () {
     ()
-}
-
-pub async fn app(config: Figment) -> Result<Rocket<Build>> {
-    let kepler_config = config.extract::<Config>()?;
-
-    // ensure KEPLER_DATABASE_PATH exists
-    if !kepler_config.database.path.is_dir() {
-        return Err(anyhow!(
-            "KEPLER_DATABASE_PATH does not exist or is not a directory: {:?}",
-            kepler_config.database.path.to_str()
-        ));
-    }
-
-    Ok(rocket::custom(config)
-        .manage(load_orbits(kepler_config.database.path).await?)
-        .manage(TezosBasicAuthorization)
-        .mount(
-            "/",
-            routes![
-                get_content,
-                put_content,
-                batch_put_content,
-                delete_content,
-                put_create,
-                batch_put_create,
-                cors
-            ],
-        )
-        .attach(AdHoc::on_response("CORS", |_, resp| {
-            Box::pin(async move {
-                resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-                resp.set_header(Header::new(
-                    "Access-Control-Allow-Methods",
-                    "POST, GET, OPTIONS, DELETE",
-                ));
-                resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
-                resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-            })
-        })))
 }

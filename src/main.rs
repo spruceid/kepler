@@ -1,26 +1,10 @@
-#[macro_use]
-extern crate rocket;
-#[macro_use]
-extern crate anyhow;
-#[macro_use]
-extern crate tokio;
-
 use anyhow::Result;
 use rocket::figment::{
     providers::{Env, Format, Serialized, Toml},
     Figment,
 };
 
-mod app;
-mod auth;
-mod cas;
-mod codec;
-mod config;
-mod ipfs;
-mod orbit;
-mod tz;
-
-use app::app;
+use kepler::app;
 
 #[rocket::main]
 async fn main() -> Result<()> {
