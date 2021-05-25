@@ -1,7 +1,7 @@
-# Kepler
-Product Requirements Document
+# Kepler Product Requirements Document
 
-Author: Wayne Chang <wayne@spruceid.com>
+Authors: Wayne Chang <wayne@spruceid.com>
+
 Date: October 9th, 2020
 
 Kepler is a decentralized data storage system built as a network of storage
@@ -144,7 +144,7 @@ For the MVP, they want to be able to
   monitor statistics such as peering, storage usage, uptime, bandwidth, and
   more.
 
-## Kepler Storage User
+### Kepler Storage User
 A Kepler Storage User has a Tezos account and wants to store files on the
 Kepler storage network (KSN). For the MVP, they want to be able to:
 - Deploy their dApp to KSN including its frontend web assets.
@@ -156,7 +156,7 @@ Kepler storage network (KSN). For the MVP, they want to be able to:
 - View the reasons for increases in storage quota, such as having a certain
   number of mainnet transactions associated with their account.
 
-# Kepler Network Administrator
+### Kepler Network Administrator
 The Kepler Network Administrator responds to takedown requests and fights spam
 on behalf of all nodes. It is the centralized governance actor that we hope to
 eventually decentralize with BaseDAO. We expect a single party, possibly
@@ -167,7 +167,3 @@ network members. Specifically, they:
 - Set up and maintain the core software projects.
 - Monitor network-level health, including file durability.
 - Run a node cluster of last resort to add to high availability guarantees.
-
-
-
-
