@@ -1,6 +1,6 @@
 # Kepler Architecture
 
-Authors: Wayne Chang <wayne@spruceid.com>
+Authors: Wayne Chang <wayne@spruceid.com>, Charles Cunningham <charles.cunningham@spruceid.com>
 
 Date: May 24th, 2021
 
@@ -27,7 +27,7 @@ aspects about the the Orbit, namely:
 The Orbit Manifest can live:
 - A smart contract on a censorship-resistant blockchain (e.g,. Tezos, Ethereum, Solana, etc.)
 - A smart contract on a private blockchain (e.g., Fabric, Corda)
-- An updatable document with high availability, such as Ceramic documents or Textile instances.
+- An updatable document with high availability, such as Ceramic documents, Textile instances or KERI Transaction Event Logs.
 - Permissioned DHT-like with update capabilities such as ipfs-log or [DHT Mutable Items](http://bittorrent.org/beps/bep_0046.html).
 - A centralized storage provider: website, S3, GitHub pages.
 - Any of the options above but also encrypted.
@@ -69,9 +69,9 @@ defaults or overrides are encoded into the Orbit Identifer, depending on the
 Orbit Method type.
 
 #### Orbit Roles
-The keyholder known as the Orbit Commander may determine virtually all aspects
-of the Orbit directly and indirectly by modifying the Orbit Manifest,
-including:
+The keyholder(s) known as the Orbit Commander(s) may determine virtually all aspects
+of the Orbit directly and indirectly by modifying the Orbit Manifest and issuing or
+revoking capabilities, including:
 - The list of public key-derived identifiers allowed to act as
   Orbit Commanders, Host Managers, Readers, Writers, Read Delegators, and Write
   Delegators.
@@ -115,11 +115,12 @@ Readers' implicit ability to read from Hosts), permissioning is handled via
 Capabilities are scoped to constraints such as the action (read/write/list),
 domain (contents/policy), and validity status (revocation list/expiration).
 
-#### Authentication Methods
-An Orbit's supported authentication methods are defined by the Orbit Commander,
-and they must all be key-based.  For example, it is possible to support
-cryptocurrency wallets with signing capabilities, such as ad hoc defined
-specifications such as [EIP-712](https://eips.ethereum.org/EIPS/eip-712), or
+#### Verification Methods for Capability Invocation
+An Orbit's supported cryptographic verification methods are defined by the
+Orbit Commander, and they must all be key-based. Capability invocation is
+authenticated by the use of these verification methods. For example, it is
+possible to support cryptocurrency wallets with signing capabilities, such
+as ad hoc defined specifications such as [EIP-712](https://eips.ethereum.org/EIPS/eip-712), or
 arbitrarily padded signing with other ecosystem wallets. It is also possible to
 authenticate with a [ZCAP](https://w3c-ccg.github.io/zcap-ld/) wrapped in a
 [Verifiable
