@@ -116,7 +116,7 @@ async fn load_orbits<P: AsRef<Path>>(
         ReadDirStream::new(read_dir(path_ref).await?)
             // try to load each as an orbit
             .filter_map(|p| async {
-                load_orbit(p.ok()?.file_name().to_str()?, TezosBasicAuthorization)
+                load_orbit(p.ok()?.path().to_str()?, TezosBasicAuthorization)
                     .await
                     .ok()
             })
