@@ -14,7 +14,6 @@ use rocket::{
     form::{DataField, Form, FromFormField},
     futures::stream::StreamExt,
     http::{Header, Status},
-    response::Stream as RocketStream,
     tokio::fs::read_dir,
     State,
 };
@@ -22,7 +21,6 @@ use ssi::did::DIDURL;
 // use rocket_cors::CorsOptions;
 use std::{
     collections::BTreeMap,
-    io::Cursor,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -133,17 +131,17 @@ async fn load_orbits<P: AsRef<Path>>(
 
 #[get("/<orbit_id>/<hash>")]
 async fn get_content(
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     _auth: Option<AuthWrapper<TezosAuthorizationString>>,
-) -> Result<Option<RocketStream<Cursor<Vec<u8>>>>, (Status, &'static str)> {
+) -> Result<Option<Vec<u8>>, (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
         .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
     match orbit.get(&hash.0).await {
-        Ok(Some(content)) => Ok(Some(RocketStream::chunked(Cursor::new(content), 1024))),
+        Ok(Some(content)) => Ok(Some(content.to_vec())),
         Ok(None) => Ok(None),
         Err(_) => Ok(None),
     }
@@ -151,7 +149,7 @@ async fn get_content(
 
 #[post("/<orbit_id>", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_content(
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     batch: Form<Vec<PutContent>>,
     _auth: AuthWrapper<TezosAuthorizationString>,
@@ -176,7 +174,7 @@ async fn batch_put_content(
 
 #[post("/<orbit_id>", data = "<data>", rank = 2)]
 async fn put_content(
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
@@ -207,7 +205,7 @@ async fn put_content(
 #[post("/", format = "multipart/form-data", data = "<batch>")]
 async fn batch_put_create(
     // TODO find a good way to not restrict all orbits to the same Type
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     batch: Form<Vec<PutContent>>,
     auth: AuthWrapper<TezosAuthorizationString>,
 ) -> Result<String, (Status, &'static str)> {
@@ -257,7 +255,7 @@ async fn batch_put_create(
 #[post("/", data = "<data>", rank = 2)]
 async fn put_create(
     // TODO find a good way to not restrict all orbits to the same Type
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     data: Data,
     codec: SupportedCodecs,
     auth: AuthWrapper<TezosAuthorizationString>,
@@ -313,7 +311,7 @@ async fn put_create(
 
 #[delete("/<orbit_id>/<hash>")]
 async fn delete_content(
-    orbits: State<'_, Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     hash: CidWrap,
     _auth: AuthWrapper<TezosAuthorizationString>,
