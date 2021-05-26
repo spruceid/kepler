@@ -10,7 +10,7 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::{futures::stream::StreamExt, http::uri::Reference, tokio::fs};
+use rocket::{futures::stream::StreamExt, tokio::fs};
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::Path};
@@ -148,15 +148,22 @@ where
 }
 
 pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
-    // try to parse as a URL with query params
-    let uri = Reference::parse(&uri_str).map_err(|e| anyhow!(e.to_string()))?;
-    let query = uri.query().ok_or(anyhow!("No Orbit parameters provided"))?;
+    // try to parse as a URI with matrix params
+    let mut parts = uri_str.split(';');
+    let method = parts.next().ok_or(anyhow!("No URI"))?;
 
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
-        && match uri.path().as_str() {
-            "tz" => query
-                .segments()
+        && match method {
+            "tz" => parts
+                .map(|part| part.split('=').collect::<Vec<&str>>())
+                .filter_map(|kv| {
+                    if kv.len() == 2 {
+                        Some((kv[0], kv[1]))
+                    } else {
+                        None
+                    }
+                })
                 .any(|(name, value)| name == "address" && value == pkh),
             _ => Err(anyhow!("Orbit method not registered"))?,
         }
@@ -231,12 +238,12 @@ where
 
 #[test]
 async fn oid_verification() {
-    let oid: Cid = "zCT5htkdxg8ioQ9pA3C2qGQsFafGeAMvrHC572oTCTpbo358BBHQ"
+    let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
         .parse()
         .unwrap();
     let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
     let domain = "kepler.tzprofiles.com";
     let index = 0;
-    let uri = format!("tz?address={}&domain={}&index={}", pkh, domain, index);
+    let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
     verify_oid(&oid, pkh, &uri).unwrap();
 }
