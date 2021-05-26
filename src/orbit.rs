@@ -10,7 +10,7 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::{futures::stream::StreamExt, http::uri::Absolute, tokio::fs};
+use rocket::{futures::stream::StreamExt, http::uri::Reference, tokio::fs};
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::Path};
@@ -147,12 +147,19 @@ where
     })
 }
 
-pub fn verify_oid_v0(oid: &Cid, pkh: &str, params: &str) -> Result<()> {
-    let uri = format!("tz:{}{}", pkh, params);
+pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
     // try to parse as a URL with query params
-    Absolute::parse(&uri).map_err(|_| anyhow!("Orbit Parameters Invalid"))?;
-    if &Code::try_from(oid.hash().code())?.digest(uri.as_bytes()) == oid.hash()
+    let uri = Reference::parse(&uri_str).map_err(|e| anyhow!(e.to_string()))?;
+    let query = uri.query().ok_or(anyhow!("No Orbit parameters provided"))?;
+
+    if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
+        && match uri.path().as_str() {
+            "tz" => query
+                .segments()
+                .any(|(name, value)| name == "address" && value == pkh),
+            _ => Err(anyhow!("Orbit method not registered"))?,
+        }
     {
         Ok(())
     } else {
@@ -211,7 +218,7 @@ where
 
     fn make_uri(&self, cid: &Cid) -> Result<String, <Self as Orbit>::Error> {
         Ok(format!(
-            "kepler://v0:{}/{}",
+            "kepler://{}/{}",
             self.id().to_string_of_base(Base::Base58Btc)?,
             cid.to_string_of_base(Base::Base58Btc)?
         ))
@@ -220,4 +227,16 @@ where
     async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
         todo!()
     }
+}
+
+#[test]
+async fn oid_verification() {
+    let oid: Cid = "zCT5htkdxg8ioQ9pA3C2qGQsFafGeAMvrHC572oTCTpbo358BBHQ"
+        .parse()
+        .unwrap();
+    let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
+    let domain = "kepler.tzprofiles.com";
+    let index = 0;
+    let uri = format!("tz?address={}&domain={}&index={}", pkh, domain, index);
+    verify_oid(&oid, pkh, &uri).unwrap();
 }

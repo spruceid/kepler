@@ -39,7 +39,7 @@ mod tz;
 use auth::{Action, AuthWrapper, AuthorizationToken};
 use cas::ContentAddressedStorage;
 use codec::{PutContent, SupportedCodecs};
-use orbit::{create_orbit, load_orbit, verify_oid_v0, Orbit, SimpleOrbit};
+use orbit::{create_orbit, load_orbit, verify_oid, Orbit, SimpleOrbit};
 
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CidWrap(Cid);
@@ -215,7 +215,7 @@ async fn batch_put_create(
             parameters,
             ..
         } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)
+            verify_oid(orbit_id, &auth.0.pkh, parameters)
                 .map_err(|_| (Status::BadRequest, "Incorrect Orbit ID"))?;
 
             let vm = DIDURL {
@@ -266,7 +266,7 @@ async fn put_create(
             parameters,
             ..
         } => {
-            verify_oid_v0(orbit_id, &auth.0.pkh, parameters)
+            verify_oid(orbit_id, &auth.0.pkh, parameters)
                 .map_err(|_| (Status::BadRequest, "Incorrect Orbit ID"))?;
 
             let vm = DIDURL {
