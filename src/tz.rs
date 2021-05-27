@@ -13,7 +13,10 @@ use nom::{
     sequence::{preceded, tuple},
     IResult, ParseTo,
 };
-use ssi::{jws::verify_bytes, tzkey::jwk_from_tezos_key};
+use ssi::{
+    jws::verify_bytes,
+    tzkey::{decode_tzsig, jwk_from_tezos_key},
+};
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -212,12 +215,13 @@ impl core::fmt::Display for TezosAuthorizationString {
 
 pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
     let key = jwk_from_tezos_key(&auth.pk)?;
+    let (_, sig) = decode_tzsig(&auth.sig)?;
     verify_bytes(
         key.algorithm
             .ok_or_else(|| anyhow!("Invalid Signature Scheme"))?,
         &auth.serialize_for_verification()?,
         &key,
-        &bs58::decode(&auth.sig).with_check(None).into_vec()?[5..].to_owned(),
+        &sig,
     )?;
     Ok(())
 }
