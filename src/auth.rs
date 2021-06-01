@@ -28,6 +28,9 @@ pub enum Action {
         parameters: String,
         content: Vec<Cid>,
     },
+    List {
+        orbit_id: Cid,
+    },
 }
 
 pub trait AuthorizationToken: Sized {
