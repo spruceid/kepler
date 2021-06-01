@@ -70,6 +70,11 @@ fn parse_cid(s: &str) -> IResult<&str, Cid> {
         .map(|cid| ("", cid))
 }
 
+fn parse_list(s: &str) -> IResult<&str, Action> {
+    tuple((map_parser(take_until(" "), parse_cid), tag(" LIST")))(s)
+        .map(|(rest, (orbit_id, _))| (rest, Action::List { orbit_id }))
+}
+
 fn parse_get(s: &str) -> IResult<&str, Action> {
     tuple((
         map_parser(take_until(" "), parse_cid),
@@ -117,7 +122,7 @@ fn parse_create(s: &str) -> IResult<&str, Action> {
 }
 
 fn parse_action(s: &str) -> IResult<&str, Action> {
-    alt((parse_get, parse_put, parse_del, parse_create))(s)
+    alt((parse_get, parse_put, parse_del, parse_create, parse_list))(s)
 }
 
 fn serialize_action(action: &Action) -> Result<String> {
@@ -125,6 +130,7 @@ fn serialize_action(action: &Action) -> Result<String> {
         Action::Put { orbit_id, content } => serialize_content_action("PUT", orbit_id, content),
         Action::Get { orbit_id, content } => serialize_content_action("GET", orbit_id, content),
         Action::Del { orbit_id, content } => serialize_content_action("DEL", orbit_id, content),
+        Action::List { orbit_id } => serialize_content_action("LIST", orbit_id, &[]),
         Action::Create {
             orbit_id,
             content,
