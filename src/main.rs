@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use libipld::cid::Cid;
+use libipld::cid::{multibase::Base, Cid};
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
@@ -127,6 +127,31 @@ async fn load_orbits<P: AsRef<Path>>(
     }
 
     Ok(orbits)
+}
+
+#[get("/<orbit_id>")]
+async fn list_content(
+    orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
+    orbit_id: CidWrap,
+    _auth: Option<AuthWrapper<TezosAuthorizationString>>,
+) -> Result<String, (Status, &'static str)> {
+    let orbits_read = orbits.orbits().await;
+    let orbit = orbits_read
+        .get(&orbit_id.0)
+        .ok_or_else(|| (Status::NotFound, "No Orbit Found"))?;
+    orbit
+        .list()
+        .await
+        .map_err(|_| (Status::InternalServerError, "Failed to list Orbit contents"))
+        .and_then(|l| {
+            l.into_iter()
+                .map(|c| {
+                    c.to_string_of_base(Base::Base58Btc)
+                        .map_err(|_| (Status::InternalServerError, "Failed to serialize CID"))
+                })
+                .collect::<Result<Vec<String>, (Status, &'static str)>>()
+                .map(|v| v.join("\n"))
+        })
 }
 
 #[get("/<orbit_id>/<hash>")]
@@ -355,6 +380,7 @@ async fn main() {
         .mount(
             "/",
             routes![
+                list_content,
                 get_content,
                 put_content,
                 batch_put_content,
