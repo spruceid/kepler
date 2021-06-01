@@ -6,28 +6,17 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use libipld::cid::Cid;
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
     figment::providers::{Env, Format, Serialized, Toml},
-    form::{DataField, Form, FromFormField},
-    futures::stream::StreamExt,
+    form::Form,
     http::{Header, Status},
     serde::json::Json,
-    tokio::fs::read_dir,
     State,
 };
 use ssi::did::DIDURL;
-// use rocket_cors::CorsOptions;
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
-use tokio::sync::{RwLock, RwLockReadGuard};
-use tokio_stream::wrappers::ReadDirStream;
-use tz::{TezosAuthorizationString, TezosBasicAuthorization};
+use std::path::PathBuf;
 
 mod auth;
 mod cas;
@@ -38,97 +27,10 @@ mod orbit;
 mod tz;
 
 use auth::{Action, AuthWrapper, AuthorizationToken};
-use cas::ContentAddressedStorage;
+use cas::{CidWrap, ContentAddressedStorage};
 use codec::{PutContent, SupportedCodecs};
-use orbit::{create_orbit, load_orbit, verify_oid, Orbit, SimpleOrbit};
-
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CidWrap(Cid);
-
-// Orphan rule requires a wrapper type for this :(
-impl<'a> rocket::request::FromParam<'a> for CidWrap {
-    type Error = anyhow::Error;
-    fn from_param(param: &'a str) -> Result<CidWrap> {
-        Ok(CidWrap(Cid::from_str(param)?))
-    }
-}
-
-#[rocket::async_trait]
-impl<'r> FromFormField<'r> for CidWrap {
-    async fn from_data(field: DataField<'r, '_>) -> rocket::form::Result<'r, Self> {
-        Ok(CidWrap(
-            field
-                .name
-                .source()
-                .parse()
-                .map_err(|_| field.unexpected())?,
-        ))
-    }
-}
-
-struct Orbits<O>
-where
-    O: Orbit,
-{
-    pub stores: RwLock<BTreeMap<Cid, O>>,
-    pub base_path: PathBuf,
-}
-
-#[rocket::async_trait]
-pub trait OrbitCollection<O: Orbit> {
-    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>>;
-    async fn add(&self, orbit: O) -> ();
-}
-
-impl<O: Orbit> Orbits<O> {
-    fn new<P: AsRef<Path>>(path: P) -> Self {
-        Self {
-            stores: RwLock::new(BTreeMap::new()),
-            base_path: path.as_ref().to_path_buf(),
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl<O: Orbit> OrbitCollection<O> for Orbits<O> {
-    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
-        self.stores.read().await
-    }
-
-    // fn orbit(&self, id: &Cid) -> Option<&O> {
-    //     self.stores.read().expect("read orbit set").get(id)
-    // }
-
-    async fn add(&self, orbit: O) {
-        let mut lock = self.stores.write().await;
-        lock.insert(*orbit.id(), orbit);
-    }
-}
-
-async fn load_orbits<P: AsRef<Path>>(
-    path: P,
-) -> Result<Orbits<SimpleOrbit<TezosBasicAuthorization>>> {
-    let path_ref: &Path = path.as_ref();
-    let orbits = Orbits::new(path_ref);
-    // for entries in the dir
-    let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
-        ReadDirStream::new(read_dir(path_ref).await?)
-            // try to load each as an orbit
-            .filter_map(|p| async {
-                load_orbit(p.ok()?.path().to_str()?, TezosBasicAuthorization)
-                    .await
-                    .ok()
-            })
-            // load them all
-            .collect()
-            .await;
-
-    for orbit in orbit_list.into_iter() {
-        orbits.add(orbit).await
-    }
-
-    Ok(orbits)
-}
+use orbit::{create_orbit, load_orbits, verify_oid, Orbit, OrbitCollection, Orbits, SimpleOrbit};
+use tz::{TezosAuthorizationString, TezosBasicAuthorization};
 
 #[get("/<orbit_id>")]
 async fn list_content(
