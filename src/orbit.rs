@@ -196,6 +196,9 @@ where
     async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
         self.delete(address).await
     }
+    async fn list(&self) -> Result<Vec<Cid>, <Self as ContentAddressedStorage>::Error> {
+        self.list().await
+    }
 }
 
 #[rocket::async_trait]

@@ -30,4 +30,11 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
         self.remove_record(&address.hash().to_bytes().into());
         Ok(())
     }
+    async fn list(&self) -> Result<Vec<Cid>, Self::Error> {
+        // return a list of all CIDs which are aliased/pinned
+        self.iter().map(|i| {
+            i.filter(|c| self.reverse_alias(&c).map(|o| o.is_some()).unwrap_or(false))
+                .collect()
+        })
+    }
 }
