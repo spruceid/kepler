@@ -80,6 +80,7 @@ impl<'r, T: 'static + AuthorizationToken + Send + Sync> FromRequest<'r> for Auth
             // content actions have the same authz process
             Action::Put { orbit_id, .. }
             | Action::Get { orbit_id, .. }
+            | Action::List { orbit_id }
             | Action::Del { orbit_id, .. } => {
                 let read_orbits = orbits.orbits().await;
                 let orbit = match read_orbits.get(orbit_id) {
