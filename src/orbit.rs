@@ -1,4 +1,7 @@
-use super::{auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs};
+use crate::{
+    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs,
+    tz::TezosBasicAuthorization,
+};
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs};
 use libipld::{
@@ -10,10 +13,22 @@ use libipld::{
     store::DefaultParams,
 };
 use libp2p_core::PeerId;
-use rocket::{futures::stream::StreamExt, tokio::fs};
+use rocket::{
+    futures::stream::StreamExt,
+    tokio::{
+        fs,
+        sync::{RwLock, RwLockReadGuard},
+    },
+};
+
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{convert::TryFrom, path::Path};
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    path::{Path, PathBuf},
+};
+use tokio_stream::wrappers::ReadDirStream;
 
 #[derive(Serialize, Deserialize)]
 pub struct OrbitMetadata {
@@ -231,6 +246,70 @@ where
     async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
         todo!()
     }
+}
+
+pub struct Orbits<O>
+where
+    O: Orbit,
+{
+    pub stores: RwLock<BTreeMap<Cid, O>>,
+    pub base_path: PathBuf,
+}
+
+#[rocket::async_trait]
+pub trait OrbitCollection<O: Orbit> {
+    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>>;
+    async fn add(&self, orbit: O) -> ();
+}
+
+impl<O: Orbit> Orbits<O> {
+    fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self {
+            stores: RwLock::new(BTreeMap::new()),
+            base_path: path.as_ref().to_path_buf(),
+        }
+    }
+}
+
+#[rocket::async_trait]
+impl<O: Orbit> OrbitCollection<O> for Orbits<O> {
+    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
+        self.stores.read().await
+    }
+
+    // fn orbit(&self, id: &Cid) -> Option<&O> {
+    //     self.stores.read().expect("read orbit set").get(id)
+    // }
+
+    async fn add(&self, orbit: O) {
+        let mut lock = self.stores.write().await;
+        lock.insert(*orbit.id(), orbit);
+    }
+}
+
+pub async fn load_orbits<P: AsRef<Path>>(
+    path: P,
+) -> Result<Orbits<SimpleOrbit<TezosBasicAuthorization>>> {
+    let path_ref: &Path = path.as_ref();
+    let orbits = Orbits::new(path_ref);
+    // for entries in the dir
+    let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
+        ReadDirStream::new(fs::read_dir(path_ref).await?)
+            // try to load each as an orbit
+            .filter_map(|p| async {
+                load_orbit(p.ok()?.file_name().to_str()?, TezosBasicAuthorization)
+                    .await
+                    .ok()
+            })
+            // load them all
+            .collect()
+            .await;
+
+    for orbit in orbit_list.into_iter() {
+        orbits.add(orbit).await
+    }
+
+    Ok(orbits)
 }
 
 #[test]
