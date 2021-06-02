@@ -3306,7 +3306,7 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#1f1976f8bf8531daf4ac596d83ea7ad589dd7368"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1ecb79a7ea536bacc7b7e92d33bf5406c0c635f"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3329,10 +3329,12 @@ dependencies = [
  "rocket_codegen",
  "rocket_http",
  "serde",
+ "serde_json",
  "state",
  "tempfile",
  "time 0.2.26",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "ubyte",
  "version_check",
@@ -3342,7 +3344,7 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#1f1976f8bf8531daf4ac596d83ea7ad589dd7368"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1ecb79a7ea536bacc7b7e92d33bf5406c0c635f"
 dependencies = [
  "devise",
  "glob",
@@ -3357,7 +3359,7 @@ dependencies = [
 [[package]]
 name = "rocket_http"
 version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#1f1976f8bf8531daf4ac596d83ea7ad589dd7368"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1ecb79a7ea536bacc7b7e92d33bf5406c0c635f"
 dependencies = [
  "cookie",
  "either",
@@ -3977,9 +3979,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.5.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83f0c8e7c0addab50b663055baf787d0af7f413a46e6e7fb9559a4e4db7137a5"
+checksum = "0a38d31d7831c6ed7aad00aa4c12d9375fd225a6dd77da1d25b707346319a975"
 dependencies = [
  "autocfg",
  "bytes",
