@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use libipld::cid::{multibase::Base, Cid};
+use libipld::cid::Cid;
 use rocket::{
     data::{Data, ToByteUnit},
     fairing::AdHoc,
@@ -147,7 +147,8 @@ async fn list_content(
         .and_then(|l| {
             l.into_iter()
                 .map(|c| {
-                    c.to_string_of_base(Base::Base58Btc)
+                    orbit
+                        .make_uri(&c)
                         .map_err(|_| (Status::InternalServerError, "Failed to serialize CID"))
                 })
                 .collect::<Result<Vec<String>, (Status, &'static str)>>()
