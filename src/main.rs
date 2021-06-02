@@ -14,6 +14,7 @@ use rocket::{
     form::{DataField, Form, FromFormField},
     futures::stream::StreamExt,
     http::{Header, Status},
+    serde::json::Json,
     tokio::fs::read_dir,
     State,
 };
@@ -134,7 +135,7 @@ async fn list_content(
     orbits: &State<Orbits<SimpleOrbit<TezosBasicAuthorization>>>,
     orbit_id: CidWrap,
     _auth: Option<AuthWrapper<TezosAuthorizationString>>,
-) -> Result<String, (Status, &'static str)> {
+) -> Result<Json<Vec<String>>, (Status, &'static str)> {
     let orbits_read = orbits.orbits().await;
     let orbit = orbits_read
         .get(&orbit_id.0)
@@ -150,7 +151,7 @@ async fn list_content(
                         .map_err(|_| (Status::InternalServerError, "Failed to serialize CID"))
                 })
                 .collect::<Result<Vec<String>, (Status, &'static str)>>()
-                .map(|v| v.join("\n"))
+                .map(|v| Json(v))
         })
 }
 
