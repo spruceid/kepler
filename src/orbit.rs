@@ -194,10 +194,10 @@ where
         ContentAddressedStorage::get(&self.ipfs, address).await
     }
     async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
-        self.delete(address).await
+        self.ipfs.delete(address).await
     }
     async fn list(&self) -> Result<Vec<Cid>, <Self as ContentAddressedStorage>::Error> {
-        self.list().await
+        self.ipfs.list().await
     }
 }
 
