@@ -172,10 +172,7 @@ impl TezosAuthorizationString {
             &self.pkh,
             serialize_action(&self.action)?
         );
-        Ok(Code::Blake2b256
-            .digest(&encode_string(&message))
-            .digest()
-            .to_vec())
+        Ok(encode_string(&message))
     }
 }
 
@@ -314,7 +311,7 @@ async fn round_trip() {
     let message = tz_unsigned
         .serialize_for_verification()
         .expect("failed to serialize authz message");
-    let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdDSA, &message, &j).unwrap();
+    let sig_bytes = ssi::jws::sign_bytes(Algorithm::EdBlake2b, &message, &j).unwrap();
     let sig = bs58::encode(
         [9, 245, 205, 134, 18]
             .iter()
