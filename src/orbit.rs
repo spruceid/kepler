@@ -115,10 +115,6 @@ where
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
-        .next()
-        .await;
-    // .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit { ipfs, oid, policy })
 }
@@ -137,10 +133,6 @@ where
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    ipfs.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?
-        .next()
-        .await
-        .ok_or_else(|| anyhow!("IPFS Listening Failed"))?;
 
     Ok(SimpleOrbit {
         ipfs,
