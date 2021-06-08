@@ -23,4 +23,4 @@ libp2p-core = "0.28"
 tokio-stream = { version = "0.1", features = ["fs"] }
 
 [dev-dependencies]
-did-pkh = { git = "https://github.com/spruceid/ssi", branch = "fix/tz2_verification", package = "did-pkh" }
+did-pkh = { git = "https://github.com/spruceid/ssi", branch = "main", package = "did-pkh" }

@@ -910,7 +910,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.0.1"
-source = "git+https://github.com/spruceid/ssi?branch=fix/tz2_verification#7ae7423e2e4e0bae8e2688aeed8eb960e3f65a60"
+source = "git+https://github.com/spruceid/ssi?branch=main#164e2381eb5761b21477e60e2c6494e0f727d184"
 dependencies = [
  "async-trait",
  "bs58",
@@ -3686,7 +3686,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.2.2"
-source = "git+https://github.com/spruceid/ssi?branch=fix/tz2_verification#7ae7423e2e4e0bae8e2688aeed8eb960e3f65a60"
+source = "git+https://github.com/spruceid/ssi?branch=main#164e2381eb5761b21477e60e2c6494e0f727d184"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3731,7 +3731,7 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=fix/tz2_verification#7ae7423e2e4e0bae8e2688aeed8eb960e3f65a60"
+source = "git+https://github.com/spruceid/ssi?branch=main#164e2381eb5761b21477e60e2c6494e0f727d184"
 
 [[package]]
 name = "stable-pattern"
