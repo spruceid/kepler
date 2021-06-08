@@ -1,10 +1,6 @@
 use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
-use libipld::{
-    cid::multibase::Base,
-    multihash::{Code, MultihashDigest},
-    Cid,
-};
+use libipld::{cid::multibase::Base, Cid};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
