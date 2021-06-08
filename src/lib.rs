@@ -67,7 +67,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 #[test]
 #[should_panic]
 async fn test_form() {
-    use rocket::{http::ContentType, local::asynchronous::Client};
+    use codec::PutContent;
+    use rocket::{form::Form, http::ContentType, local::asynchronous::Client};
 
     #[post("/", format = "multipart/form-data", data = "<form>")]
     async fn stub_batch(form: Form<Vec<PutContent>>) {
