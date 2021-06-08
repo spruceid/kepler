@@ -3,7 +3,7 @@ use crate::{
     tz::TezosBasicAuthorization,
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{Config, Ipfs};
+use ipfs_embed::{Config, Ipfs, PeerId};
 use libipld::{
     cid::{
         multibase::Base,
@@ -12,7 +12,6 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use libp2p_core::PeerId;
 use rocket::{
     futures::stream::StreamExt,
     tokio::{
