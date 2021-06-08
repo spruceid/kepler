@@ -11,7 +11,7 @@ license = "Apache-2.0"
 ipfs-embed = { git = "https://github.com/ipfs-rust/ipfs-embed", rev = "ba82076d4950c31f974425827635bfd0adb28c62", default-features = false, features = ["tokio"] }
 rocket = { git = "https://github.com/SergioBenitez/Rocket", branch = "master", features = ["json"] }
 anyhow = "1.0"
-ssi = { git = "https://github.com/spruceid/ssi", branch = "fix/tz2_verification", features = ["secp256k1", "secp256r1", "ripemd160", "keccak-hash"] }
+ssi = { git = "https://github.com/spruceid/ssi", branch = "main", features = ["secp256k1", "secp256r1", "ripemd160", "keccak-hash"] }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"

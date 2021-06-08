@@ -97,6 +97,7 @@ where
         .map_err(|_| anyhow!("Orbit already exists"))?;
 
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
+    cfg.network.mdns = None;
 
     // create default and write
     let md = OrbitMetadata {
@@ -128,6 +129,7 @@ where
     P: AsRef<Path>,
 {
     let mut cfg = Config::new(Some(path.as_ref().join("block_store")), 0);
+    cfg.network.mdns = None;
 
     let md: OrbitMetadata =
         serde_json::from_slice(&fs::read(path.as_ref().join("metadata")).await?)?;
