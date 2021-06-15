@@ -17,12 +17,10 @@ pub mod orbit;
 pub mod routes;
 pub mod tz;
 
-use orbit::load_orbits;
 use routes::{
-    batch_put_content, batch_put_create, cors, delete_content, get_content, list_content,
-    put_content, put_create,
+    batch_put_content, batch_put_create, cors, delete_content, get_content, get_content_no_auth,
+    list_content, list_content_no_auth, put_content, put_create,
 };
-use tz::TezosBasicAuthorization;
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
@@ -36,13 +34,13 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     }
 
     Ok(rocket::custom(config)
-        .manage(load_orbits(kepler_config.database.path).await?)
-        .manage(TezosBasicAuthorization)
         .mount(
             "/",
             routes![
                 list_content,
+                list_content_no_auth,
                 get_content,
+                get_content_no_auth,
                 put_content,
                 batch_put_content,
                 delete_content,
@@ -51,6 +49,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 cors
             ],
         )
+        .attach(AdHoc::config::<config::Config>())
         .attach(AdHoc::on_response("CORS", |_, resp| {
             Box::pin(async move {
                 resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));

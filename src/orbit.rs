@@ -12,22 +12,12 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use rocket::{
-    futures::stream::StreamExt,
-    tokio::{
-        fs,
-        sync::{RwLock, RwLockReadGuard},
-    },
-};
+use rocket::{futures::stream::StreamExt, tokio::fs};
 
+use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{
-    collections::BTreeMap,
-    convert::TryFrom,
-    path::{Path, PathBuf},
-};
-use tokio_stream::wrappers::ReadDirStream;
+use std::{convert::TryFrom, path::Path};
 
 #[derive(Serialize, Deserialize)]
 pub struct OrbitMetadata {
@@ -64,32 +54,35 @@ mod cid_serde {
     }
 }
 
+// TODO I think this will need to go, using a trait for a core object creates
+// too much monomorphisation which shouldn't be too much of a problem for the
+// binary size but I'm not sure how Rocket handles it.
+// Or maybe implement the traits separately.
+// Ultimately I think we'll need to use an enum, it's not as fancy but because
+// we only have simple relationships (e.g. for the Tezos policy you need a
+// Tezos token) it will make the routing simpler and easier to use.
 #[rocket::async_trait]
-pub trait Orbit: ContentAddressedStorage {
-    type Error;
-    type UpdateMessage;
-    type Auth: AuthorizationPolicy;
-
+pub trait Orbit: ContentAddressedStorage + AuthorizationPolicy {
     fn id(&self) -> &Cid;
 
     fn hosts(&self) -> Vec<PeerId>;
 
     fn admins(&self) -> &[&DIDURL];
 
-    fn auth(&self) -> &Self::Auth;
+    fn auth(&self) -> &TezosBasicAuthorization;
 
-    fn make_uri(&self, cid: &Cid) -> Result<String, <Self as Orbit>::Error>;
+    fn make_uri(&self, cid: &Cid) -> Result<String>;
 
-    async fn update(
-        &self,
-        update: Self::UpdateMessage,
-    ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
+    // async fn update(
+    //     &self,
+    //     update: Self::UpdateMessage,
+    // ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
 }
 
-pub struct SimpleOrbit<A: AuthorizationPolicy + Send + Sync> {
+pub struct SimpleOrbit {
     ipfs: Ipfs<DefaultParams>,
     oid: Cid,
-    policy: A,
+    policy: TezosBasicAuthorization,
 }
 
 pub async fn create_orbit<P, A>(
@@ -98,7 +91,7 @@ pub async fn create_orbit<P, A>(
     policy: A,
     controllers: Vec<DIDURL>,
     auth: &[u8],
-) -> Result<SimpleOrbit<A>>
+) -> Result<SimpleOrbit>
 where
     A: AuthorizationPolicy + Send + Sync,
     P: AsRef<Path>,
@@ -110,9 +103,6 @@ where
         .await
         .map_err(|_| anyhow!("Orbit already exists"))?;
 
-    let mut cfg = Config::new(Some(dir.join("block_store")), 0);
-    cfg.network.mdns = None;
-
     // create default and write
     let md = OrbitMetadata {
         id: oid.clone(),
@@ -121,24 +111,21 @@ where
         write_delegators: vec![],
         revocations: vec![],
     };
-
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
-
     fs::write(dir.join("access_log"), auth).await?;
 
-    // TODO enable dht once orbits are defined
-    cfg.network.kad = None;
-    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-
-    Ok(SimpleOrbit { ipfs, oid, policy })
+    load_orbit(dir, policy).await
 }
 
-pub async fn load_orbit<P, A>(path: P, policy: A) -> Result<SimpleOrbit<A>>
-where
-    A: AuthorizationPolicy + Send + Sync,
-    P: AsRef<Path>,
-{
-    let mut cfg = Config::new(Some(path.as_ref().join("block_store")), 0);
+// 100 orbits => 600 FDs
+// 1min timeout to evict orbits that might have been deleted
+#[cached(size = 100, time = 60, result = true)]
+pub async fn load_orbit(oid: Cid, path: Path) -> Result<SimpleOrbit> {
+    let dir = path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?);
+    // if (!dir.exists()) {
+    //     Ok(None)
+    // }
+    let mut cfg = Config::new(Some(dir.as_ref().join("block_store")), 0);
     cfg.network.mdns = None;
 
     let md: OrbitMetadata =
@@ -151,7 +138,8 @@ where
     Ok(SimpleOrbit {
         ipfs,
         oid: md.id,
-        policy,
+        // TODO retrieve policies from the orbit
+        policy: TezosBasicAuthorization,
     })
 }
 
@@ -183,10 +171,7 @@ pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
 }
 
 #[rocket::async_trait]
-impl<A> ContentAddressedStorage for SimpleOrbit<A>
-where
-    A: AuthorizationPolicy + Send + Sync,
-{
+impl ContentAddressedStorage for SimpleOrbit {
     type Error = anyhow::Error;
     async fn put(
         &self,
@@ -210,14 +195,7 @@ where
 }
 
 #[rocket::async_trait]
-impl<A> Orbit for SimpleOrbit<A>
-where
-    A: AuthorizationPolicy + Send + Sync,
-{
-    type Error = anyhow::Error;
-    type UpdateMessage = ();
-    type Auth = A;
-
+impl Orbit for SimpleOrbit {
     fn id(&self) -> &Cid {
         &self.oid
     }
@@ -230,11 +208,11 @@ where
         todo!()
     }
 
-    fn auth(&self) -> &Self::Auth {
+    fn auth(&self) -> &TezosBasicAuthorization {
         &self.policy
     }
 
-    fn make_uri(&self, cid: &Cid) -> Result<String, <Self as Orbit>::Error> {
+    fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
             "kepler://{}/{}",
             self.id().to_string_of_base(Base::Base58Btc)?,
@@ -242,73 +220,9 @@ where
         ))
     }
 
-    async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
-        todo!()
-    }
-}
-
-pub struct Orbits<O>
-where
-    O: Orbit,
-{
-    pub stores: RwLock<BTreeMap<Cid, O>>,
-    pub base_path: PathBuf,
-}
-
-#[rocket::async_trait]
-pub trait OrbitCollection<O: Orbit> {
-    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>>;
-    async fn add(&self, orbit: O) -> ();
-}
-
-impl<O: Orbit> Orbits<O> {
-    fn new<P: AsRef<Path>>(path: P) -> Self {
-        Self {
-            stores: RwLock::new(BTreeMap::new()),
-            base_path: path.as_ref().to_path_buf(),
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl<O: Orbit> OrbitCollection<O> for Orbits<O> {
-    async fn orbits(&self) -> RwLockReadGuard<BTreeMap<Cid, O>> {
-        self.stores.read().await
-    }
-
-    // fn orbit(&self, id: &Cid) -> Option<&O> {
-    //     self.stores.read().expect("read orbit set").get(id)
+    // async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
+    //     todo!()
     // }
-
-    async fn add(&self, orbit: O) {
-        let mut lock = self.stores.write().await;
-        lock.insert(*orbit.id(), orbit);
-    }
-}
-
-pub async fn load_orbits<P: AsRef<Path>>(
-    path: P,
-) -> Result<Orbits<SimpleOrbit<TezosBasicAuthorization>>> {
-    let path_ref: &Path = path.as_ref();
-    let orbits = Orbits::new(path_ref);
-    // for entries in the dir
-    let orbit_list: Vec<SimpleOrbit<TezosBasicAuthorization>> =
-        ReadDirStream::new(fs::read_dir(path_ref).await?)
-            // try to load each as an orbit
-            .filter_map(|p| async {
-                load_orbit(p.ok()?.file_name().to_str()?, TezosBasicAuthorization)
-                    .await
-                    .ok()
-            })
-            // load them all
-            .collect()
-            .await;
-
-    for orbit in orbit_list.into_iter() {
-        orbits.add(orbit).await
-    }
-
-    Ok(orbits)
 }
 
 #[test]
