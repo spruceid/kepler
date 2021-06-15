@@ -174,7 +174,6 @@ impl TezosAuthorizationString {
 
 impl AuthorizationToken for TezosAuthorizationString {
     const HEADER_KEY: &'static str = "Authorization";
-    type Policy = TezosBasicAuthorization;
 
     fn extract(auth_data: &str) -> Result<Self> {
         TezosAuthorizationString::from_str(auth_data)

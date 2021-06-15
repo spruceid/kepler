@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 hex = "0.4"
 libipld = "0.12"
 tokio-stream = { version = "0.1", features = ["fs"] }
+cached = "0.23"
 
 [dev-dependencies]
 did-pkh = { git = "https://github.com/spruceid/ssi", branch = "main", package = "did-pkh" }
