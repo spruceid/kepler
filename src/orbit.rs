@@ -1,6 +1,8 @@
 use crate::{
-    auth::AuthorizationPolicy, cas::ContentAddressedStorage, codec::SupportedCodecs,
-    tz::TezosBasicAuthorization,
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    cas::ContentAddressedStorage,
+    codec::SupportedCodecs,
+    tz::{TezosAuthorizationString, TezosBasicAuthorization},
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, PeerId};
@@ -12,12 +14,12 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use rocket::{futures::stream::StreamExt, tokio::fs};
+use rocket::tokio::fs;
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{convert::TryFrom, path::Path};
+use std::{convert::TryFrom, path::PathBuf};
 
 #[derive(Serialize, Deserialize)]
 pub struct OrbitMetadata {
@@ -62,14 +64,15 @@ mod cid_serde {
 // we only have simple relationships (e.g. for the Tezos policy you need a
 // Tezos token) it will make the routing simpler and easier to use.
 #[rocket::async_trait]
-pub trait Orbit: ContentAddressedStorage + AuthorizationPolicy {
+pub trait Orbit: ContentAddressedStorage {
+    // + AuthorizationPolicy {
     fn id(&self) -> &Cid;
 
     fn hosts(&self) -> Vec<PeerId>;
 
     fn admins(&self) -> &[&DIDURL];
 
-    fn auth(&self) -> &TezosBasicAuthorization;
+    fn auth(&self) -> &AuthMethods;
 
     fn make_uri(&self, cid: &Cid) -> Result<String>;
 
@@ -79,24 +82,54 @@ pub trait Orbit: ContentAddressedStorage + AuthorizationPolicy {
     // ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
 }
 
+#[derive(Clone)]
+pub enum AuthMethods {
+    Tezos(TezosBasicAuthorization),
+}
+
+#[derive(Clone)]
+pub enum AuthTokens {
+    Tezos(TezosAuthorizationString),
+}
+
+impl AuthorizationToken for AuthTokens {
+    fn extract(auth_data: &str) -> Result<Self> {
+        Err(anyhow!("todo"))
+    }
+
+    fn action(&self) -> &Action {
+        match self {
+            Self::Tezos(token) => token.action(),
+        }
+    }
+}
+
+impl AuthMethods {
+    pub async fn authorize(&self, auth_token: AuthTokens) -> Result<()> {
+        match self {
+            Self::Tezos(method) => match auth_token {
+                AuthTokens::Tezos(token) => method.authorize(&token).await,
+            },
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct SimpleOrbit {
     ipfs: Ipfs<DefaultParams>,
     oid: Cid,
-    policy: TezosBasicAuthorization,
+    policy: AuthMethods,
 }
 
-pub async fn create_orbit<P, A>(
+pub async fn create_orbit(
     oid: Cid,
-    path: P,
-    policy: A,
+    path: PathBuf,
+    _policy: TezosBasicAuthorization,
     controllers: Vec<DIDURL>,
-    auth: &[u8],
-) -> Result<SimpleOrbit>
-where
-    A: AuthorizationPolicy + Send + Sync,
-    P: AsRef<Path>,
-{
-    let dir = path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?);
+    // TODO put back access logs
+    // auth: &[u8],
+) -> Result<SimpleOrbit> {
+    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
     fs::create_dir(&dir)
@@ -112,24 +145,26 @@ where
         revocations: vec![],
     };
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
-    fs::write(dir.join("access_log"), auth).await?;
+    // fs::write(dir.join("access_log"), auth).await?;
 
-    load_orbit(dir, policy).await
+    // Ok(load_orbit(oid, path)
+    //     .await
+    //     .map(|o| o.ok_or_else(|| anyhow!("Dir not created")))??)
+    load_orbit(oid, path).await
 }
 
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-pub async fn load_orbit(oid: Cid, path: Path) -> Result<SimpleOrbit> {
-    let dir = path.as_ref().join(oid.to_string_of_base(Base::Base58Btc)?);
-    // if (!dir.exists()) {
-    //     Ok(None)
+pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<SimpleOrbit> {
+    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    // if !dir.exists() {
+    //     return Ok(None);
     // }
-    let mut cfg = Config::new(Some(dir.as_ref().join("block_store")), 0);
+    let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
 
-    let md: OrbitMetadata =
-        serde_json::from_slice(&fs::read(path.as_ref().join("metadata")).await?)?;
+    let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
@@ -139,7 +174,7 @@ pub async fn load_orbit(oid: Cid, path: Path) -> Result<SimpleOrbit> {
         ipfs,
         oid: md.id,
         // TODO retrieve policies from the orbit
-        policy: TezosBasicAuthorization,
+        policy: AuthMethods::Tezos(TezosBasicAuthorization),
     })
 }
 
@@ -208,7 +243,7 @@ impl Orbit for SimpleOrbit {
         todo!()
     }
 
-    fn auth(&self) -> &TezosBasicAuthorization {
+    fn auth(&self) -> &AuthMethods {
         &self.policy
     }
 
