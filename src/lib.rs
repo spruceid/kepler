@@ -16,10 +16,11 @@ pub mod ipfs;
 pub mod orbit;
 pub mod routes;
 pub mod tz;
+pub mod zcap;
 
 use routes::{
-    batch_put_content, batch_put_create, cors, delete_content, get_content, get_content_no_auth,
-    list_content, list_content_no_auth, put_content, put_create,
+    cors, create_orbit_, get_content, get_content_no_auth, list_content, list_content_no_auth,
+    put_content,
 };
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
@@ -42,10 +43,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 get_content,
                 get_content_no_auth,
                 put_content,
-                batch_put_content,
-                delete_content,
-                put_create,
-                batch_put_create,
+                create_orbit_,
                 cors
             ],
         )

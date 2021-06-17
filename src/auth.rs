@@ -1,5 +1,5 @@
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit, SimpleOrbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, SimpleOrbit};
 use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
 use anyhow::Result;
 use libipld::cid::Cid;
@@ -7,28 +7,99 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
+use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 
-#[derive(Debug, Clone)]
+pub mod cid_serde {
+    use libipld::cid::{multibase::Base, Cid};
+    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        ser.serialize_str(
+            &cid.to_string_of_base(Base::Base58Btc)
+                .map_err(S::Error::custom)?,
+        )
+    }
+
+    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deser)?;
+        s.parse().map_err(D::Error::custom)
+    }
+}
+pub mod vec_cid_serde {
+    use libipld::cid::{
+        multibase::{decode, Base},
+        Cid,
+    };
+    use serde::{
+        de::Error as SError, ser::Error as DError, ser::SerializeSeq, Deserialize, Deserializer,
+        Serializer,
+    };
+
+    pub fn serialize<S>(vec: &Vec<Cid>, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = ser.serialize_seq(Some(vec.len()))?;
+        for cid in vec {
+            seq.serialize_element(
+                &cid.to_string_of_base(Base::Base58Btc)
+                    .map_err(S::Error::custom)?,
+            );
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D>(deser: D) -> Result<Vec<Cid>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Vec<&str> = Deserialize::deserialize(deser)?;
+        s.iter()
+            .map(|sc| {
+                decode(sc).map_err(D::Error::custom).and_then(|(_, bytes)| {
+                    Cid::read_bytes(bytes.as_slice()).map_err(D::Error::custom)
+                })
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Action {
     Put {
+        #[serde(with = "cid_serde")]
         orbit_id: Cid,
+        #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Get {
+        #[serde(with = "cid_serde")]
         orbit_id: Cid,
+        #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Del {
+        #[serde(with = "cid_serde")]
         orbit_id: Cid,
+        #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Create {
+        #[serde(with = "cid_serde")]
         orbit_id: Cid,
         parameters: String,
+        #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     List {
+        #[serde(with = "cid_serde")]
         orbit_id: Cid,
     },
 }
@@ -37,7 +108,7 @@ pub trait AuthorizationToken {
     fn extract(auth_data: &str) -> Result<Self>
     where
         Self: Sized;
-    fn action(&self) -> &Action;
+    fn action(&self) -> Action;
 }
 
 #[rocket::async_trait]

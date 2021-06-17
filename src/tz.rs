@@ -194,8 +194,8 @@ impl AuthorizationToken for TezosAuthorizationString {
         Ok(auth)
     }
 
-    fn action(&self) -> &Action {
-        &self.action
+    fn action(&self) -> Action {
+        self.action.clone()
     }
 }
 

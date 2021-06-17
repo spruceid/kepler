@@ -1,8 +1,9 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken, cid_serde},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
+    zcap::{ZCAPDelegation, ZCAPInvocation},
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, PeerId};
@@ -33,29 +34,6 @@ pub struct OrbitMetadata {
     pub revocations: Vec<String>,
 }
 
-mod cid_serde {
-    use libipld::cid::{multibase::Base, Cid};
-    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        ser.serialize_str(
-            &cid.to_string_of_base(Base::Base58Btc)
-                .map_err(S::Error::custom)?,
-        )
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deser)?;
-        s.parse().map_err(D::Error::custom)
-    }
-}
-
 // TODO I think this will need to go, using a trait for a core object creates
 // too much monomorphisation which shouldn't be too much of a problem for the
 // binary size but I'm not sure how Rocket handles it.
@@ -72,7 +50,7 @@ pub trait Orbit: ContentAddressedStorage {
 
     fn admins(&self) -> &[&DIDURL];
 
-    fn auth(&self) -> &AuthMethods;
+    // fn auth(&self) -> &AuthMethods;
 
     fn make_uri(&self, cid: &Cid) -> Result<String>;
 
@@ -85,11 +63,13 @@ pub trait Orbit: ContentAddressedStorage {
 #[derive(Clone)]
 pub enum AuthMethods {
     Tezos(TezosBasicAuthorization),
+    ZCAP(ZCAPDelegation),
 }
 
 #[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
+    ZCAP(ZCAPInvocation),
 }
 
 impl AuthorizationToken for AuthTokens {
@@ -97,9 +77,10 @@ impl AuthorizationToken for AuthTokens {
         Err(anyhow!("todo"))
     }
 
-    fn action(&self) -> &Action {
+    fn action(&self) -> Action {
         match self {
             Self::Tezos(token) => token.action(),
+            Self::ZCAP(token) => token.action(),
         }
     }
 }
@@ -109,6 +90,11 @@ impl AuthMethods {
         match self {
             Self::Tezos(method) => match auth_token {
                 AuthTokens::Tezos(token) => method.authorize(&token).await,
+                _ => return Err(anyhow!("Bad token")),
+            },
+            Self::ZCAP(method) => match auth_token {
+                AuthTokens::ZCAP(token) => method.authorize(&token).await,
+                _ => return Err(anyhow!("Bad token")),
             },
         }
     }
@@ -118,14 +104,14 @@ impl AuthMethods {
 pub struct SimpleOrbit {
     ipfs: Ipfs<DefaultParams>,
     oid: Cid,
-    policy: AuthMethods,
+    // policy: AuthMethods,
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
     oid: Cid,
     path: PathBuf,
-    policy: TezosBasicAuthorization,
+    controllers: Vec<DIDURL>,
     auth: &[u8],
 ) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
@@ -141,7 +127,7 @@ pub async fn create_orbit(
     // create default and write
     let md = OrbitMetadata {
         id: oid.clone(),
-        controllers: policy.controllers,
+        controllers: controllers,
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
@@ -181,10 +167,9 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
 
     Ok(SimpleOrbit {
         ipfs,
-        oid,
-        policy: AuthMethods::Tezos(TezosBasicAuthorization {
-            controllers: md.controllers,
-        }),
+        oid: md.id,
+        // TODO retrieve policies from the orbit
+        // policy: AuthMethods::ZCAP(ZCAPDelegation),
     })
 }
 
@@ -253,9 +238,9 @@ impl Orbit for SimpleOrbit {
         todo!()
     }
 
-    fn auth(&self) -> &AuthMethods {
-        &self.policy
-    }
+    // fn auth(&self) -> &AuthMethods {
+    //     &self.policy
+    // }
 
     fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
