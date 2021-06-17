@@ -15,7 +15,7 @@ use ssi::{
 };
 use std::str::FromStr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TezosAuthorizationString {
     pub sig: String,
     pub domain: String,
@@ -173,7 +173,7 @@ impl TezosAuthorizationString {
 }
 
 impl AuthorizationToken for TezosAuthorizationString {
-    const HEADER_KEY: &'static str = "Authorization";
+    // const HEADER_KEY: &'static str = "Authorization";
 
     fn extract(auth_data: &str) -> Result<Self> {
         TezosAuthorizationString::from_str(auth_data)
@@ -211,6 +211,7 @@ impl core::fmt::Display for TezosAuthorizationString {
     }
 }
 
+// TODO doesn't check that the author of the sig is the owner of the orbit?
 pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
     let key = jwk_from_tezos_key(&auth.pk)?;
     let (_, sig) = decode_tzsig(&auth.sig)?;
@@ -224,14 +225,15 @@ pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct TezosBasicAuthorization;
 
 #[rocket::async_trait]
 impl AuthorizationPolicy for TezosBasicAuthorization {
     type Token = TezosAuthorizationString;
 
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<&'a Action> {
-        verify(auth_token).map(|_| auth_token.action())
+    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
+        verify(auth_token)
     }
 }
 
