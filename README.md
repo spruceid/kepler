@@ -1,15 +1,12 @@
+![kepler header](/docs/keplerheader.png)
+
+[![](https://img.shields.io/badge/License-Apache--2.0-green)](https://github.com/spruceid/kepler/blob/main/LICENSE) [![](https://img.shields.io/twitter/follow/sprucesystems?label=Follow&style=social)](https://twitter.com/sprucesystems)
+
 # Kepler
 
-For a high level project overview, see the [Product Requirements Document](./PRD.md).
+Kepler is self-sovereign storage. It is architected as a decentralized storage system that uses smart contracts to define Orbits, where your data live and who has access.
 
-## Introduction
-
-Kepler is a configurably-permissioned ~~replicating~~ content-addressed storage. Kepler storage is bucketed by Orbits, authorization policies which determine who may perform certain actions on the bucket. Orbit policies may be defined using:
-  * [X] None (operations are unpermissioned)
-  * [X] Public key allowlist
-  * [ ] DID Verification method ID allowlist
-  * [ ] Verifiable Credential requirements
-  * [ ] Object Capabilities framework
+For a high-level project overview, see the [Product Requirements Document](./PRD.md).
 
 ## Configuration
 All configuration variables are documented in [kepler.toml](kepler.toml). You
