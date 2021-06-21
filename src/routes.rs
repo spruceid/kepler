@@ -134,7 +134,7 @@ pub async fn get_content(
         Some(pkh) => pkh,
         None => Err(anyhow!("Invoker not did:pkh:eth"))?,
     };
-    if !(false) {
+    if !(true) {
         Err(anyhow!("You do not own "))?
     }
 

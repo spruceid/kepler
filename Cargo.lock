@@ -868,7 +868,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.0.1"
-source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#5bbefd342b3882458ebb47f858ca712a74c31cd3"
+source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#c84e21fb748f36eb2c2008c0df420fd93caa183e"
 dependencies = [
  "async-trait",
  "bs58",
@@ -2402,7 +2402,7 @@ dependencies = [
  "httparse",
  "log",
  "mime",
- "spin 0.9.0",
+ "spin 0.9.1",
  "tokio",
  "tokio-util",
  "twoway",
@@ -3681,9 +3681,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "spin"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b87bbf98cb81332a56c1ee8929845836f85e8ddd693157c30d76660196014478"
+checksum = "f5fdd7196b4ae35a111c6dc97f9cc152ca3ea8ad744f7cb46a9f27b3ef8f2f54"
 
 [[package]]
 name = "spki"
@@ -3697,7 +3697,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.2.2"
-source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#5bbefd342b3882458ebb47f858ca712a74c31cd3"
+source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#c84e21fb748f36eb2c2008c0df420fd93caa183e"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3742,7 +3742,7 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#5bbefd342b3882458ebb47f858ca712a74c31cd3"
+source = "git+https://github.com/spruceid/ssi?branch=staging/eth_zcap2#c84e21fb748f36eb2c2008c0df420fd93caa183e"
 
 [[package]]
 name = "stable-pattern"
@@ -3980,9 +3980,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.7.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c79ba603c337335df6ba6dd6afc38c38a7d5e1b0c871678439ea973cd62a118e"
+checksum = "5fb2ed024293bb19f7a5dc54fe83bf86532a44c12a2bb8ba40d64a4509395ca2"
 dependencies = [
  "autocfg",
  "bytes",
@@ -4290,9 +4290,9 @@ dependencies = [
 
 [[package]]
 name = "vcpkg"
-version = "0.2.14"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70455df2fdf4e9bf580a92e443f1eb0303c390d682e2ea817312c9e81f8c3399"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version_check"
