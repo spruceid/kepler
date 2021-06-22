@@ -129,7 +129,7 @@ pub async fn create_orbit(
     // TODO put back access logs
     // auth: &[u8],
 ) -> Result<SimpleOrbit> {
-    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    let dir = path.clone().join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
     fs::create_dir(&dir)
