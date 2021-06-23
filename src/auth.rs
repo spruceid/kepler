@@ -80,118 +80,46 @@ fn extract_info<T>(
 }
 
 // TODO some APIs prefer to return 404 when the authentication fails to avoid leaking information about content
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for PutAuthWrapper {
-    type Error = anyhow::Error;
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config) = match extract_info(req) {
-            Ok(i) => i,
-            Err(o) => return o,
-        };
-        match token.action() {
-            Action::Put { orbit_id, .. } => {
-                let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await {
-                    Ok(o) => o,
-                    // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
-                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+macro_rules! impl_fromreq {
+    ($type:ident, $method:tt) => {
+        #[rocket::async_trait]
+        impl<'r> FromRequest<'r> for $type {
+            type Error = anyhow::Error;
+
+            async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+                let (token, config) = match extract_info(req) {
+                    Ok(i) => i,
+                    Err(o) => return o,
                 };
-                match orbit.auth().authorize(token).await {
-                    Ok(_) => Outcome::Success(Self(orbit)),
-                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+                match token.action() {
+                    Action::$method { orbit_id, .. } => {
+                        let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await
+                        {
+                            Ok(o) => o,
+                            // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
+                            Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+                        };
+                        match orbit.auth().authorize(token).await {
+                            Ok(_) => Outcome::Success(Self(orbit)),
+                            Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+                        }
+                    }
+                    _ => Outcome::Failure((
+                        Status::BadRequest,
+                        anyhow!("Token action not matching endpoint"),
+                    )),
                 }
             }
-            _ => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token action not matching endpoint"),
-            )),
         }
-    }
+    };
 }
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for GetAuthWrapper {
-    type Error = anyhow::Error;
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config) = match extract_info(req) {
-            Ok(i) => i,
-            Err(o) => return o,
-        };
-        match token.action() {
-            Action::Get { orbit_id, .. } => {
-                let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await {
-                    Ok(o) => o,
-                    // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
-                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
-                };
-                match orbit.auth().authorize(token).await {
-                    Ok(_) => Outcome::Success(Self(orbit)),
-                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-                }
-            }
-            _ => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token action not matching endpoint"),
-            )),
-        }
-    }
-}
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for DelAuthWrapper {
-    type Error = anyhow::Error;
+impl_fromreq!(PutAuthWrapper, Put);
+impl_fromreq!(GetAuthWrapper, Get);
+impl_fromreq!(DelAuthWrapper, Del);
+impl_fromreq!(ListAuthWrapper, List);
 
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config) = match extract_info(req) {
-            Ok(i) => i,
-            Err(o) => return o,
-        };
-        match token.action() {
-            Action::Del { orbit_id, .. } => {
-                let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await {
-                    Ok(o) => o,
-                    // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
-                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
-                };
-                match orbit.auth().authorize(token).await {
-                    Ok(_) => Outcome::Success(Self(orbit)),
-                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-                }
-            }
-            _ => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token action not matching endpoint"),
-            )),
-        }
-    }
-}
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ListAuthWrapper {
-    type Error = anyhow::Error;
-
-    async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config) = match extract_info(req) {
-            Ok(i) => i,
-            Err(o) => return o,
-        };
-        match token.action() {
-            Action::List { orbit_id } => {
-                let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await {
-                    Ok(o) => o,
-                    // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
-                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
-                };
-                match orbit.auth().authorize(token).await {
-                    Ok(_) => Outcome::Success(Self(orbit)),
-                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-                }
-            }
-            _ => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token action not matching endpoint"),
-            )),
-        }
-    }
-}
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
