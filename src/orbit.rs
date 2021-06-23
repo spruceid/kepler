@@ -129,7 +129,7 @@ pub async fn create_orbit(
     // TODO put back access logs
     // auth: &[u8],
 ) -> Result<SimpleOrbit> {
-    let dir = path.clone().join(oid.to_string_of_base(Base::Base58Btc)?);
+    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
     fs::create_dir(&dir)
@@ -163,6 +163,9 @@ pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<SimpleOrbit> {
     // }
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
+    cfg.network.gossipsub = None;
+    cfg.network.broadcast = None;
+    cfg.network.bitswap = None;
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
