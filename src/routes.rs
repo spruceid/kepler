@@ -59,9 +59,8 @@ pub async fn list_content_no_auth(
     config: &State<config::Config>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
     let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
-        // Ok(Some(o)) => o,
-        // Ok(None) => return Err((Status::NotFound, anyhow!("No Orbit found").to_string())),
-        Ok(o) => o,
+        Ok(Some(o)) => o,
+        Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
     uri_listing(orbit).await
@@ -87,9 +86,8 @@ pub async fn get_content_no_auth(
     config: &State<config::Config>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
     let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
-        // Ok(Some(o)) => o,
-        // Ok(None) => return Err((Status::NotFound, anyhow!("No Orbit found").to_string())),
-        Ok(o) => o,
+        Ok(Some(o)) => o,
+        Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
     match orbit.get(&hash.0).await {
