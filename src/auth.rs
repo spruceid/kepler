@@ -96,8 +96,13 @@ macro_rules! impl_fromreq {
                     Action::$method { orbit_id, .. } => {
                         let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await
                         {
-                            Ok(o) => o,
-                            // None => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
+                            Ok(Some(o)) => o,
+                            Ok(None) => {
+                                return Outcome::Failure((
+                                    Status::NotFound,
+                                    anyhow!("No Orbit found"),
+                                ))
+                            }
                             Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
                         };
                         match orbit.auth().authorize(token).await {
@@ -165,7 +170,12 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     )
                     .await
                     {
-                        Ok(orbit) => Outcome::Success(Self(orbit)),
+                        Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
+                        Ok(None) =>
+                            return Outcome::Failure((
+                                    Status::Conflict,
+                                    anyhow!("Orbit already exists"),
+                                    )),
                         Err(e) => Outcome::Failure((Status::InternalServerError, e)),
                     }
                 // }

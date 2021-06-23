@@ -121,6 +121,7 @@ pub struct SimpleOrbit {
     policy: AuthMethods,
 }
 
+// Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
     oid: Cid,
     path: PathBuf,
@@ -128,13 +129,16 @@ pub async fn create_orbit(
     controllers: Vec<DIDURL>,
     // TODO put back access logs
     // auth: &[u8],
-) -> Result<SimpleOrbit> {
+) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
+    if dir.exists() {
+        return Ok(None);
+    }
     fs::create_dir(&dir)
         .await
-        .map_err(|_| anyhow!("Orbit already exists"))?;
+        .map_err(|e| anyhow!("Couldn't create dir: {}", e))?;
 
     // create default and write
     let md = OrbitMetadata {
@@ -147,20 +151,24 @@ pub async fn create_orbit(
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     // fs::write(dir.join("access_log"), auth).await?;
 
-    // Ok(load_orbit(oid, path)
-    //     .await
-    //     .map(|o| o.ok_or_else(|| anyhow!("Dir not created")))??)
-    load_orbit(oid, path).await
+    Ok(Some(load_orbit(oid, path).await.map(|o| {
+        o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
+    })??))
 }
 
+pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> {
+    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    if !dir.exists() {
+        return Ok(None);
+    }
+    load_orbit_(oid, dir).await.map(|o| Some(o))
+}
+
+// Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<SimpleOrbit> {
-    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
-    // if !dir.exists() {
-    //     return Ok(None);
-    // }
+async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
     cfg.network.gossipsub = None;
