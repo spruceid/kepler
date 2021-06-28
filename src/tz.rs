@@ -10,6 +10,7 @@ use nom::{
     IResult, ParseTo,
 };
 use ssi::{
+    did::DIDURL,
     jws::verify_bytes,
     tzkey::{decode_tzsig, jwk_from_tezos_key},
 };
@@ -170,13 +171,27 @@ impl TezosAuthorizationString {
         );
         Ok(encode_string(&message))
     }
+
+    fn verify(&self) -> Result<()> {
+        let key = jwk_from_tezos_key(&self.pk)?;
+        let (_, sig) = decode_tzsig(&self.sig)?;
+        Ok(verify_bytes(
+            key.algorithm
+                .ok_or_else(|| anyhow!("Invalid Signature Scheme"))?,
+            &self.serialize_for_verification()?,
+            &key,
+            &sig,
+        )?)
+    }
 }
 
 impl AuthorizationToken for TezosAuthorizationString {
     // const HEADER_KEY: &'static str = "Authorization";
 
     fn extract(auth_data: &str) -> Result<Self> {
-        TezosAuthorizationString::from_str(auth_data)
+        let auth = TezosAuthorizationString::from_str(auth_data)?;
+        auth.verify()?;
+        Ok(auth)
     }
 
     fn action(&self) -> &Action {
@@ -211,29 +226,27 @@ impl core::fmt::Display for TezosAuthorizationString {
     }
 }
 
-// TODO doesn't check that the author of the sig is the owner of the orbit?
-pub fn verify(auth: &TezosAuthorizationString) -> Result<()> {
-    let key = jwk_from_tezos_key(&auth.pk)?;
-    let (_, sig) = decode_tzsig(&auth.sig)?;
-    verify_bytes(
-        key.algorithm
-            .ok_or_else(|| anyhow!("Invalid Signature Scheme"))?,
-        &auth.serialize_for_verification()?,
-        &key,
-        &sig,
-    )?;
-    Ok(())
-}
-
 #[derive(Clone)]
-pub struct TezosBasicAuthorization;
+pub struct TezosBasicAuthorization {
+    pub controllers: Vec<DIDURL>,
+}
 
 #[rocket::async_trait]
 impl AuthorizationPolicy for TezosBasicAuthorization {
     type Token = TezosAuthorizationString;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
-        verify(auth_token)
+        let requester = DIDURL {
+            did: format!("did:pkh:tz:{}", &auth_token.pkh),
+            fragment: Some("TezosMethod2021".to_string()),
+            ..Default::default()
+        };
+
+        if !self.controllers.contains(&requester) {
+            Err(anyhow!("Requester not a controller of the orbit"))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -256,16 +269,14 @@ async fn simple_parse() {
 async fn simple_verify_fail() {
     let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
-
-    verify(&tza).unwrap();
+    tza.verify().unwrap();
 }
 
 #[test]
 async fn simple_verify_succeed() {
     let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkvR6aAd12AiVyh9UJUntyNtLM2usrpCq4avG8KozdSMU7vvu7qU tz1c5eqtBarJ9brFnmUy2n7Bvg1RCpWk29eU z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my PUT z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtmtSYSCCB8yyvj3BiFHSgbS21UAoR2jrQMWEr3eA99Czyph3duzEVAVYnG8chBKBPMhxD9ZyTwQSAoMuGr6bnotP9m9wvK";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
-
-    verify(&tza).unwrap();
+    tza.verify().unwrap();
 }
 
 #[test]
@@ -325,5 +336,5 @@ async fn round_trip() {
         tz.serialize_for_verification()
             .expect("failed to serialize authz message")
     );
-    assert!(verify(&tz).is_ok());
+    assert!(tz.verify().is_ok());
 }
