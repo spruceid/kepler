@@ -34,7 +34,6 @@ pub enum Action {
 }
 
 pub trait AuthorizationToken {
-    // const HEADER_KEY: String;
     fn extract(auth_data: &str) -> Result<Self>
     where
         Self: Sized;
@@ -55,7 +54,7 @@ pub struct ListAuthWrapper(pub SimpleOrbit);
 
 fn extract_info<T>(
     req: &Request,
-) -> Result<(AuthTokens, config::Config), Outcome<T, anyhow::Error>> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -74,7 +73,11 @@ fn extract_info<T>(
         }
     };
     match TezosAuthorizationString::extract(auth_data) {
-        Ok(token) => Ok((AuthTokens::Tezos(token), config.clone())),
+        Ok(token) => Ok((
+            auth_data.as_bytes().to_vec(),
+            AuthTokens::Tezos(token),
+            config.clone(),
+        )),
         Err(e) => Err(Outcome::Failure((Status::Unauthorized, e))),
     }
 }
@@ -88,7 +91,7 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (token, config) = match extract_info(req) {
+                let (_, token, config) = match extract_info(req) {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
@@ -130,11 +133,11 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config) = match extract_info(req) {
+        let (auth_data, token, config) = match extract_info(req) {
             Ok(i) => i,
             Err(o) => return o,
         };
-        // TODO remove clone
+        // TODO remove clone, or refactor the order of validations/actions
         match token.clone().action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
@@ -142,14 +145,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 orbit_id,
                 parameters,
                 ..
-            } =>
-            // match AuthMethods.authorize(&token).await {
-                // TODO need to authorize?
-                // TODO don't create if it already exists
-                // Ok(_) => {
-            {
-                match token {
-                    AuthTokens::Tezos(token_tz) => {
+            } => match token {
+                AuthTokens::Tezos(token_tz) => {
                     if let Err(_) = verify_oid(orbit_id, &token_tz.pkh, parameters) {
                         return Outcome::Failure((
                             Status::BadRequest,
@@ -164,24 +161,23 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     match create_orbit(
                         *orbit_id,
                         config.database.path.clone(),
-                        TezosBasicAuthorization,
-                        vec![vm],
-                        // auth_data.as_bytes(),
+                        TezosBasicAuthorization {
+                            controllers: vec![vm],
+                        },
+                        &auth_data,
                     )
                     .await
                     {
                         Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
-                        Ok(None) =>
+                        Ok(None) => {
                             return Outcome::Failure((
-                                    Status::Conflict,
-                                    anyhow!("Orbit already exists"),
-                                    )),
+                                Status::Conflict,
+                                anyhow!("Orbit already exists"),
+                            ))
+                        }
                         Err(e) => Outcome::Failure((Status::InternalServerError, e)),
                     }
-                // }
-                // Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                 }
-            }
             },
             _ => Outcome::Failure((
                 Status::BadRequest,

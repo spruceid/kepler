@@ -125,10 +125,8 @@ pub struct SimpleOrbit {
 pub async fn create_orbit(
     oid: Cid,
     path: PathBuf,
-    _policy: TezosBasicAuthorization,
-    controllers: Vec<DIDURL>,
-    // TODO put back access logs
-    // auth: &[u8],
+    policy: TezosBasicAuthorization,
+    auth: &[u8],
 ) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -143,13 +141,13 @@ pub async fn create_orbit(
     // create default and write
     let md = OrbitMetadata {
         id: oid.clone(),
-        controllers,
+        controllers: policy.controllers,
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
     };
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
-    // fs::write(dir.join("access_log"), auth).await?;
+    fs::write(dir.join("access_log"), auth).await?;
 
     Ok(Some(load_orbit(oid, path).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
@@ -183,9 +181,10 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
 
     Ok(SimpleOrbit {
         ipfs,
-        oid: md.id,
-        // TODO retrieve policies from the orbit
-        policy: AuthMethods::Tezos(TezosBasicAuthorization),
+        oid,
+        policy: AuthMethods::Tezos(TezosBasicAuthorization {
+            controllers: md.controllers,
+        }),
     })
 }
 
