@@ -16,6 +16,7 @@ pub mod ipfs;
 pub mod orbit;
 pub mod routes;
 pub mod tz;
+pub mod tz_orbit;
 
 use routes::{
     batch_put_content, batch_put_create, cors, delete_content, get_content, get_content_no_auth,
