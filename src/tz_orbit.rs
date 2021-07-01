@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ipfs_embed::{Multiaddr, PeerId};
 use reqwest;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use std::{collections::HashMap as Map, convert::TryFrom, str::FromStr};
 
 #[derive(Default, Debug)]
@@ -11,7 +11,7 @@ pub struct Manifest {
 }
 
 #[derive(Deserialize)]
-pub struct Storage {
+pub struct OrbitStorage {
     admins: u64,
     hosts: u64,
 }
@@ -39,26 +39,43 @@ impl TryFrom<&str> for PID {
 
 const DEFAULT_TZKT_API: &str = "http://localhost:5000";
 
+async fn get_bigmap<K, V>(tzkt_api: &str, bigmap_id: u64) -> Result<impl Iterator<Item = (K, V)>>
+where
+    K: DeserializeOwned,
+    V: DeserializeOwned,
+{
+    Ok(
+        reqwest::get(format!("{}/v1/bigmaps/{}/keys", tzkt_api, bigmap_id))
+            .await?
+            .json::<Vec<BigmapKey<K, V>>>()
+            .await?
+            .into_iter()
+            .filter_map(|k| {
+                if k.active {
+                    Some((k.key, k.value))
+                } else {
+                    None
+                }
+            }),
+    )
+}
+
 async fn get_orbit_state(tzkt_api: &str, address: &str) -> Result<Manifest> {
     let storage_url = format!("{}/v1/contracts/{}/storage", tzkt_api, address);
-    let storage = reqwest::get(&storage_url).await?.json::<Storage>().await?;
+    let storage = reqwest::get(&storage_url)
+        .await?
+        .json::<OrbitStorage>()
+        .await?;
 
     Ok(Manifest {
-        admins: reqwest::get(format!("{}/v1/bigmaps/{}/keys", tzkt_api, storage.admins))
+        admins: get_bigmap::<String, EmptyObject>(tzkt_api, storage.admins)
             .await?
-            .json::<Vec<BigmapKey>>()
-            .await?
-            .into_iter()
-            .filter_map(|k| if k.active { Some(k.key) } else { None })
+            .map(|(k, _)| k)
             .collect(),
-        hosts: reqwest::get(format!("{}/v1/bigmaps/{}/keys", tzkt_api, storage.hosts))
+        hosts: get_bigmap::<PID, Vec<Multiaddr>>(tzkt_api, storage.hosts)
             .await?
-            .json::<Vec<BigmapKey<PID, Vec<Multiaddr>>>>()
-            .await?
-            .into_iter()
-            .filter_map(|k| if k.active { Some(k) } else { None })
-            .fold(Map::new(), |mut acc, k| {
-                acc.insert(k.key.0, k.value);
+            .fold(Map::new(), |mut acc, (k, v)| {
+                acc.insert(k.0, v);
                 acc
             }),
     })
