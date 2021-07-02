@@ -5,7 +5,7 @@ use crate::{
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{generate_keypair, Config, Ipfs, Keypair, PeerId};
+use ipfs_embed::{generate_keypair, Config, Ipfs, Keypair, Multiaddr, PeerId};
 use libipld::{
     cid::{
         multibase::Base,
@@ -19,9 +19,9 @@ use rocket::tokio::fs;
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{convert::TryFrom, path::PathBuf};
+use std::{collections::HashMap as Map, convert::TryFrom, ops::Deref, path::PathBuf, str::FromStr};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
     #[serde(with = "cid_serde")]
@@ -29,8 +29,34 @@ pub struct OrbitMetadata {
     pub controllers: Vec<DIDURL>,
     pub read_delegators: Vec<DIDURL>,
     pub write_delegators: Vec<DIDURL>,
+    #[serde(default)]
+    pub hosts: Map<PID, Vec<Multiaddr>>,
     // TODO placeholder type
     pub revocations: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Hash, Debug)]
+#[serde(try_from = "&str", into = "String")]
+pub struct PID(pub PeerId);
+
+impl Deref for PID {
+    type Target = PeerId;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&str> for PID {
+    type Error = <PeerId as FromStr>::Err;
+    fn try_from(v: &str) -> Result<Self, Self::Error> {
+        Ok(Self(PeerId::from_str(v)?))
+    }
+}
+
+impl From<PID> for String {
+    fn from(pid: PID) -> Self {
+        pid.to_base58()
+    }
 }
 
 mod cid_serde {
@@ -145,6 +171,7 @@ pub async fn create_orbit(
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
+        hosts: Map::new(),
     };
     let kp = generate_keypair();
 

@@ -1,17 +1,14 @@
+use crate::orbit::{OrbitMetadata, PID};
 use anyhow::Result;
-use ipfs_embed::{Multiaddr, PeerId};
+use ipfs_embed::{Block, Multiaddr, PeerId};
+use libipld::{cid::multihash::Code, raw::RawCodec, store::DefaultParams};
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
+use ssi::did::DIDURL;
 use std::{collections::HashMap as Map, convert::TryFrom, str::FromStr};
 
-#[derive(Default, Debug)]
-pub struct Manifest {
-    admins: Vec<String>,
-    hosts: Map<PeerId, Vec<Multiaddr>>,
-}
-
 #[derive(Deserialize)]
-pub struct OrbitStorage {
+struct OrbitStorage {
     admins: u64,
     hosts: u64,
 }
@@ -25,17 +22,6 @@ struct BigmapKey<K = String, V = EmptyObject> {
 
 #[derive(Debug, Deserialize)]
 struct EmptyObject {}
-
-#[derive(Deserialize)]
-#[serde(try_from = "&str")]
-struct PID(pub PeerId);
-
-impl TryFrom<&str> for PID {
-    type Error = <PeerId as FromStr>::Err;
-    fn try_from(v: &str) -> Result<Self, Self::Error> {
-        Ok(Self(PeerId::from_str(v)?))
-    }
-}
 
 const DEFAULT_TZKT_API: &str = "http://localhost:5000";
 
@@ -60,24 +46,37 @@ where
     )
 }
 
-async fn get_orbit_state(tzkt_api: &str, address: &str) -> Result<Manifest> {
+async fn get_orbit_state(tzkt_api: &str, address: &str) -> Result<OrbitMetadata> {
     let storage_url = format!("{}/v1/contracts/{}/storage", tzkt_api, address);
     let storage = reqwest::get(&storage_url)
         .await?
         .json::<OrbitStorage>()
         .await?;
 
-    Ok(Manifest {
-        admins: get_bigmap::<String, EmptyObject>(tzkt_api, storage.admins)
+    Ok(OrbitMetadata {
+        id: *Block::<DefaultParams>::encode(
+            RawCodec,
+            Code::Blake3_256,
+            format!("tz;contract={};", address).as_bytes(),
+        )?
+        .cid(),
+        controllers: get_bigmap::<String, EmptyObject>(tzkt_api, storage.admins)
             .await?
-            .map(|(k, _)| k)
+            .map(|(k, _)| DIDURL {
+                did: format!("did:pkh:tz:{}", k),
+                fragment: Some("BlockchainAccountId".into()),
+                ..Default::default()
+            })
             .collect(),
         hosts: get_bigmap::<PID, Vec<Multiaddr>>(tzkt_api, storage.hosts)
             .await?
             .fold(Map::new(), |mut acc, (k, v)| {
-                acc.insert(k.0, v);
+                acc.insert(k, v);
                 acc
             }),
+        read_delegators: vec![],
+        write_delegators: vec![],
+        revocations: vec![],
     })
 }
 
