@@ -5,7 +5,7 @@ use crate::{
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{Config, Ipfs, PeerId};
+use ipfs_embed::{generate_keypair, Config, Ipfs, Keypair, PeerId};
 use libipld::{
     cid::{
         multibase::Base,
@@ -146,7 +146,10 @@ pub async fn create_orbit(
         write_delegators: vec![],
         revocations: vec![],
     };
+    let kp = generate_keypair();
+
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
+    fs::write(dir.join("kp"), kp.to_bytes()).await?;
     fs::write(dir.join("access_log"), auth).await?;
 
     Ok(Some(load_orbit(oid, path).await.map(|o| {
@@ -172,6 +175,14 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
     cfg.network.gossipsub = None;
     cfg.network.broadcast = None;
     cfg.network.bitswap = None;
+
+    cfg.network.node_key = if let Ok(bytes) = fs::read(dir.join("kp")).await {
+        Keypair::from_bytes(&bytes)?
+    } else {
+        let kp = generate_keypair();
+        fs::write(dir.join("kp"), kp.to_bytes()).await?;
+        kp
+    };
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
