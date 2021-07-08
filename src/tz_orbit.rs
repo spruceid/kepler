@@ -1,7 +1,11 @@
 use crate::orbit::{OrbitMetadata, PID};
 use anyhow::Result;
 use ipfs_embed::{Block, Multiaddr, PeerId};
-use libipld::{cid::multihash::Code, raw::RawCodec, store::DefaultParams};
+use libipld::{
+    cid::{multihash::Code, Cid},
+    raw::RawCodec,
+    store::DefaultParams,
+};
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
 use ssi::did::DIDURL;
@@ -14,14 +18,14 @@ struct OrbitStorage {
 }
 
 #[derive(Debug, Deserialize)]
-struct BigmapKey<K = String, V = EmptyObject> {
+struct BigmapKey<K, V> {
     active: bool,
     key: K,
     value: V,
 }
 
 #[derive(Debug, Deserialize)]
-struct EmptyObject {}
+struct UnitObject {}
 
 const DEFAULT_TZKT_API: &str = "http://localhost:5000";
 
@@ -46,7 +50,7 @@ where
     )
 }
 
-async fn get_orbit_state(tzkt_api: &str, address: &str) -> Result<OrbitMetadata> {
+async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<OrbitMetadata> {
     let storage_url = format!("{}/v1/contracts/{}/storage", tzkt_api, address);
     let storage = reqwest::get(&storage_url)
         .await?
@@ -54,13 +58,8 @@ async fn get_orbit_state(tzkt_api: &str, address: &str) -> Result<OrbitMetadata>
         .await?;
 
     Ok(OrbitMetadata {
-        id: *Block::<DefaultParams>::encode(
-            RawCodec,
-            Code::Blake3_256,
-            format!("tz;contract={};", address).as_bytes(),
-        )?
-        .cid(),
-        controllers: get_bigmap::<String, EmptyObject>(tzkt_api, storage.admins)
+        id,
+        controllers: get_bigmap::<String, UnitObject>(tzkt_api, storage.admins)
             .await?
             .map(|(k, _)| DIDURL {
                 did: format!("did:pkh:tz:{}", k),
