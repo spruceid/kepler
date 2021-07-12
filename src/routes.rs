@@ -1,9 +1,10 @@
 use anyhow::Result;
+use ipfs_embed::{Keypair, ToLibp2p};
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
     http::Status,
-    serde::json::Json,
+    serde::{json::Json, Serialize},
     State,
 };
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{load_orbit, Orbit, SimpleOrbit};
+use crate::orbit::{load_orbit, Orbit, SimpleOrbit, PID};
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
 
@@ -57,8 +58,9 @@ pub async fn list_content(
 pub async fn list_content_no_auth(
     orbit_id: CidWrap,
     config: &State<config::Config>,
+    kp: &State<Keypair>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
-    let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
+    let orbit = match load_orbit(orbit_id.0, config.database.path.clone(), kp).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -84,8 +86,9 @@ pub async fn get_content_no_auth(
     orbit_id: CidWrap,
     hash: CidWrap,
     config: &State<config::Config>,
+    kp: &State<Keypair>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
-    let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
+    let orbit = match load_orbit(orbit_id.0, config.database.path.clone(), kp).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -207,4 +210,16 @@ pub async fn delete_content(
 #[options("/<_s..>")]
 pub async fn cors(_s: PathBuf) -> () {
     ()
+}
+
+#[derive(Serialize)]
+pub struct HostInfo {
+    pub id: PID,
+}
+
+#[get("/hostInfo")]
+pub async fn get_host_info(kp: &State<Keypair>) -> Result<Json<HostInfo>, (Status, &'static str)> {
+    Ok(Json(HostInfo {
+        id: PID(kp.to_peer_id()),
+    }))
 }

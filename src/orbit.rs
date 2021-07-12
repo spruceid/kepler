@@ -5,7 +5,7 @@ use crate::{
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{generate_keypair, Config, Ipfs, Keypair, Multiaddr, PeerId};
+use ipfs_embed::{Config, Ipfs, Keypair, Multiaddr, PeerId};
 use libipld::{
     cid::{
         multibase::Base,
@@ -19,7 +19,14 @@ use rocket::tokio::fs;
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{collections::HashMap as Map, convert::TryFrom, ops::Deref, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap as Map,
+    convert::TryFrom,
+    hash::{Hash, Hasher},
+    ops::Deref,
+    path::PathBuf,
+    str::FromStr,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OrbitMetadata {
@@ -153,6 +160,7 @@ pub async fn create_orbit(
     path: PathBuf,
     policy: TezosBasicAuthorization,
     auth: &[u8],
+    key_pair: &Keypair,
 ) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -173,43 +181,68 @@ pub async fn create_orbit(
         revocations: vec![],
         hosts: Map::new(),
     };
-    let kp = generate_keypair();
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
-    fs::write(dir.join("kp"), kp.to_bytes()).await?;
     fs::write(dir.join("access_log"), auth).await?;
 
-    Ok(Some(load_orbit(oid, path).await.map(|o| {
+    Ok(Some(load_orbit(oid, path, key_pair).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
     })??))
 }
 
-pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> {
+pub async fn load_orbit(
+    oid: Cid,
+    path: PathBuf,
+    key_pair: &Keypair,
+) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(oid, dir).await.map(|o| Some(o))
+    load_orbit_(oid, dir, key_pair.into())
+        .await
+        .map(|o| Some(o))
+}
+
+struct KP(pub Keypair);
+
+impl From<&Keypair> for KP {
+    fn from(kp: &Keypair) -> Self {
+        KP(Keypair::from_bytes(&kp.to_bytes()).unwrap())
+    }
+}
+
+impl Clone for KP {
+    fn clone(&self) -> Self {
+        KP(Keypair::from_bytes(&self.0.to_bytes()).unwrap())
+    }
+}
+
+impl PartialEq for KP {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bytes() == other.0.to_bytes()
+    }
+}
+
+impl Eq for KP {}
+
+impl Hash for KP {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bytes().hash(state);
+    }
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
+async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<SimpleOrbit> {
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
     cfg.network.gossipsub = None;
     cfg.network.broadcast = None;
     cfg.network.bitswap = None;
-
-    cfg.network.node_key = if let Ok(bytes) = fs::read(dir.join("kp")).await {
-        Keypair::from_bytes(&bytes)?
-    } else {
-        let kp = generate_keypair();
-        fs::write(dir.join("kp"), kp.to_bytes()).await?;
-        kp
-    };
+    cfg.network.node_key = key_pair.0;
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 

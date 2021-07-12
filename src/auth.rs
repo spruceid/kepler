@@ -2,6 +2,7 @@ use crate::config;
 use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit, SimpleOrbit};
 use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
 use anyhow::Result;
+use ipfs_embed::Keypair;
 use libipld::cid::Cid;
 use rocket::{
     http::Status,
@@ -52,9 +53,9 @@ pub struct DelAuthWrapper(pub SimpleOrbit);
 pub struct CreateAuthWrapper(pub SimpleOrbit);
 pub struct ListAuthWrapper(pub SimpleOrbit);
 
-fn extract_info<T>(
-    req: &Request,
-) -> Result<(Vec<u8>, AuthTokens, config::Config), Outcome<T, anyhow::Error>> {
+fn extract_info<'a, T>(
+    req: &'a Request,
+) -> Result<(Vec<u8>, AuthTokens, config::Config, &'a Keypair), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -72,11 +73,21 @@ fn extract_info<T>(
             )));
         }
     };
+    let kp = match req.rocket().state::<Keypair>() {
+        Some(kp) => kp,
+        None => {
+            return Err(Outcome::Failure((
+                Status::InternalServerError,
+                anyhow!("Could not retrieve key pair"),
+            )))
+        }
+    };
     match TezosAuthorizationString::extract(auth_data) {
         Ok(token) => Ok((
             auth_data.as_bytes().to_vec(),
             AuthTokens::Tezos(token),
             config.clone(),
+            kp,
         )),
         Err(e) => Err(Outcome::Failure((Status::Unauthorized, e))),
     }
@@ -91,13 +102,14 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config) = match extract_info(req) {
+                let (_, token, config, kp) = match extract_info(req) {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
                 match token.action() {
                     Action::$method { orbit_id, .. } => {
-                        let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await
+                        let orbit = match load_orbit(*orbit_id, config.database.path.clone(), kp)
+                            .await
                         {
                             Ok(Some(o)) => o,
                             Ok(None) => {
@@ -133,7 +145,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config) = match extract_info(req) {
+        let (auth_data, token, config, kp) = match extract_info(req) {
             Ok(i) => i,
             Err(o) => return o,
         };
@@ -165,6 +177,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                             controllers: vec![vm],
                         },
                         &auth_data,
+                        kp,
                     )
                     .await
                     {

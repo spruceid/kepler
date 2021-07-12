@@ -6,7 +6,8 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
+use ipfs_embed::{generate_keypair, Keypair};
+use rocket::{fairing::AdHoc, figment::Figment, http::Header, tokio::fs, Build, Rocket};
 
 pub mod auth;
 pub mod cas;
@@ -20,7 +21,7 @@ pub mod tz_orbit;
 
 use routes::{
     batch_put_content, batch_put_create, cors, delete_content, get_content, get_content_no_auth,
-    list_content, list_content_no_auth, put_content, put_create,
+    get_host_info, list_content, list_content_no_auth, put_content, put_create,
 };
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
@@ -33,6 +34,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             kepler_config.database.path.to_str().unwrap()
         ));
     }
+
+    let kp: Keypair = if let Ok(bytes) = fs::read(kepler_config.database.path.join("kp")).await {
+        Keypair::from_bytes(&bytes)?
+    } else {
+        let kp = generate_keypair();
+        fs::write(kepler_config.database.path.join("kp"), kp.to_bytes()).await?;
+        kp
+    };
 
     Ok(rocket::custom(config)
         .mount(
@@ -47,7 +56,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 delete_content,
                 put_create,
                 batch_put_create,
-                cors
+                cors,
+                get_host_info
             ],
         )
         .attach(AdHoc::config::<config::Config>())
@@ -61,7 +71,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
-        })))
+        }))
+        .manage(kp))
 }
 
 #[test]
