@@ -50,7 +50,7 @@ where
     )
 }
 
-async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<OrbitMetadata> {
+pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<OrbitMetadata> {
     let storage_url = format!("{}/v1/contracts/{}/storage", tzkt_api, address);
     let storage = reqwest::get(&storage_url)
         .await?
@@ -63,7 +63,7 @@ async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<Orbit
             .await?
             .map(|(k, _)| DIDURL {
                 did: format!("did:pkh:tz:{}", k),
-                fragment: Some("BlockchainAccountId".into()),
+                fragment: Some("TezosMethod2021".into()),
                 ..Default::default()
             })
             .collect(),
@@ -86,8 +86,8 @@ mod tests {
     #[test]
     async fn test() -> Result<()> {
         let address = "KT1L7hDDhXynuMoyRGoQNBNUHZEM5iBRu24U";
-        let m = get_orbit_state(DEFAULT_TZKT_API, address).await?;
-        println!("{:#?}", m);
+        // let m = get_orbit_state(DEFAULT_TZKT_API, address).await?;
+        // println!("{:#?}", m);
         assert!(false);
         Ok(())
     }

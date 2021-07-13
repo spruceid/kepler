@@ -1,0 +1,62 @@
+version: "3.6"
+services:
+  db:
+    container_name: tzkt-db
+    restart: always
+    image: postgres:13
+    environment:
+      POSTGRES_USER: tzkt
+      POSTGRES_PASSWORD: qwerty
+      POSTGRES_DB: tzkt_db
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+  api:
+    container_name: tzkt-api
+    restart: always
+    image: bakingbad/tzkt-api:latest
+    depends_on:
+      - db
+      - sync
+    ports:
+      - 5000:5000
+
+  sync:
+    container_name: tzkt-sync
+    restart: always
+    image: bakingbad/tzkt-sync:latest
+    environment:
+      - TZKT_TEZOSNODE__ENDPOINT=http://sandbox:20000/
+      - TZKT_TEZOSNODE__CHAINID=NetXfpUfwJdBox9
+    depends_on:
+      - db
+      - sandbox
+
+  sandbox:
+    container_name: tzkt-sandbox
+    restart: always
+    image: tqtezos/flextesa:20210602
+    command: flobox start
+    environment:
+      - flextesa_node_cors_origin=*
+    ports:
+      - 8732:20000
+
+  kepler1:
+    container_name: kepler-1
+    restart: always
+    build: .
+    environment:
+      - KEPLER_DATABASE_PATH=/tmp/kepler_1
+      - KEPLER_TZKT_API=http://api:5000/
+
+  kepler2:
+    container_name: kepler-2
+    restart: always
+    build: .
+    environment:
+      - KEPLER_DATABASE_PATH=/tmp/kepler_2
+      - KEPLER_TZKT_API=http://api:5000/
+
+volumes:
+  postgres:
