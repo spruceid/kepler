@@ -3,8 +3,13 @@ import { DAppClient } from '@airgap/beacon-sdk';
 import { InMemorySigner } from '@taquito/signer';
 import { b58cencode, prefix } from "@taquito/utils";
 import { DockerComposeEnvironment, StartedDockerComposeEnvironment } from "testcontainers";
+import { ContractClient } from "orbit-manifest";
+
 import path = require('path');
+const fetch = require('node-fetch');
 import crypto = require('crypto');
+
+const admin = 'edsk3QoqBuvdamxouPhin7swCvkQNgq4jP5KZPbwWNnwdZpSpJiEbq';
 
 const buildContext = path.resolve(__dirname, '..');
 const composeFile = 'sandbox.yml';
@@ -53,10 +58,36 @@ describe('Kepler Integration Tests', () => {
         const kepler1Host = "localhost";
         const kepler2Host = "localhost";
 
-        kepler1Url = "http://" + kepler1Host + ":" + kepler1Port
-        kepler2Url = "http://" + kepler2Host + ":" + kepler2Port
-        console.log(kepler1Url)
-        console.log(kepler2Url)
+        kepler1Url = "http://" + kepler1Host + ":" + kepler1Port;
+        kepler2Url = "http://" + kepler2Host + ":" + kepler2Port;
+
+        // @ts-ignore
+        const { id: k1 } = await fetch(kepler1Url + "/hostInfo").then(async r => await r.json());
+        // @ts-ignore
+        const { id: k2 } = await fetch(kepler2Url + "/hostInfo").then(async r => await r.json());
+
+        console.log(k1, k2);
+
+        // deploy contract
+        const client = new ContractClient({
+            tzktBase: "http://localhost:5000",
+            nodeURL: "http://localhost:8732",
+            contractType: "",
+            signer: {
+                type: 'secret',
+                secret: admin
+            }
+        });
+
+        const contract = await client.originate({
+            hosts: {
+                [k1]: [kepler1Host + ":" + (kepler1Port + 1)],
+                [k2]: [kepler2Host + ":" + (kepler2Port + 1)],
+            },
+            admins: []
+        });
+
+        console.log(contract)
         // 10 minute time limit for building the container
     }, 600000)
 
