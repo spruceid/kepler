@@ -1,7 +1,7 @@
 version: "3.6"
 services:
   db:
-    container_name: tzkt-db
+    container_name: kepler-tzkt-db
     restart: always
     image: postgres:13
     environment:
@@ -12,7 +12,7 @@ services:
       - postgres:/var/lib/postgresql/data
 
   api:
-    container_name: tzkt-api
+    container_name: kepler-tzkt-api
     restart: always
     image: bakingbad/tzkt-api:latest
     depends_on:
@@ -22,7 +22,7 @@ services:
       - 5000:5000
 
   sync:
-    container_name: tzkt-sync
+    container_name: kepler-tzkt-sync
     restart: always
     image: bakingbad/tzkt-sync:latest
     environment:
@@ -33,7 +33,7 @@ services:
       - sandbox
 
   sandbox:
-    container_name: tzkt-sandbox
+    container_name: kepler-tzkt-sandbox
     restart: always
     image: tqtezos/flextesa:20210602
     command: flobox start
@@ -45,18 +45,32 @@ services:
   kepler1:
     container_name: kepler-1
     restart: always
-    build: .
+    image: kepler:latest
     environment:
-      - KEPLER_DATABASE_PATH=/tmp/kepler_1
+      - KEPLER_DATABASE_PATH=/data
       - KEPLER_TZKT_API=http://api:5000/
+      - KEPLER_PORT=8000
+      - KEPLER_ADDRESS=0.0.0.0
+    volumes:
+      - keplerdb1:/data
+    ports:
+      - 8000:8000
 
   kepler2:
     container_name: kepler-2
     restart: always
-    build: .
+    image: kepler:latest
     environment:
-      - KEPLER_DATABASE_PATH=/tmp/kepler_2
+      - KEPLER_DATABASE_PATH=/data
       - KEPLER_TZKT_API=http://api:5000/
+      - KEPLER_PORT=9000
+      - KEPLER_ADDRESS=0.0.0.0
+    volumes:
+      - keplerdb2:/data
+    ports:
+      - 9000:9000
 
 volumes:
   postgres:
+  keplerdb1:
+  keplerdb2:
