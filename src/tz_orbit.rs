@@ -50,6 +50,14 @@ where
     )
 }
 
+fn pkh_to_did_vm(pkh: &str) -> DIDURL {
+    DIDURL {
+        did: format!("did:pkh:tz:{}", pkh),
+        fragment: Some("TezosMethod2021".into()),
+        ..Default::default()
+    }
+}
+
 pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<OrbitMetadata> {
     let storage_url = format!("{}/v1/contracts/{}/storage", tzkt_api, address);
     let storage = reqwest::get(&storage_url)
@@ -61,11 +69,7 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
         id,
         controllers: get_bigmap::<String, UnitObject>(tzkt_api, storage.admins)
             .await?
-            .map(|(k, _)| DIDURL {
-                did: format!("did:pkh:tz:{}", k),
-                fragment: Some("TezosMethod2021".into()),
-                ..Default::default()
-            })
+            .map(|(k, _)| pkh_to_did_vm(&k))
             .collect(),
         hosts: get_bigmap::<PID, Vec<Multiaddr>>(tzkt_api, storage.hosts)
             .await?
@@ -77,6 +81,26 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
         write_delegators: vec![],
         revocations: vec![],
     })
+}
+
+pub async fn params_to_tz_orbit(oid: Cid, params: &[(&str, &str)]) -> Result<OrbitMetadata> {
+    match params
+        .iter()
+        .find(|(k, _)| *k == "address" || *k == "contract")
+    {
+        // try read orbit state from chain
+        Some(("contract", v)) => Ok(get_orbit_state("http://localhost:5000", v, oid).await?),
+        // try use implicit address key as controller
+        Some(("address", v)) => Ok(OrbitMetadata {
+            id: oid,
+            controllers: vec![pkh_to_did_vm(v)],
+            read_delegators: vec![],
+            write_delegators: vec![],
+            revocations: vec![],
+            hosts: Map::new(),
+        }),
+        _ => Err(anyhow!("Missing address or contract")),
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
+    tz_orbit::params_to_tz_orbit,
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, Keypair, Multiaddr, PeerId};
@@ -158,8 +159,8 @@ pub struct SimpleOrbit {
 pub async fn create_orbit(
     oid: Cid,
     path: PathBuf,
-    policy: TezosBasicAuthorization,
     auth: &[u8],
+    uri: &str,
     key_pair: &Keypair,
 ) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
@@ -172,14 +173,11 @@ pub async fn create_orbit(
         .await
         .map_err(|e| anyhow!("Couldn't create dir: {}", e))?;
 
-    // create default and write
-    let md = OrbitMetadata {
-        id: oid.clone(),
-        controllers: policy.controllers,
-        read_delegators: vec![],
-        write_delegators: vec![],
-        revocations: vec![],
-        hosts: Map::new(),
+    let (method, params) = get_oid_matrix_params(uri)?;
+
+    let md = match method {
+        "tz" => params_to_tz_orbit(oid, &params.collect::<Vec<(&str, &str)>>()).await?,
+        _ => return Err(anyhow!("Unsupported method type: {}", method)),
     };
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
@@ -259,26 +257,28 @@ async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<SimpleOrbit
     })
 }
 
-pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
-    // try to parse as a URI with matrix params
-    let mut parts = uri_str.split(';');
+pub fn get_oid_matrix_params<'a>(
+    uri: &'a str,
+) -> Result<(&'a str, impl Iterator<Item = (&'a str, &'a str)>)> {
+    let mut parts = uri.split(';');
     let method = parts.next().ok_or(anyhow!("No URI"))?;
 
+    Ok((
+        method,
+        parts.filter_map(|part| {
+            let mut kvs = part.split("=");
+            if let (Some(k), Some(v), None) = (kvs.next(), kvs.next(), kvs.next()) {
+                Some((k, v))
+            } else {
+                None
+            }
+        }),
+    ))
+}
+
+pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<()> {
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
-        && match method {
-            "tz" => parts
-                .map(|part| part.split('=').collect::<Vec<&str>>())
-                .filter_map(|kv| {
-                    if kv.len() == 2 {
-                        Some((kv[0], kv[1]))
-                    } else {
-                        None
-                    }
-                })
-                .any(|(name, value)| name == "address" && value == pkh),
-            _ => Err(anyhow!("Orbit method not registered"))?,
-        }
     {
         Ok(())
     } else {

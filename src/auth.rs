@@ -1,5 +1,7 @@
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit, SimpleOrbit};
+use crate::orbit::{
+    create_orbit, get_oid_matrix_params, load_orbit, verify_oid, AuthTokens, Orbit, SimpleOrbit,
+};
 use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
 use anyhow::Result;
 use ipfs_embed::Keypair;
@@ -159,24 +161,18 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 ..
             } => match token {
                 AuthTokens::Tezos(token_tz) => {
-                    if let Err(_) = verify_oid(orbit_id, &token_tz.pkh, parameters) {
+                    if let Err(_) = verify_oid(orbit_id, parameters) {
                         return Outcome::Failure((
                             Status::BadRequest,
                             anyhow!("Incorrect Orbit ID"),
                         ));
                     }
-                    let vm = DIDURL {
-                        did: format!("did:pkh:tz:{}", &token_tz.pkh),
-                        fragment: Some("TezosMethod2021".to_string()),
-                        ..Default::default()
-                    };
+
                     match create_orbit(
                         *orbit_id,
                         config.database.path.clone(),
-                        TezosBasicAuthorization {
-                            controllers: vec![vm],
-                        },
                         &auth_data,
+                        &parameters,
                         kp,
                     )
                     .await
