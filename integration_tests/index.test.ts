@@ -9,18 +9,18 @@ import path = require('path');
 const fetch = require('node-fetch');
 import crypto = require('crypto');
 
-const admin = 'edsk3QoqBuvdamxouPhin7swCvkQNgq4jP5KZPbwWNnwdZpSpJiEbq';
+const secrets = ['edsk3QoqBuvdamxouPhin7swCvkQNgq4jP5KZPbwWNnwdZpSpJiEbq', 'edsk3RFfvaFaxbHx8BMtEW1rKQcPtDML3LXjNqMNLCzC3wLC1bWbAt'];
 
 const buildContext = path.resolve(__dirname, '..');
 const composeFile = 'sandbox.yml';
 const kepler1Port = 8000;
 const kepler2Port = 9000;
 
-const genClient = async (): Promise<DAppClient> => {
-    const ims = new InMemorySigner(b58cencode(
-        crypto.randomBytes(32),
-        prefix.edsk2
-    ));
+const genClient = async (secret: string = b58cencode(
+    crypto.randomBytes(32),
+    prefix.edsk2
+)): Promise<DAppClient> => {
+    const ims = new InMemorySigner(secret);
     // @ts-ignore
     return {
         // @ts-ignore
@@ -30,9 +30,45 @@ const genClient = async (): Promise<DAppClient> => {
     }
 }
 
-const create = async (hostURL: string = 'http://localhost:8000', peerURL: string = 'http://localhost:9000') => {
-    const authn = await authenticator(await genClient(), 'test');
-    const kepler1 = new Kepler(hostURL, authn);
+type HostInfo = {
+    id: string,
+    port: number,
+    url: string
+}
+
+const create = async (
+    secret: string,
+    host: HostInfo,
+    peer: HostInfo,
+) => {
+    const hostAPI = host.url + ":" + host.port;
+    const peerAPI = peer.url + ":" + peer.port;
+    // @ts-ignore
+    const { id: hk } = await fetch(hostAPI + "/hostInfo").then(async r => await r.json());
+    // @ts-ignore
+    const { id: pk } = await fetch(peerAPI + "/hostInfo").then(async r => await r.json());
+
+    // deploy contract
+    const client = new ContractClient({
+        tzktBase: "http://localhost:5000",
+        nodeURL: "http://localhost:8732",
+        contractType: "",
+        signer: {
+            type: 'secret',
+            secret
+        }
+    });
+
+    const contract = await client.originate({
+        hosts: {
+            [hk]: [host.url + ":" + (host.port + 1)],
+            [pk]: [peer.url + ":" + (peer.port + 1)],
+        },
+        admins: []
+    });
+
+    const authn = await authenticator(await genClient(secret), 'test');
+    const kepler1 = new Kepler(hostAPI, authn);
     const res0 = await kepler1.createOrbit({ hi: 'there' });
     expect(res0.status).toEqual(200);
     const cid = await res0.text();
@@ -40,7 +76,7 @@ const create = async (hostURL: string = 'http://localhost:8000', peerURL: string
     expect(res1.status).toEqual(200);
     await expect(res1.json()).resolves.toEqual({ hi: 'there' });
 
-    const kepler2 = new Kepler(peerURL, authn)
+    const kepler2 = new Kepler(peerAPI, authn)
     const res2 = await kepler2.resolve(cid)
     expect(res2.status).toEqual(200);
     return await expect(res2.json()).resolves.toEqual({ hi: 'there' });
@@ -48,46 +84,32 @@ const create = async (hostURL: string = 'http://localhost:8000', peerURL: string
 
 describe('Kepler Integration Tests', () => {
     let environment: StartedDockerComposeEnvironment;
-    let kepler1Url: string;
-    let kepler2Url: string;
+    let kepler1: HostInfo;
+    let kepler2: HostInfo;
 
     beforeAll(async () => {
         // environment = await new DockerComposeEnvironment(buildContext, composeFile).up()
         // let kepler1Host = environment.getContainer("kepler-1").getHost();
         // let kepler2Host = environment.getContainer("kepler-2").getHost();
-        const kepler1Host = "localhost";
-        const kepler2Host = "localhost";
-
-        kepler1Url = "http://" + kepler1Host + ":" + kepler1Port;
-        kepler2Url = "http://" + kepler2Host + ":" + kepler2Port;
+        const kepler1Host = "http://localhost";
+        const kepler2Host = "http://localhost";
 
         // @ts-ignore
-        const { id: k1 } = await fetch(kepler1Url + "/hostInfo").then(async r => await r.json());
+        const { id: k1 } = await fetch(kepler1Host + ":8000" + "/hostInfo").then(async r => await r.json());
         // @ts-ignore
-        const { id: k2 } = await fetch(kepler2Url + "/hostInfo").then(async r => await r.json());
+        const { id: k2 } = await fetch(kepler2Host + ":9000" + "/hostInfo").then(async r => await r.json());
 
+        kepler1 = {
+            url: kepler1Host,
+            port: 8000,
+            id: k1
+        };
+        kepler2 = {
+            url: kepler2Host,
+            port: 9000,
+            id: k2
+        };
         console.log(k1, k2);
-
-        // deploy contract
-        const client = new ContractClient({
-            tzktBase: "http://localhost:5000",
-            nodeURL: "http://localhost:8732",
-            contractType: "",
-            signer: {
-                type: 'secret',
-                secret: admin
-            }
-        });
-
-        const contract = await client.originate({
-            hosts: {
-                [k1]: [kepler1Host + ":" + (kepler1Port + 1)],
-                [k2]: [kepler2Host + ":" + (kepler2Port + 1)],
-            },
-            admins: []
-        });
-
-        console.log(contract)
         // 10 minute time limit for building the container
     }, 600000)
 
@@ -96,11 +118,8 @@ describe('Kepler Integration Tests', () => {
         // 1 minute time limit for stopping the container
     }, 60000)
 
-    it('sequential load', async () => {
-        const len = 100
-        for (let i = 0; i < len; i++) {
-            await create(kepler1Url)
-        }
+    it('concurrent load', async () => {
+        await Promise.all(secrets.map(secret => create(secret, kepler1, kepler2)))
     }, 60000)
 
     // it('concurrent load', async () => {
