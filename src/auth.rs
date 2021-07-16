@@ -174,6 +174,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         &auth_data,
                         &parameters,
                         kp,
+                        &config.tzkt.api
                     )
                     .await
                     {

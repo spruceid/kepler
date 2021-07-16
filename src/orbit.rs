@@ -162,6 +162,7 @@ pub async fn create_orbit(
     auth: &[u8],
     uri: &str,
     key_pair: &Keypair,
+    tzkt_api: &str,
 ) -> Result<Option<SimpleOrbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -176,7 +177,7 @@ pub async fn create_orbit(
     let (method, params) = get_oid_matrix_params(uri)?;
 
     let md = match method {
-        "tz" => params_to_tz_orbit(oid, &params.collect::<Vec<(&str, &str)>>()).await?,
+        "tz" => params_to_tz_orbit(oid, &params.collect::<Vec<(&str, &str)>>(), tzkt_api).await?,
         _ => return Err(anyhow!("Unsupported method type: {}", method)),
     };
 

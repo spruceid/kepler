@@ -67,7 +67,8 @@ const create = async (
         admins: []
     });
 
-    const authn = await authenticator(await genClient(secret), 'test');
+    // @ts-ignore
+    const authn = await authenticator(await genClient(secret), 'test', contract);
     const kepler1 = new Kepler(hostAPI, authn);
     const res0 = await kepler1.createOrbit({ hi: 'there' });
     expect(res0.status).toEqual(200);

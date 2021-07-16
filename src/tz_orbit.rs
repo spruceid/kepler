@@ -83,13 +83,17 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
     })
 }
 
-pub async fn params_to_tz_orbit(oid: Cid, params: &[(&str, &str)]) -> Result<OrbitMetadata> {
+pub async fn params_to_tz_orbit(
+    oid: Cid,
+    params: &[(&str, &str)],
+    tzkt_api: &str,
+) -> Result<OrbitMetadata> {
     match params
         .iter()
         .find(|(k, _)| *k == "address" || *k == "contract")
     {
         // try read orbit state from chain
-        Some(("contract", v)) => Ok(get_orbit_state("http://localhost:5000", v, oid).await?),
+        Some(("contract", v)) => Ok(get_orbit_state(tzkt_api, v, oid).await?),
         // try use implicit address key as controller
         Some(("address", v)) => Ok(OrbitMetadata {
             id: oid,
