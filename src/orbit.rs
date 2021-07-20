@@ -15,7 +15,10 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use rocket::tokio::fs;
+use rocket::{
+    futures::{Stream, StreamExt},
+    tokio::fs,
+};
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
@@ -237,17 +240,25 @@ impl Hash for KP {
 #[cached(size = 100, time = 60, result = true)]
 async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<SimpleOrbit> {
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
-    cfg.network.mdns = None;
-    cfg.network.gossipsub = None;
-    cfg.network.broadcast = None;
-    cfg.network.bitswap = None;
     cfg.network.node_key = key_pair.0;
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
-    // TODO enable dht once orbits are defined
-    cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+
+    if let Some(addrs) = md.hosts.get(&PID(ipfs.local_peer_id())) {
+        for addr in addrs {
+            ipfs.listen_on(addr.clone())?.next().await;
+        }
+    }
+
+    for (id, addrs) in md.hosts.iter() {
+        if id.0 != ipfs.local_peer_id() {
+            for addr in addrs {
+                ipfs.add_address(&id.0, addr.clone())
+            }
+        }
+    }
 
     Ok(SimpleOrbit {
         ipfs,

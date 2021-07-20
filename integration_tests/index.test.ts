@@ -38,15 +38,15 @@ type HostInfo = {
 
 const create = async (
     secret: string,
-    host: HostInfo,
-    peer: HostInfo,
+    [host, ...peers]: HostInfo[],
 ) => {
-    const hostAPI = host.url + ":" + host.port;
-    const peerAPI = peer.url + ":" + peer.port;
-    // @ts-ignore
-    const { id: hk } = await fetch(hostAPI + "/hostInfo").then(async r => await r.json());
-    // @ts-ignore
-    const { id: pk } = await fetch(peerAPI + "/hostInfo").then(async r => await r.json());
+    // get IDs and multiaddrs of all kepler nodes
+    const hostInfo = await Promise.all([host, ...peers].map(async host => {
+        const api = "http://" + host.url + ":" + host.port;
+        // @ts-ignore
+        const key = await fetch(api + "/hostInfo").then(r => r.json()).then(({ id }) => id)
+        return { [key]: ["/ip4/0.0.0.0/tcp/" + (host.port + 1)] }
+    })).then(hosts => hosts.reduce((h, acc) => ({ ...h, ...acc })));
 
     // deploy contract
     const client = new ContractClient({
@@ -60,27 +60,37 @@ const create = async (
     });
 
     const contract = await client.originate({
-        hosts: {
-            [hk]: [host.url + ":" + (host.port + 1)],
-            [pk]: [peer.url + ":" + (peer.port + 1)],
-        },
+        hosts: hostInfo,
         admins: []
     });
 
+    // wait for tzkt to index the contract
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     // @ts-ignore
     const authn = await authenticator(await genClient(secret), 'test', contract);
-    const kepler1 = new Kepler(hostAPI, authn);
-    const res0 = await kepler1.createOrbit({ hi: 'there' });
-    expect(res0.status).toEqual(200);
-    const cid = await res0.text();
-    const res1 = await kepler1.resolve(cid);
-    expect(res1.status).toEqual(200);
-    await expect(res1.json()).resolves.toEqual({ hi: 'there' });
 
-    const kepler2 = new Kepler(peerAPI, authn)
-    const res2 = await kepler2.resolve(cid)
-    expect(res2.status).toEqual(200);
-    return await expect(res2.json()).resolves.toEqual({ hi: 'there' });
+    const hostClient = new Kepler("http://" + host.url + ":" + host.port, authn);
+    const peerClients = peers.map(peer => new Kepler("http://" + peer.url + ":" + peer.port, authn));
+
+    const hostContent = { hi: "there" };
+    const peerContent = { dummy: "data" };
+
+    const res0 = await hostClient.createOrbit(hostContent)
+    const cid = await res0.text();
+    expect(res0.status).toEqual(200)
+    const res1 = await hostClient.resolve(cid);
+    expect(res1.status).toEqual(200);
+    await expect(res1.json()).resolves.toEqual(hostContent);
+
+    await Promise.all(peerClients.map(async peerClient => {
+        const createRes = await peerClient.createOrbit(peerContent);
+        expect(createRes.status).toEqual(200);
+
+        const getRes = await peerClient.resolve(cid);
+        expect(getRes.status).toEqual(200);
+        return await expect(getRes.json()).resolves.toEqual(hostContent);
+    }))
 }
 
 describe('Kepler Integration Tests', () => {
@@ -92,13 +102,13 @@ describe('Kepler Integration Tests', () => {
         // environment = await new DockerComposeEnvironment(buildContext, composeFile).up()
         // let kepler1Host = environment.getContainer("kepler-1").getHost();
         // let kepler2Host = environment.getContainer("kepler-2").getHost();
-        const kepler1Host = "http://localhost";
-        const kepler2Host = "http://localhost";
+        const kepler1Host = "localhost";
+        const kepler2Host = "localhost";
 
         // @ts-ignore
-        const { id: k1 } = await fetch(kepler1Host + ":8000" + "/hostInfo").then(async r => await r.json());
+        const { id: k1 } = await fetch("http://" + kepler1Host + ":8000" + "/hostInfo").then(async r => await r.json());
         // @ts-ignore
-        const { id: k2 } = await fetch(kepler2Host + ":9000" + "/hostInfo").then(async r => await r.json());
+        const { id: k2 } = await fetch("http://" + kepler2Host + ":8000" + "/hostInfo").then(async r => await r.json());
 
         kepler1 = {
             url: kepler1Host,
@@ -120,7 +130,7 @@ describe('Kepler Integration Tests', () => {
     }, 60000)
 
     it('concurrent load', async () => {
-        await Promise.all(secrets.map(secret => create(secret, kepler1, kepler2)))
+        await Promise.all(secrets.map(secret => create(secret, [kepler1, kepler2])))
     }, 60000)
 
     // it('concurrent load', async () => {
