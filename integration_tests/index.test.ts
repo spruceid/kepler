@@ -44,7 +44,7 @@ const create = async (
     const hostInfo = await Promise.all([host, ...peers].map(async host => {
         const api = "http://" + host.url + ":" + host.port;
         // @ts-ignore
-        const key = await fetch(api + "/hostInfo").then(r => r.json()).then(({ id }) => id)
+        const key: string = await fetch(api + "/hostInfo").then(r => r.json()).then(({ id }) => id)
         return { [key]: ["/ip4/0.0.0.0/tcp/" + (host.port + 1)] }
     })).then(hosts => hosts.reduce((h, acc) => ({ ...h, ...acc })));
 
@@ -120,7 +120,6 @@ describe('Kepler Integration Tests', () => {
             port: 9000,
             id: k2
         };
-        console.log(k1, k2);
         // 10 minute time limit for building the container
     }, 600000)
 

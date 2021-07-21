@@ -22,8 +22,13 @@ impl ContentAddressedStorage for Ipfs<DefaultParams> {
     async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         // TODO this api returns Result<Block, anyhow::Error>, with an err thrown for no block found
         // until this API changes (a breaking change), we will error here when no block found
-        self.sync(address, self.peers()).await?;
-        Ok(Some(self.get(address)?.data().to_vec()))
+        Ok(Some(match self.get(address) {
+            Ok(block) => block.data().to_vec(),
+            Err(_) => {
+                self.sync(address, self.peers()).await?;
+                self.get(address)?.data().to_vec()
+            }
+        }))
     }
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         // TODO this does not enforce deletion across the network, we need to devise a method for that via the pubsub stuff
