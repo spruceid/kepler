@@ -1,53 +1,81 @@
 use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use ipfs_embed::Cid;
-use serde::{Deserialize, Serialize};
-use ssi::zcap::{Delegation, Invocation};
+use rocket::request::{FromRequest, Outcome, Request};
+use ssi::{
+    did::DIDURL,
+    zcap::{Delegation, Invocation},
+};
 
-#[derive(Clone, Deserialize, Serialize)]
-pub enum ZCAPAction {
-    Read,
-    Write,
-}
+pub type KeplerInvocation = Invocation<Action>;
+
+pub type KeplerDelegation = Delegation<Action, ()>;
+
+pub type ZCAPAuthorization = Vec<DIDURL>;
+
 #[derive(Clone)]
-pub struct ZCAPInvocation(pub Invocation<ZCAPAction>);
+pub struct ZCAPTokens {
+    pub invocation: KeplerInvocation,
+    pub delegation: KeplerDelegation,
+}
 
-impl AuthorizationToken for ZCAPInvocation {
-    fn extract(auth_data: &str) -> Result<Self> {
-        Ok(ZCAPInvocation(serde_json::from_str(auth_data)?))
-    }
-
-    fn action(&self) -> Action {
-        match &self.0.capability_action {
-            Some(a) => match a {
-                ZCAPAction::Read => Action::Create {
-                    orbit_id: Cid::default(),
-                    parameters: "".to_string(),
-                    content: vec![],
-                },
-                ZCAPAction::Write => Action::Create {
-                    orbit_id: Cid::default(),
-                    parameters: "".to_string(),
-                    content: vec![],
-                },
-            },
-            None => Action::Create {
-                orbit_id: Cid::default(),
-                parameters: "".to_string(),
-                content: vec![],
-            },
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ZCAPTokens {
+    type Error = anyhow::Error;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match (
+            request
+                .headers()
+                .get_one("Invocation")
+                .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
+                .map(|s| serde_json::from_str(s)),
+            request
+                .headers()
+                .get_one("Delegation")
+                .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
+                .map(|s| serde_json::from_str(s)),
+        ) {
+            (Some(Ok(invocation)), Some(Ok(delegation))) => Outcome::Success(Self {
+                invocation,
+                delegation,
+            }),
+            _ => Outcome::Forward(()),
         }
     }
 }
 
-#[derive(Clone)]
-pub struct ZCAPDelegation(pub Delegation<ZCAPAction, ()>);
+impl AuthorizationToken<'_> for ZCAPTokens {
+    fn action(&self) -> Action {
+        self.invocation
+            .capability_action
+            // safest default but should never happen
+            .unwrap_or_else(|| Action::List(Cid::default()))
+            .clone()
+    }
+}
 
 #[rocket::async_trait]
-impl AuthorizationPolicy for ZCAPDelegation {
-    type Token = ZCAPInvocation;
+impl AuthorizationPolicy<'_> for ZCAPAuthorization {
+    type Token = ZCAPTokens;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
-        Ok(())
+        let delegator_vm = auth_token
+            .delegation
+            .proof
+            .and_then(|proof| proof.verification_method)
+            .and_then(|s| DIDURL::from_str(s))
+            .ok_or_else(|| anyhow!("Missing delegation verification method"))??;
+        if !self.iter().any(|vm| vm == delegator_vm) {
+            return Err(anyhow!("Delegator not authorized"));
+        };
+        let res = auth_token
+            .invocation
+            .verify(Default::default(), &did_pkh::DIDPKH, &auth_token.delegation)
+            .await;
+        if let Some(e) = res.errors.first() {
+            Err(anyhow!(e))
+        } else {
+            Ok(())
+        }
     }
 }
