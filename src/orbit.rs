@@ -1,9 +1,9 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken, cid_serde},
+    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
-    zcap::{ZCAPDelegation, ZCAPInvocation},
+    zcap::{KeplerDelegation, KeplerInvocation, ZCAPAuthorization, ZCAPTokens},
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, PeerId};
@@ -15,7 +15,10 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use rocket::tokio::fs;
+use rocket::{
+    request::{FromRequest, Outcome, Request},
+    tokio::fs,
+};
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
@@ -63,20 +66,34 @@ pub trait Orbit: ContentAddressedStorage {
 #[derive(Clone)]
 pub enum AuthMethods {
     Tezos(TezosBasicAuthorization),
-    ZCAP(ZCAPDelegation),
+    ZCAP(ZCAPAuthorization),
 }
 
 #[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
-    ZCAP(ZCAPInvocation),
+    ZCAP(ZCAPTokens),
 }
 
-impl AuthorizationToken for AuthTokens {
-    fn extract(auth_data: &str) -> Result<Self> {
-        Err(anyhow!("todo"))
-    }
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AuthTokens {
+    type Error = anyhow::Error;
 
+    fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if let Success(tz) = TezosAuthorizationString::from_request(request) {
+            Outcome::Success(Self::Tezos(tz))
+        } else if let Success(zcap) = ZCAPTokens::from_request(request) {
+            Outcome::Success(Self::ZCAP(zcap))
+        } else {
+            Outcome::Failure((
+                Status::Unauthorized,
+                anyhow!("No valid authorization headers"),
+            ))
+        }
+    }
+}
+
+impl AuthorizationToken<'_> for AuthTokens {
     fn action(&self) -> Action {
         match self {
             Self::Tezos(token) => token.action(),

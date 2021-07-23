@@ -104,16 +104,13 @@ pub enum Action {
     },
 }
 
-pub trait AuthorizationToken {
-    fn extract(auth_data: &str) -> Result<Self>
-    where
-        Self: Sized;
+pub trait AuthorizationToken<'r>: FromRequest<'r> {
     fn action(&self) -> Action;
 }
 
 #[rocket::async_trait]
-pub trait AuthorizationPolicy {
-    type Token: AuthorizationToken;
+pub trait AuthorizationPolicy<'r> {
+    type Token: AuthorizationToken<'r>;
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()>;
 }
 
@@ -143,13 +140,17 @@ fn extract_info<T>(
             )));
         }
     };
-    match TezosAuthorizationString::extract(auth_data) {
-        Ok(token) => Ok((
+    match AuthTokens::from_request(req) {
+        Outcome::Success(token) => Ok((
             auth_data.as_bytes().to_vec(),
-            AuthTokens::Tezos(token),
+            token
             config.clone(),
         )),
-        Err(e) => Err(Outcome::Failure((Status::Unauthorized, e))),
+        Outcome::Failure(e) => Err(e),
+        Outcome::Forward(_) => Outcome::Failure((
+                Status::Unauthorized,
+                anyhow!("No valid authorization headers"),
+            ))
     }
 }
 

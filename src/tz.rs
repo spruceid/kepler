@@ -9,6 +9,7 @@ use nom::{
     sequence::{preceded, tuple},
     IResult, ParseTo,
 };
+use rocket::request::{FromRequest, Outcome, Request};
 use ssi::{
     did::DIDURL,
     jws::verify_bytes,
@@ -185,15 +186,20 @@ impl TezosAuthorizationString {
     }
 }
 
-impl AuthorizationToken for TezosAuthorizationString {
-    // const HEADER_KEY: &'static str = "Authorization";
-
-    fn extract(auth_data: &str) -> Result<Self> {
-        let auth = TezosAuthorizationString::from_str(auth_data)?;
-        auth.verify()?;
-        Ok(auth)
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for TezosAuthorizationString {
+    type Error = anyhow::Error;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        request
+            .headers()
+            .get_one("Authorization")
+            .map(|s| Self::from_str(s))
+            .unwrap_or_else(|| Outcome::Forward())
+            .unwrap_or_else(|_| Outcome::Forward())
     }
+}
 
+impl AuthorizationToken<'_> for TezosAuthorizationString {
     fn action(&self) -> Action {
         self.action.clone()
     }
@@ -232,7 +238,7 @@ pub struct TezosBasicAuthorization {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy for TezosBasicAuthorization {
+impl AuthorizationPolicy<'_> for TezosBasicAuthorization {
     type Token = TezosAuthorizationString;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
