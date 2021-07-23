@@ -35,32 +35,30 @@ pub struct OrbitMetadata {
     pub write_delegators: Vec<DIDURL>,
     // TODO placeholder type
     pub revocations: Vec<String>,
+    #[serde(default)]
+    pub auth: AuthTypes,
 }
 
-// TODO I think this will need to go, using a trait for a core object creates
-// too much monomorphisation which shouldn't be too much of a problem for the
-// binary size but I'm not sure how Rocket handles it.
-// Or maybe implement the traits separately.
-// Ultimately I think we'll need to use an enum, it's not as fancy but because
-// we only have simple relationships (e.g. for the Tezos policy you need a
-// Tezos token) it will make the routing simpler and easier to use.
-#[rocket::async_trait]
-pub trait Orbit: ContentAddressedStorage {
-    // + AuthorizationPolicy {
-    fn id(&self) -> &Cid;
+#[derive(Serialize, Deserialize)]
+#[serde(untagged, rename_all = "UPPERCASE")]
+pub enum AuthTypes {
+    Tezos,
+    ZCAP,
+}
 
-    fn hosts(&self) -> Vec<PeerId>;
+impl Default for AuthTypes {
+    fn default() -> Self {
+        Self::Tezos
+    }
+}
 
-    fn admins(&self) -> &[&DIDURL];
-
-    // fn auth(&self) -> &AuthMethods;
-
-    fn make_uri(&self, cid: &Cid) -> Result<String>;
-
-    // async fn update(
-    //     &self,
-    //     update: Self::UpdateMessage,
-    // ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
+impl From<&AuthMethods> for AuthTypes {
+    fn from(m: &AuthMethods) -> Self {
+        match m {
+            AuthMethods::Tezos(_) => Self::Tezos,
+            AuthMethods::ZCAP(_) => Self::ZCAP,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -118,10 +116,10 @@ impl AuthMethods {
 }
 
 #[derive(Clone)]
-pub struct SimpleOrbit {
+pub struct Orbit {
     ipfs: Ipfs<DefaultParams>,
-    oid: Cid,
-    // policy: AuthMethods,
+    metadata: OrbitMetadata,
+    policy: AuthMethods,
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -130,7 +128,8 @@ pub async fn create_orbit(
     path: PathBuf,
     controllers: Vec<DIDURL>,
     auth: &[u8],
-) -> Result<Option<SimpleOrbit>> {
+    auth_type: AuthTypes,
+) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
@@ -148,6 +147,7 @@ pub async fn create_orbit(
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
+        auth: auth_type,
     };
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
@@ -157,7 +157,7 @@ pub async fn create_orbit(
     })??))
 }
 
-pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> {
+pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
     if !dir.exists() {
         return Ok(None);
@@ -169,7 +169,7 @@ pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> 
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
+async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
     cfg.network.gossipsub = None;
@@ -182,11 +182,15 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
 
-    Ok(SimpleOrbit {
+    Ok(Orbit {
         ipfs,
-        oid: md.id,
-        // TODO retrieve policies from the orbit
-        // policy: AuthMethods::ZCAP(ZCAPDelegation),
+        metadata: md,
+        policy: match md.auth {
+            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization {
+                controllers: md.controllers.clone(),
+            }),
+            AuthTypes::ZCAP => AuthMethods::ZCAP(md.controllers.clone()),
+        },
     })
 }
 
@@ -218,7 +222,7 @@ pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
 }
 
 #[rocket::async_trait]
-impl ContentAddressedStorage for SimpleOrbit {
+impl ContentAddressedStorage for Orbit {
     type Error = anyhow::Error;
     async fn put(
         &self,
@@ -242,9 +246,9 @@ impl ContentAddressedStorage for SimpleOrbit {
 }
 
 #[rocket::async_trait]
-impl Orbit for SimpleOrbit {
+impl Orbit {
     fn id(&self) -> &Cid {
-        &self.oid
+        &self.metadata.id
     }
 
     fn hosts(&self) -> Vec<PeerId> {
@@ -252,12 +256,12 @@ impl Orbit for SimpleOrbit {
     }
 
     fn admins(&self) -> &[&DIDURL] {
-        todo!()
+        self.metadata.controllers.into()
     }
 
-    // fn auth(&self) -> &AuthMethods {
-    //     &self.policy
-    // }
+    fn auth(&self) -> &AuthMethods {
+        &self.policy
+    }
 
     fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(

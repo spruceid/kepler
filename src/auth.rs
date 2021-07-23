@@ -1,6 +1,7 @@
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, SimpleOrbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
 use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
+use crate::zcap::{KeplerDelegation, KeplerInvocation, ZCAPAuthorization, ZCAPTokens};
 use anyhow::Result;
 use libipld::cid::Cid;
 use rocket::{
@@ -104,21 +105,21 @@ pub enum Action {
     },
 }
 
-pub trait AuthorizationToken<'r>: FromRequest<'r> {
+pub trait AuthorizationToken {
     fn action(&self) -> Action;
 }
 
 #[rocket::async_trait]
-pub trait AuthorizationPolicy<'r> {
-    type Token: AuthorizationToken<'r>;
+pub trait AuthorizationPolicy {
+    type Token: AuthorizationToken;
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()>;
 }
 
-pub struct PutAuthWrapper(pub SimpleOrbit);
-pub struct GetAuthWrapper(pub SimpleOrbit);
-pub struct DelAuthWrapper(pub SimpleOrbit);
-pub struct CreateAuthWrapper(pub SimpleOrbit);
-pub struct ListAuthWrapper(pub SimpleOrbit);
+pub struct PutAuthWrapper(pub Orbit);
+pub struct GetAuthWrapper(pub Orbit);
+pub struct DelAuthWrapper(pub Orbit);
+pub struct CreateAuthWrapper(pub Orbit);
+pub struct ListAuthWrapper(pub Orbit);
 
 fn extract_info<T>(
     req: &Request,
@@ -141,16 +142,12 @@ fn extract_info<T>(
         }
     };
     match AuthTokens::from_request(req) {
-        Outcome::Success(token) => Ok((
-            auth_data.as_bytes().to_vec(),
-            token
-            config.clone(),
-        )),
+        Outcome::Success(token) => Ok((auth_data.as_bytes().to_vec(), token, config.clone())),
         Outcome::Failure(e) => Err(e),
         Outcome::Forward(_) => Outcome::Failure((
-                Status::Unauthorized,
-                anyhow!("No valid authorization headers"),
-            ))
+            Status::Unauthorized,
+            anyhow!("No valid authorization headers"),
+        )),
     }
 }
 
