@@ -3,7 +3,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
-    zcap::{KeplerDelegation, KeplerInvocation, ZCAPAuthorization, ZCAPTokens},
+    zcap::{ZCAPAuthorization, ZCAPTokens},
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, PeerId};
@@ -16,6 +16,7 @@ use libipld::{
     store::DefaultParams,
 };
 use rocket::{
+    http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::fs,
 };
@@ -78,9 +79,9 @@ impl<'r> FromRequest<'r> for AuthTokens {
     type Error = anyhow::Error;
 
     fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Success(tz) = TezosAuthorizationString::from_request(request) {
+        if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request) {
             Outcome::Success(Self::Tezos(tz))
-        } else if let Success(zcap) = ZCAPTokens::from_request(request) {
+        } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request) {
             Outcome::Success(Self::ZCAP(zcap))
         } else {
             Outcome::Failure((
@@ -245,7 +246,6 @@ impl ContentAddressedStorage for Orbit {
     }
 }
 
-#[rocket::async_trait]
 impl Orbit {
     fn id(&self) -> &Cid {
         &self.metadata.id

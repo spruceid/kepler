@@ -13,7 +13,7 @@ ipfs-embed = { version = "0.21", default-features = false, features = ["tokio"] 
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "0d53e23b", features = ["json"] }
 anyhow = "1.0"
 ssi = { git = "https://github.com/spruceid/ssi", branch = "main", features = ["secp256k1", "secp256r1", "ripemd160", "keccak-hash"] }
-did-pkh = { git = "https://github.com/spruceid/ssi", branch = "staging/eth_zcap2", package = "did-pkh" }
+did-pkh = { git = "https://github.com/spruceid/ssi", branch = "main", package = "did-pkh" }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"

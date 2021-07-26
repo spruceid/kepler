@@ -44,18 +44,20 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
     }
 }
 
-impl AuthorizationToken<'_> for ZCAPTokens {
+impl AuthorizationToken for ZCAPTokens {
     fn action(&self) -> Action {
         self.invocation
             .capability_action
             // safest default but should never happen
-            .unwrap_or_else(|| Action::List(Cid::default()))
+            .unwrap_or_else(|| Action::List {
+                orbit_id: Cid::default(),
+            })
             .clone()
     }
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<'_> for ZCAPAuthorization {
+impl AuthorizationPolicy for ZCAPAuthorization {
     type Token = ZCAPTokens;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
