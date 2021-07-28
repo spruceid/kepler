@@ -2,6 +2,7 @@ use anyhow::{Error, Result};
 use rocket::response::Debug;
 use rocket::{
     data::{Data, ToByteUnit},
+    form::Form,
     http::Status,
     serde::json::Json,
     State,
@@ -12,7 +13,7 @@ use crate::auth::{
     CreateAuthWrapper, DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper,
 };
 use crate::cas::{CidWrap, ContentAddressedStorage};
-use crate::codec::SupportedCodecs;
+use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 
@@ -100,7 +101,7 @@ pub async fn put_content(
     _orbit_id: CidWrap,
     data: Data,
     codec: SupportedCodecs,
-    orbit: GetAuthWrapper,
+    orbit: PutAuthWrapper,
     config: &State<config::Config>,
 ) -> Result<String, (Status, String)> {
     match orbit
@@ -126,6 +127,40 @@ pub async fn put_content(
             "Failed to store content".to_string(),
         )),
     }
+}
+
+#[post("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
+pub async fn batch_put_content(
+    _orbit_id: CidWrap,
+    orbit: PutAuthWrapper,
+    batch: Form<Vec<PutContent>>,
+) -> Result<String, (Status, &'static str)> {
+    let mut uris = Vec::<String>::new();
+    for content in batch.into_inner().into_iter() {
+        uris.push(
+            orbit
+                .0
+                .put(&content.content, content.codec)
+                .await
+                .map_or("".into(), |cid| {
+                    orbit.0.make_uri(&cid).map_or("".into(), |s| s)
+                }),
+        );
+    }
+    Ok(uris.join("\n"))
+}
+
+#[delete("/<_orbit_id>/<hash>")]
+pub async fn delete_content(
+    _orbit_id: CidWrap,
+    orbit: DelAuthWrapper,
+    hash: CidWrap,
+) -> Result<(), (Status, &'static str)> {
+    Ok(orbit
+        .0
+        .delete(&hash.0)
+        .await
+        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
 #[post("/create", rank = 2)]
