@@ -870,7 +870,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.0.1"
-source = "git+https://github.com/spruceid/ssi?branch=main#a6fecbdcb0414a907973fa7bc54cd66b6557a977"
+source = "git+https://github.com/spruceid/ssi?branch=fix/zcap-attribute-check#2d1dd64c3eb4a28f2dc62127b2111779dd215145"
 dependencies = [
  "async-trait",
  "bs58",
@@ -3711,7 +3711,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.2.2"
-source = "git+https://github.com/spruceid/ssi?branch=main#e0494548e8c1e4bd53862b14d4b87bdfd4af35ec"
+source = "git+https://github.com/spruceid/ssi?branch=fix/zcap-attribute-check#2d1dd64c3eb4a28f2dc62127b2111779dd215145"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3757,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#e0494548e8c1e4bd53862b14d4b87bdfd4af35ec"
+source = "git+https://github.com/spruceid/ssi?branch=fix/zcap-attribute-check#2d1dd64c3eb4a28f2dc62127b2111779dd215145"
 
 [[package]]
 name = "stable-pattern"
