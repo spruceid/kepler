@@ -1,7 +1,6 @@
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
-use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
-use crate::zcap::{KeplerDelegation, KeplerInvocation, ZCAPAuthorization, ZCAPTokens};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
+use crate::zcap::ZCAPTokens;
 use anyhow::Result;
 use libipld::cid::Cid;
 use rocket::{
@@ -10,6 +9,7 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
+use std::str::FromStr;
 
 pub mod cid_serde {
     use libipld::cid::{multibase::Base, Cid};
@@ -52,7 +52,7 @@ pub mod vec_cid_serde {
             seq.serialize_element(
                 &cid.to_string_of_base(Base::Base58Btc)
                     .map_err(S::Error::custom)?,
-            );
+            )?;
         }
         seq.end()
     }
@@ -121,8 +121,8 @@ pub struct DelAuthWrapper(pub Orbit);
 pub struct CreateAuthWrapper(pub Orbit);
 pub struct ListAuthWrapper(pub Orbit);
 
-fn extract_info<T>(
-    req: &Request,
+async fn extract_info<T>(
+    req: &Request<'_>,
 ) -> Result<(Vec<u8>, AuthTokens, config::Config), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
@@ -141,13 +141,13 @@ fn extract_info<T>(
             )));
         }
     };
-    match AuthTokens::from_request(req) {
+    match AuthTokens::from_request(req).await {
         Outcome::Success(token) => Ok((auth_data.as_bytes().to_vec(), token, config.clone())),
-        Outcome::Failure(e) => Err(e),
-        Outcome::Forward(_) => Outcome::Failure((
+        Outcome::Failure(e) => Err(Outcome::Failure(e)),
+        Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
             anyhow!("No valid authorization headers"),
-        )),
+        ))),
     }
 }
 
@@ -160,14 +160,13 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config) = match extract_info(req) {
+                let (_, token, config) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
                 match token.action() {
                     Action::$method { orbit_id, .. } => {
-                        let orbit = match load_orbit(*orbit_id, config.database.path.clone()).await
-                        {
+                        let orbit = match load_orbit(orbit_id, config.database.path.clone()).await {
                             Ok(Some(o)) => o,
                             Ok(None) => {
                                 return Outcome::Failure((
@@ -202,52 +201,78 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config) = match extract_info(req) {
+        let (auth_data, token, config) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
         // TODO remove clone, or refactor the order of validations/actions
-        match token.clone().action() {
+        match &token.action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
             Action::Create {
                 orbit_id,
                 parameters,
                 ..
-            } => match token {
-                AuthTokens::Tezos(token_tz) => {
-                    if let Err(_) = verify_oid(orbit_id, &token_tz.pkh, parameters) {
-                        return Outcome::Failure((
-                            Status::BadRequest,
-                            anyhow!("Incorrect Orbit ID"),
-                        ));
-                    }
-                    let vm = DIDURL {
-                        did: format!("did:pkh:tz:{}", &token_tz.pkh),
-                        fragment: Some("TezosMethod2021".to_string()),
-                        ..Default::default()
-                    };
-                    match create_orbit(
-                        *orbit_id,
-                        config.database.path.clone(),
-                        TezosBasicAuthorization {
-                            controllers: vec![vm],
-                        },
-                        &auth_data,
-                    )
-                    .await
-                    {
-                        Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
-                        Ok(None) => {
+            } => {
+                let controllers = match &token {
+                    AuthTokens::Tezos(token_tz) => {
+                        let pkh = "";
+                        if let Err(_) = verify_oid(&orbit_id, pkh, &parameters) {
                             return Outcome::Failure((
-                                Status::Conflict,
-                                anyhow!("Orbit already exists"),
-                            ))
-                        }
-                        Err(e) => Outcome::Failure((Status::InternalServerError, e)),
+                                Status::BadRequest,
+                                anyhow!("Incorrect Orbit ID"),
+                            ));
+                        };
+                        let vm = DIDURL {
+                            did: format!("did:pkh:tz:{}", &token_tz.pkh),
+                            fragment: Some("TezosMethod2021".to_string()),
+                            ..Default::default()
+                        };
+                        vec![vm]
                     }
+                    AuthTokens::ZCAP(ZCAPTokens {
+                        ref invocation,
+                        ref delegation,
+                    }) => {
+                        if let Err(_) = verify_oid(orbit_id, "", parameters) {
+                            return Outcome::Failure((
+                                Status::BadRequest,
+                                anyhow!("Incorrect Orbit ID"),
+                            ));
+                        };
+                        let vm = match delegation.proof.as_ref().and_then(|p| {
+                            p.verification_method.as_ref().map(|v| DIDURL::from_str(&v))
+                        }) {
+                            Some(Ok(v)) => v,
+                            _ => {
+                                return Outcome::Failure((
+                                    Status::Unauthorized,
+                                    anyhow!("Invalid Delegation Verification Method"),
+                                ))
+                            }
+                        };
+                        vec![vm]
+                    }
+                };
+                match create_orbit(
+                    *orbit_id,
+                    config.database.path.clone(),
+                    controllers,
+                    &auth_data,
+                    AuthTypes::ZCAP,
+                )
+                .await
+                {
+                    Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
+                    Ok(None) => {
+                        return Outcome::Failure((
+                            Status::Conflict,
+                            anyhow!("Orbit already exists"),
+                        ))
+                    }
+                    Err(e) => Outcome::Failure((Status::InternalServerError, e)),
                 }
-            },
+            }
             _ => Outcome::Failure((
                 Status::BadRequest,
                 anyhow!("Token action not matching endpoint"),

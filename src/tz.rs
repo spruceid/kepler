@@ -190,16 +190,18 @@ impl TezosAuthorizationString {
 impl<'r> FromRequest<'r> for TezosAuthorizationString {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        request
+        match request
             .headers()
             .get_one("Authorization")
             .map(|s| Self::from_str(s))
-            .unwrap_or_else(|| Outcome::Forward())
-            .unwrap_or_else(|_| Outcome::Forward())
+        {
+            Some(Ok(t)) => Outcome::Success(t),
+            _ => Outcome::Forward(()),
+        }
     }
 }
 
-impl AuthorizationToken<'_> for TezosAuthorizationString {
+impl AuthorizationToken for TezosAuthorizationString {
     fn action(&self) -> Action {
         self.action.clone()
     }
@@ -238,7 +240,7 @@ pub struct TezosBasicAuthorization {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<'_> for TezosBasicAuthorization {
+impl AuthorizationPolicy for TezosBasicAuthorization {
     type Token = TezosAuthorizationString;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {

@@ -4,12 +4,13 @@ use ipfs_embed::Cid;
 use rocket::request::{FromRequest, Outcome, Request};
 use ssi::{
     did::DIDURL,
-    zcap::{Delegation, Invocation},
+    zcap::{DefaultProps, Delegation, Invocation},
 };
+use std::str::FromStr;
 
-pub type KeplerInvocation = Invocation<Action>;
+pub type KeplerInvocation = Invocation<DefaultProps<Action>>;
 
-pub type KeplerDelegation = Delegation<Action, ()>;
+pub type KeplerDelegation = Delegation<(), DefaultProps<Action>>;
 
 pub type ZCAPAuthorization = Vec<DIDURL>;
 
@@ -28,12 +29,12 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
                 .headers()
                 .get_one("Invocation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
-                .map(|s| serde_json::from_str(s)),
+                .map(|s| serde_json::from_slice(&s)),
             request
                 .headers()
                 .get_one("Delegation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
-                .map(|s| serde_json::from_str(s)),
+                .map(|s| serde_json::from_slice(&s)),
         ) {
             (Some(Ok(invocation)), Some(Ok(delegation))) => Outcome::Success(Self {
                 invocation,
@@ -47,12 +48,13 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 impl AuthorizationToken for ZCAPTokens {
     fn action(&self) -> Action {
         self.invocation
+            .property_set
             .capability_action
+            .clone()
             // safest default but should never happen
             .unwrap_or_else(|| Action::List {
                 orbit_id: Cid::default(),
             })
-            .clone()
     }
 }
 
@@ -64,20 +66,20 @@ impl AuthorizationPolicy for ZCAPAuthorization {
         let delegator_vm = auth_token
             .delegation
             .proof
-            .and_then(|proof| proof.verification_method)
-            .and_then(|s| DIDURL::from_str(s))
-            .ok_or_else(|| anyhow!("Missing delegation verification method"))??;
-        if !self.iter().any(|vm| vm == delegator_vm) {
+            .as_ref()
+            .and_then(|proof| proof.verification_method.as_ref())
+            .ok_or_else(|| anyhow!("Missing delegation verification method"))
+            .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
+        if !self.iter().any(|vm| vm == &delegator_vm) {
             return Err(anyhow!("Delegator not authorized"));
         };
         let res = auth_token
             .invocation
             .verify(Default::default(), &did_pkh::DIDPKH, &auth_token.delegation)
             .await;
-        if let Some(e) = res.errors.first() {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
+        res.errors
+            .first()
+            .map(|e| Err(anyhow!(e.clone())))
+            .unwrap_or(Ok(()))
     }
 }

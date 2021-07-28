@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{convert::TryFrom, path::PathBuf};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
     #[serde(with = "cid_serde")]
@@ -40,7 +40,7 @@ pub struct OrbitMetadata {
     pub auth: AuthTypes,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(untagged, rename_all = "UPPERCASE")]
 pub enum AuthTypes {
     Tezos,
@@ -78,10 +78,10 @@ pub enum AuthTokens {
 impl<'r> FromRequest<'r> for AuthTokens {
     type Error = anyhow::Error;
 
-    fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request) {
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
             Outcome::Success(Self::Tezos(tz))
-        } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request) {
+        } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
             Outcome::Success(Self::ZCAP(zcap))
         } else {
             Outcome::Failure((
@@ -92,7 +92,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
     }
 }
 
-impl AuthorizationToken<'_> for AuthTokens {
+impl AuthorizationToken for AuthTokens {
     fn action(&self) -> Action {
         match self {
             Self::Tezos(token) => token.action(),
@@ -182,16 +182,15 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    let controllers = md.controllers.clone();
 
     Ok(Orbit {
         ipfs,
-        metadata: md,
-        policy: match md.auth {
-            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization {
-                controllers: md.controllers.clone(),
-            }),
-            AuthTypes::ZCAP => AuthMethods::ZCAP(md.controllers.clone()),
+        policy: match &md.auth {
+            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization { controllers }),
+            AuthTypes::ZCAP => AuthMethods::ZCAP(controllers),
         },
+        metadata: md,
     })
 }
 
@@ -247,23 +246,23 @@ impl ContentAddressedStorage for Orbit {
 }
 
 impl Orbit {
-    fn id(&self) -> &Cid {
+    pub fn id(&self) -> &Cid {
         &self.metadata.id
     }
 
-    fn hosts(&self) -> Vec<PeerId> {
+    pub fn hosts(&self) -> Vec<PeerId> {
         vec![self.ipfs.local_peer_id()]
     }
 
-    fn admins(&self) -> &[&DIDURL] {
-        self.metadata.controllers.into()
+    pub fn admins(&self) -> &[DIDURL] {
+        &self.metadata.controllers
     }
 
-    fn auth(&self) -> &AuthMethods {
+    pub fn auth(&self) -> &AuthMethods {
         &self.policy
     }
 
-    fn make_uri(&self, cid: &Cid) -> Result<String> {
+    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
             "kepler://{}/{}",
             self.id().to_string_of_base(Base::Base58Btc)?,
