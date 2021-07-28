@@ -216,8 +216,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             } => {
                 let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
-                        let pkh = "";
-                        if let Err(_) = verify_oid(&orbit_id, pkh, &parameters) {
+                        if let Err(_) = verify_oid(&orbit_id, &token_tz.pkh, &parameters) {
                             return Outcome::Failure((
                                 Status::BadRequest,
                                 anyhow!("Incorrect Orbit ID"),
@@ -234,12 +233,6 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         ref invocation,
                         ref delegation,
                     }) => {
-                        if let Err(_) = verify_oid(orbit_id, "", parameters) {
-                            return Outcome::Failure((
-                                Status::BadRequest,
-                                anyhow!("Incorrect Orbit ID"),
-                            ));
-                        };
                         let vm = match delegation.proof.as_ref().and_then(|p| {
                             p.verification_method.as_ref().map(|v| DIDURL::from_str(&v))
                         }) {
@@ -250,6 +243,21 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                     anyhow!("Invalid Delegation Verification Method"),
                                 ))
                             }
+                        };
+                        let pkh = match vm.did.rsplit(":").next() {
+                            Some(p) => p,
+                            None => {
+                                return Outcome::Failure((
+                                    Status::Unauthorized,
+                                    anyhow!("Invalid DID: {}", &vm.did),
+                                ))
+                            }
+                        };
+                        if let Err(_) = verify_oid(orbit_id, pkh, parameters) {
+                            return Outcome::Failure((
+                                Status::BadRequest,
+                                anyhow!("Incorrect Orbit ID"),
+                            ));
                         };
                         vec![vm]
                     }
