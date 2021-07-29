@@ -8,6 +8,7 @@ extern crate tokio;
 use anyhow::Result;
 use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
+pub mod allow_list;
 pub mod auth;
 pub mod cas;
 pub mod codec;
