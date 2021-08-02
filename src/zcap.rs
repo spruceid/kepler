@@ -27,12 +27,12 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
         match (
             request
                 .headers()
-                .get_one("Invocation")
+                .get_one("X-Kepler-Invocation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
                 .map(|s| serde_json::from_slice(&s)),
             request
                 .headers()
-                .get_one("Delegation")
+                .get_one("X-Kepler-Delegation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
                 .map(|s| serde_json::from_slice(&s)),
         ) {
