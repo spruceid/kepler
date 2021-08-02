@@ -17,7 +17,7 @@ pub type ZCAPAuthorization = Vec<DIDURL>;
 #[derive(Clone)]
 pub struct ZCAPTokens {
     pub invocation: KeplerInvocation,
-    pub delegation: KeplerDelegation,
+    pub delegation: Option<KeplerDelegation>,
 }
 
 #[rocket::async_trait]
@@ -63,20 +63,40 @@ impl AuthorizationPolicy for ZCAPAuthorization {
     type Token = ZCAPTokens;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
-        let delegator_vm = auth_token
-            .delegation
-            .proof
-            .as_ref()
-            .and_then(|proof| proof.verification_method.as_ref())
-            .ok_or_else(|| anyhow!("Missing delegation verification method"))
-            .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
-        if !self.iter().any(|vm| vm == &delegator_vm) {
-            return Err(anyhow!("Delegator not authorized"));
+        let res = match &auth_token.delegation {
+            Some(d) => {
+                let delegator_vm = d
+                    .proof
+                    .as_ref()
+                    .and_then(|proof| proof.verification_method.as_ref())
+                    .ok_or_else(|| anyhow!("Missing delegation verification method"))
+                    .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
+                if !self.iter().any(|vm| vm == &delegator_vm) {
+                    return Err(anyhow!("Delegator not authorized"));
+                };
+                auth_token
+                    .invocation
+                    .verify(Default::default(), &did_pkh::DIDPKH, &d)
+                    .await
+            }
+            None => {
+                let invoker_vm = auth_token
+                    .invocation
+                    .proof
+                    .as_ref()
+                    .and_then(|proof| proof.verification_method.as_ref())
+                    .ok_or_else(|| anyhow!("Missing delegation verification method"))
+                    .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
+                if !self.iter().any(|vm| vm == &invoker_vm) {
+                    return Err(anyhow!("Delegator not authorized"));
+                };
+                auth_token
+                    .invocation
+                    .verify_signature(Default::default(), &did_pkh::DIDPKH)
+                    .await
+            }
         };
-        let res = auth_token
-            .invocation
-            .verify(Default::default(), &did_pkh::DIDPKH, &auth_token.delegation)
-            .await;
+
         res.errors
             .first()
             .map(|e| Err(anyhow!(e.clone())))

@@ -247,11 +247,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         };
                         vec![vm]
                     }
-                    AuthTokens::ZCAP(ZCAPTokens {
-                        ref invocation,
-                        ref delegation,
-                    }) => {
-                        let vm = match delegation.proof.as_ref().and_then(|p| {
+                    AuthTokens::ZCAP(ZCAPTokens { invocation, .. }) => {
+                        let vm = match invocation.proof.as_ref().and_then(|p| {
                             p.verification_method.as_ref().map(|v| DIDURL::from_str(&v))
                         }) {
                             Some(Ok(v)) => v,
@@ -263,6 +260,12 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                             }
                         };
                         vec![vm]
+                    }
+                    _ => {
+                        return Outcome::Failure((
+                            Status::Unauthorized,
+                            anyhow!("Missing Authorization"),
+                        ))
                     }
                 };
                 match create_orbit(
