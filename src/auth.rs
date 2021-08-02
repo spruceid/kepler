@@ -214,12 +214,30 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 parameters,
                 ..
             } => {
+                let (method, params) = match verify_oid(&orbit_id, &parameters) {
+                    Ok(r) => r,
+                    _ => {
+                        return Outcome::Failure((
+                            Status::BadRequest,
+                            anyhow!("Incorrect Orbit ID"),
+                        ))
+                    }
+                };
                 let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
-                        if let Err(_) = verify_oid(&orbit_id, &parameters) {
+                        match method {
+                            "tz" => {}
+                            _ => {
+                                return Outcome::Failure((
+                                    Status::BadRequest,
+                                    anyhow!("Incorrect Orbit ID"),
+                                ))
+                            }
+                        };
+                        if params.get("address") != Some(&token_tz.pkh.as_str()) {
                             return Outcome::Failure((
-                                Status::BadRequest,
-                                anyhow!("Incorrect Orbit ID"),
+                                Status::Unauthorized,
+                                anyhow!("Incorrect PKH param"),
                             ));
                         };
                         let vm = DIDURL {
@@ -243,12 +261,6 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                     anyhow!("Invalid Delegation Verification Method"),
                                 ))
                             }
-                        };
-                        if let Err(_) = verify_oid(orbit_id, parameters) {
-                            return Outcome::Failure((
-                                Status::BadRequest,
-                                anyhow!("Incorrect Orbit ID"),
-                            ));
                         };
                         vec![vm]
                     }
