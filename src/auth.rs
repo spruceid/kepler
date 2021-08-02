@@ -216,7 +216,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             } => {
                 let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
-                        if let Err(_) = verify_oid(&orbit_id, &token_tz.pkh, &parameters) {
+                        if let Err(_) = verify_oid(&orbit_id, &parameters) {
                             return Outcome::Failure((
                                 Status::BadRequest,
                                 anyhow!("Incorrect Orbit ID"),
@@ -244,16 +244,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        let pkh = match vm.did.rsplit(":").next() {
-                            Some(p) => p,
-                            None => {
-                                return Outcome::Failure((
-                                    Status::Unauthorized,
-                                    anyhow!("Invalid DID: {}", &vm.did),
-                                ))
-                            }
-                        };
-                        if let Err(_) = verify_oid(orbit_id, pkh, parameters) {
+                        if let Err(_) = verify_oid(orbit_id, parameters) {
                             return Outcome::Failure((
                                 Status::BadRequest,
                                 anyhow!("Incorrect Orbit ID"),

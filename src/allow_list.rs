@@ -3,10 +3,11 @@ use ipfs_embed::Cid;
 use libipld::multibase::Base;
 use reqwest::{get, StatusCode};
 use serde::{Deserialize, Serialize};
+use ssi::did::DIDURL;
 
 #[rocket::async_trait]
 pub trait OrbitAllowList {
-    async fn is_allowed(&self, oid: &Cid) -> Result<bool>;
+    async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -24,17 +25,12 @@ impl Default for OrbitAllowListService {
 
 #[rocket::async_trait]
 impl OrbitAllowList for OrbitAllowListService {
-    async fn is_allowed(&self, oid: &Cid) -> Result<bool> {
-        match get([self.api.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
-            .await?
-            .status()
-        {
-            StatusCode::OK => Ok(true),
-            StatusCode::NOT_FOUND => Ok(false),
-            s => Err(anyhow!(
-                "Invalid allow list service response: {}",
-                s.as_str()
-            )),
-        }
+    async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>> {
+        Ok(
+            get([self.api.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
+                .await?
+                .json::<Vec<DIDURL>>()
+                .await?,
+        )
     }
 }

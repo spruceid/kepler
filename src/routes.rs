@@ -9,13 +9,14 @@ use rocket::{
 };
 use std::path::PathBuf;
 
+use crate::allow_list::OrbitAllowList;
 use crate::auth::{
     CreateAuthWrapper, DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper,
 };
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, Orbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTypes, Orbit};
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
 async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)> {
@@ -47,7 +48,6 @@ async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)
 pub async fn list_content(
     _orbit_id: CidWrap,
     orbit: ListAuthWrapper,
-    config: &State<config::Config>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
     uri_listing(orbit.0).await
 }
@@ -102,7 +102,6 @@ pub async fn put_content(
     data: Data,
     codec: SupportedCodecs,
     orbit: PutAuthWrapper,
-    config: &State<config::Config>,
 ) -> Result<String, (Status, String)> {
     match orbit
         .0
@@ -163,9 +162,36 @@ pub async fn delete_content(
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
-#[post("/create", rank = 2)]
-pub async fn create_orbit_(_orbit: CreateAuthWrapper) -> Result<(), Debug<Error>> {
-    Ok(())
+#[post("/create/<orbit_id>", format = "text/plain", data = "<params_str>")]
+pub async fn host_orbit(
+    orbit_id: CidWrap,
+    params_str: &str,
+    config: &State<config::Config>,
+    auth_opt: Option<CreateAuthWrapper>,
+) -> Result<(), (Status, &'static str)> {
+    match auth_opt {
+        // no auth token, use allowlist
+        None => match verify_oid(&orbit_id.0, params_str) {
+            Ok((_method, _params)) => match config.orbit_allow_list.is_allowed(&orbit_id.0).await {
+                Ok(controllers) => {
+                    create_orbit(
+                        orbit_id.0,
+                        config.database.path.clone(),
+                        controllers,
+                        &[],
+                        AuthTypes::ZCAP,
+                    )
+                    .await
+                    .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
+                    Ok(())
+                }
+                _ => Err((Status::BadRequest, "Orbit not allowed")),
+            },
+            Err(_) => Err((Status::BadRequest, "Invalid Orbit Params")),
+        },
+        // create auth success, return OK
+        _ => Ok(()),
+    }
 }
 
 #[options("/<_s..>")]

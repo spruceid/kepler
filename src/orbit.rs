@@ -24,7 +24,7 @@ use rocket::{
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{convert::TryFrom, path::PathBuf};
+use std::{collections::HashMap, convert::TryFrom, path::PathBuf};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OrbitMetadata {
@@ -194,28 +194,33 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
     })
 }
 
-pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
-    // try to parse as a URI with matrix params
-    let mut parts = uri_str.split(';');
-    let method = parts.next().ok_or(anyhow!("No URI"))?;
+pub fn get_params<'a>(matrix_params: &'a str) -> HashMap<&'a str, &'a str> {
+    matrix_params
+        .split(";")
+        .fold(HashMap::new(), |mut acc, pair_str| {
+            let mut ps = pair_str.split("=");
+            match (ps.next(), ps.next(), ps.next()) {
+                (Some(key), Some(value), None) => acc.insert(key, value),
+                _ => None,
+            };
+            acc
+        })
+}
 
+pub fn verify_oid<'a>(oid: &Cid, uri_str: &'a str) -> Result<(&'a str, HashMap<&'a str, &'a str>)> {
+    // try to parse as a URI with matrix params
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
-        && match method {
-            "tz" => parts
-                .map(|part| part.split('=').collect::<Vec<&str>>())
-                .filter_map(|kv| {
-                    if kv.len() == 2 {
-                        Some((kv[0], kv[1]))
-                    } else {
-                        None
-                    }
-                })
-                .any(|(name, value)| name == "address" && value == pkh),
-            _ => Err(anyhow!("Orbit method not registered"))?,
-        }
     {
-        Ok(())
+        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
+        Ok((
+            // method name
+            uri_str
+                .get(..first_sc)
+                .ok_or(anyhow!("Missing Orbit Method"))?,
+            // matrix parameters
+            get_params(uri_str.get(first_sc..).unwrap_or("")),
+        ))
     } else {
         Err(anyhow!("Failed to verify Orbit ID"))
     }
@@ -284,5 +289,9 @@ async fn oid_verification() {
     let domain = "kepler.tzprofiles.com";
     let index = 0;
     let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
-    verify_oid(&oid, pkh, &uri).unwrap();
+    let (method, params) = verify_oid(&oid, &uri).unwrap();
+    assert_eq!(method, "tz");
+    assert_eq!(params.get("address"), Some(&pkh));
+    assert_eq!(params.get("domain"), Some(&domain));
+    assert_eq!(params.get("index"), Some(&"0"));
 }

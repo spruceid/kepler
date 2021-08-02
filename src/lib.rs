@@ -20,7 +20,7 @@ pub mod tz;
 pub mod zcap;
 
 use routes::{
-    batch_put_content, cors, create_orbit_, delete_content, get_content, get_content_no_auth,
+    batch_put_content, cors, delete_content, get_content, get_content_no_auth, host_orbit,
     list_content, list_content_no_auth, put_content,
 };
 
@@ -46,7 +46,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 put_content,
                 batch_put_content,
                 delete_content,
-                create_orbit_,
+                host_orbit,
                 cors
             ],
         )

@@ -24,4 +24,4 @@ libipld = "0.12"
 tokio-stream = { version = "0.1", features = ["fs"] }
 cached = "0.23"
 base64 = "0.13"
-reqwest = "0.11"
+reqwest = { version = "0.11", features = ["json"] }
