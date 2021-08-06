@@ -1,16 +1,29 @@
-use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
+use crate::auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use ipfs_embed::Cid;
 use rocket::request::{FromRequest, Outcome, Request};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use ssi::{
     did::DIDURL,
-    zcap::{DefaultProps, Delegation, Invocation},
+    zcap::{Delegation, Invocation},
 };
-use std::str::FromStr;
+use std::{collections::HashMap as Map, str::FromStr};
 
-pub type KeplerInvocation = Invocation<DefaultProps<Action>>;
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KeplerProps {
+    #[serde(with = "cid_serde")]
+    pub orbit: Cid,
+    pub capability_action: Action,
+    #[serde(flatten)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_fields: Option<Map<String, Value>>,
+}
 
-pub type KeplerDelegation = Delegation<(), DefaultProps<Action>>;
+pub type KeplerInvocation = Invocation<KeplerProps>;
+
+pub type KeplerDelegation = Delegation<(), KeplerProps>;
 
 pub type ZCAPAuthorization = Vec<DIDURL>;
 
@@ -47,14 +60,10 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 
 impl AuthorizationToken for ZCAPTokens {
     fn action(&self) -> Action {
-        self.invocation
-            .property_set
-            .capability_action
-            .clone()
-            // safest default but should never happen
-            .unwrap_or_else(|| Action::List {
-                orbit_id: Cid::default(),
-            })
+        self.invocation.property_set.capability_action.clone()
+    }
+    fn target_orbit(&self) -> &Cid {
+        &self.invocation.property_set.orbit
     }
 }
 

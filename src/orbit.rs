@@ -99,6 +99,12 @@ impl AuthorizationToken for AuthTokens {
             Self::ZCAP(token) => token.action(),
         }
     }
+    fn target_orbit(&self) -> &Cid {
+        match self {
+            Self::Tezos(token) => token.target_orbit(),
+            Self::ZCAP(token) => token.target_orbit(),
+        }
+    }
 }
 
 impl AuthMethods {

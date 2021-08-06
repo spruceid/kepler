@@ -75,38 +75,28 @@ pub mod vec_cid_serde {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Action {
     Put {
-        #[serde(with = "cid_serde")]
-        orbit_id: Cid,
         #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Get {
-        #[serde(with = "cid_serde")]
-        orbit_id: Cid,
         #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Del {
-        #[serde(with = "cid_serde")]
-        orbit_id: Cid,
         #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
     Create {
-        #[serde(with = "cid_serde")]
-        orbit_id: Cid,
         parameters: String,
         #[serde(with = "vec_cid_serde")]
         content: Vec<Cid>,
     },
-    List {
-        #[serde(with = "cid_serde")]
-        orbit_id: Cid,
-    },
+    List,
 }
 
 pub trait AuthorizationToken {
     fn action(&self) -> Action;
+    fn target_orbit(&self) -> &Cid;
 }
 
 #[rocket::async_trait]
@@ -165,17 +155,22 @@ macro_rules! impl_fromreq {
                     Err(o) => return o,
                 };
                 match token.action() {
-                    Action::$method { orbit_id, .. } => {
-                        let orbit = match load_orbit(orbit_id, config.database.path.clone()).await {
-                            Ok(Some(o)) => o,
-                            Ok(None) => {
-                                return Outcome::Failure((
-                                    Status::NotFound,
-                                    anyhow!("No Orbit found"),
-                                ))
-                            }
-                            Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
-                        };
+                    Action::$method { .. } => {
+                        let orbit =
+                            match load_orbit(*token.target_orbit(), config.database.path.clone())
+                                .await
+                            {
+                                Ok(Some(o)) => o,
+                                Ok(None) => {
+                                    return Outcome::Failure((
+                                        Status::NotFound,
+                                        anyhow!("No Orbit found"),
+                                    ))
+                                }
+                                Err(e) => {
+                                    return Outcome::Failure((Status::InternalServerError, e))
+                                }
+                            };
                         match orbit.auth().authorize(token).await {
                             Ok(_) => Outcome::Success(Self(orbit)),
                             Err(e) => Outcome::Failure((Status::Unauthorized, e)),
@@ -209,12 +204,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
         match &token.action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create {
-                orbit_id,
-                parameters,
-                ..
-            } => {
-                let (method, params) = match verify_oid(&orbit_id, &parameters) {
+            Action::Create { parameters, .. } => {
+                let (method, params) = match verify_oid(&token.target_orbit(), &parameters) {
                     Ok(r) => r,
                     _ => {
                         return Outcome::Failure((
@@ -269,7 +260,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     }
                 };
                 match create_orbit(
-                    *orbit_id,
+                    *token.target_orbit(),
                     config.database.path.clone(),
                     controllers,
                     &auth_data,
