@@ -73,19 +73,11 @@ pub mod vec_cid_serde {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Action {
-    Put {
-        #[serde(with = "vec_cid_serde")]
-        content: Vec<Cid>,
-    },
-    Get {
-        #[serde(with = "vec_cid_serde")]
-        content: Vec<Cid>,
-    },
-    Del {
-        #[serde(with = "vec_cid_serde")]
-        content: Vec<Cid>,
-    },
+    Put(#[serde(with = "vec_cid_serde")] Vec<Cid>),
+    Get(#[serde(with = "vec_cid_serde")] Vec<Cid>),
+    Del(#[serde(with = "vec_cid_serde")] Vec<Cid>),
     Create {
         parameters: String,
         #[serde(with = "vec_cid_serde")]

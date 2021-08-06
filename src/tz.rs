@@ -80,17 +80,17 @@ fn parse_list(s: &str) -> IResult<&str, Action> {
 
 fn parse_get(s: &str) -> IResult<&str, Action> {
     tuple((tag("GET"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Get { content }))
+        .map(|(rest, (_, content))| (rest, Action::Get(content)))
 }
 
 fn parse_put(s: &str) -> IResult<&str, Action> {
     tuple((tag("PUT"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Put { content }))
+        .map(|(rest, (_, content))| (rest, Action::Put(content)))
 }
 
 fn parse_del(s: &str) -> IResult<&str, Action> {
     tuple((tag("DEL"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Del { content }))
+        .map(|(rest, (_, content))| (rest, Action::Del(content)))
 }
 
 fn parse_create(s: &str) -> IResult<&str, Action> {
@@ -116,9 +116,9 @@ fn parse_action(s: &str) -> IResult<&str, Action> {
 
 fn serialize_action(action: &Action) -> Result<String> {
     match action {
-        Action::Put { content } => serialize_content_action("PUT", content),
-        Action::Get { content } => serialize_content_action("GET", content),
-        Action::Del { content } => serialize_content_action("DEL", content),
+        Action::Put(content) => serialize_content_action("PUT", content),
+        Action::Get(content) => serialize_content_action("GET", content),
+        Action::Del(content) => serialize_content_action("DEL", content),
         Action::List => Ok("LIST".into()),
         Action::Create {
             content,
@@ -316,9 +316,7 @@ async fn round_trip() {
         pkh: pkh.into(),
         timestamp: ts.into(),
         orbit: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
-        action: Action::Put {
-            content: vec![Cid::from_str(dummy_cid).expect("failed to parse CID")],
-        },
+        action: Action::Put(vec![Cid::from_str(dummy_cid).expect("failed to parse CID")]),
     };
     let message = tz_unsigned
         .serialize_for_verification()
