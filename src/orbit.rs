@@ -109,15 +109,10 @@ impl AuthorizationToken for AuthTokens {
 
 impl AuthMethods {
     pub async fn authorize(&self, auth_token: AuthTokens) -> Result<()> {
-        match self {
-            Self::Tezos(method) => match auth_token {
-                AuthTokens::Tezos(token) => method.authorize(&token).await,
-                _ => return Err(anyhow!("Bad token")),
-            },
-            Self::ZCAP(method) => match auth_token {
-                AuthTokens::ZCAP(token) => method.authorize(&token).await,
-                _ => return Err(anyhow!("Bad token")),
-            },
+        match (self, auth_token) {
+            (Self::Tezos(method), AuthTokens::Tezos(token)) => method.authorize(&token).await,
+            (Self::ZCAP(method), AuthTokens::ZCAP(token)) => method.authorize(&token).await,
+            _ => return Err(anyhow!("Bad token")),
         }
     }
 }

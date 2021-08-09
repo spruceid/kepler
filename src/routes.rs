@@ -96,7 +96,7 @@ pub async fn get_content_no_auth(
     }
 }
 
-#[post("/<_orbit_id>", data = "<data>", rank = 1)]
+#[put("/<_orbit_id>", data = "<data>", rank = 1)]
 pub async fn put_content(
     _orbit_id: CidWrap,
     data: Data,
@@ -128,7 +128,7 @@ pub async fn put_content(
     }
 }
 
-#[post("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
+#[put("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
 pub async fn batch_put_content(
     _orbit_id: CidWrap,
     orbit: PutAuthWrapper,
@@ -162,35 +162,44 @@ pub async fn delete_content(
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
-#[post("/create/<orbit_id>", format = "text/plain", data = "<params_str>")]
-pub async fn host_orbit(
+#[post("/<_orbit_id>", format = "text/plain", data = "<_params_str>")]
+pub async fn open_orbit_authz(
+    _orbit_id: CidWrap,
+    _params_str: &str,
+    _authz: CreateAuthWrapper,
+) -> Result<(), (Status, &'static str)> {
+    // create auth success, return OK
+    Ok(())
+}
+
+#[post("/<orbit_id>", format = "text/plain", data = "<params_str>", rank = 2)]
+pub async fn open_orbit_allowlist(
     orbit_id: CidWrap,
     params_str: &str,
     config: &State<config::Config>,
-    auth_opt: Option<CreateAuthWrapper>,
 ) -> Result<(), (Status, &'static str)> {
-    match auth_opt {
-        // no auth token, use allowlist
-        None => match verify_oid(&orbit_id.0, params_str) {
-            Ok((_method, _params)) => match config.orbit_allow_list.is_allowed(&orbit_id.0).await {
-                Ok(controllers) => {
-                    create_orbit(
-                        orbit_id.0,
-                        config.database.path.clone(),
-                        controllers,
-                        &[],
-                        AuthTypes::ZCAP,
-                    )
-                    .await
-                    .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
-                    Ok(())
-                }
-                _ => Err((Status::BadRequest, "Orbit not allowed")),
-            },
-            Err(_) => Err((Status::BadRequest, "Invalid Orbit Params")),
+    // no auth token, use allowlist
+    match (
+        verify_oid(&orbit_id.0, params_str),
+        config.orbit_allow_list.as_ref(),
+    ) {
+        (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
+        (Ok(_), Some(list)) => match list.is_allowed(&orbit_id.0).await {
+            Ok(controllers) => {
+                create_orbit(
+                    orbit_id.0,
+                    config.database.path.clone(),
+                    controllers,
+                    &[],
+                    AuthTypes::ZCAP,
+                )
+                .await
+                .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
+                Ok(())
+            }
+            _ => Err((Status::BadRequest, "Orbit not allowed")),
         },
-        // create auth success, return OK
-        _ => Ok(()),
+        (Err(_), _) => Err((Status::BadRequest, "Invalid Orbit Params")),
     }
 }
 

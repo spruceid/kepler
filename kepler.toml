@@ -6,3 +6,7 @@
 [global.database]
 ## Directory where the database will be stored.
 # path = "/tmp"
+
+## Orbit allow list api endpoint
+[global.orbit_allow_list]
+# api = "http://localhost:10000"
