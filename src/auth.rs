@@ -1,3 +1,4 @@
+use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
 use crate::zcap::ZCAPTokens;
@@ -105,7 +106,7 @@ pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<T>(
     req: &Request<'_>,
-) -> Result<(Vec<u8>, AuthTokens, config::Config), Outcome<T, anyhow::Error>> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config, Cid), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -123,8 +124,17 @@ async fn extract_info<T>(
             )));
         }
     };
+    let oid: Cid = match req.param::<CidWrap>(0) {
+        Some(Ok(o)) => o.0,
+        _ => {
+            return Err(Outcome::Failure((
+                Status::InternalServerError,
+                anyhow!("Could not retrieve config"),
+            )));
+        }
+    };
     match AuthTokens::from_request(req).await {
-        Outcome::Success(token) => Ok((auth_data.as_bytes().to_vec(), token, config.clone())),
+        Outcome::Success(token) => Ok((auth_data.as_bytes().to_vec(), token, config.clone(), oid)),
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
@@ -142,12 +152,16 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config) = match extract_info(req).await {
+                let (_, token, config, oid) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
-                match token.action() {
-                    Action::$method { .. } => {
+                match (token.action(), &oid == token.target_orbit()) {
+                    (_, false) => Outcome::Failure((
+                        Status::BadRequest,
+                        anyhow!("Token target orbit not matching endpoint"),
+                    )),
+                    (Action::$method { .. }, true) => {
                         let orbit =
                             match load_orbit(*token.target_orbit(), config.database.path.clone())
                                 .await
@@ -188,15 +202,19 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config) = match extract_info(req).await {
+        let (auth_data, token, config, oid) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
         // TODO remove clone, or refactor the order of validations/actions
-        match &token.action() {
+        match (&token.action(), &oid == token.target_orbit()) {
+            (_, false) => Outcome::Failure((
+                Status::BadRequest,
+                anyhow!("Token target orbit not matching endpoint"),
+            )),
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create { parameters, .. } => {
+            (Action::Create { parameters, .. }, true) => {
                 let (method, params) = match verify_oid(&token.target_orbit(), &parameters) {
                     Ok(r) => r,
                     _ => {
