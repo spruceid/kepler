@@ -99,7 +99,7 @@ pub async fn get_content_no_auth(
 #[put("/<_orbit_id>", data = "<data>", rank = 1)]
 pub async fn put_content(
     _orbit_id: CidWrap,
-    data: Data,
+    data: Data<'_>,
     codec: SupportedCodecs,
     orbit: PutAuthWrapper,
 ) -> Result<String, (Status, String)> {

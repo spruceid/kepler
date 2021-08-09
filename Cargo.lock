@@ -849,8 +849,9 @@ dependencies = [
 
 [[package]]
 name = "devise"
-version = "0.3.0"
-source = "git+https://github.com/SergioBenitez/Devise.git?rev=f2431b#f2431bd122f55b03c3bc5b1c8d2267894d3c8142"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50c7580b072f1c8476148f16e0a0d5dedddab787da98d86c5082c5e9ed8ab595"
 dependencies = [
  "devise_codegen",
  "devise_core",
@@ -858,8 +859,9 @@ dependencies = [
 
 [[package]]
 name = "devise_codegen"
-version = "0.3.0"
-source = "git+https://github.com/SergioBenitez/Devise.git?rev=f2431b#f2431bd122f55b03c3bc5b1c8d2267894d3c8142"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "123c73e7a6e51b05c75fe1a1b2f4e241399ea5740ed810b0e3e6cacd9db5e7b2"
 dependencies = [
  "devise_core",
  "quote",
@@ -867,8 +869,9 @@ dependencies = [
 
 [[package]]
 name = "devise_core"
-version = "0.3.0"
-source = "git+https://github.com/SergioBenitez/Devise.git?rev=f2431b#f2431bd122f55b03c3bc5b1c8d2267894d3c8142"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841ef46f4787d9097405cac4e70fb8644fc037b526e8c14054247c0263c400d0"
 dependencies = [
  "bitflags",
  "proc-macro2",
@@ -1236,9 +1239,9 @@ dependencies = [
 
 [[package]]
 name = "generator"
-version = "0.6.25"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061d3be1afec479d56fa3bd182bf966c7999ec175fcfdb87ac14d417241366c6"
+checksum = "c1d9279ca822891c1a4dae06d185612cf8fc6acfe5dff37781b41297811b12ee"
 dependencies = [
  "cc",
  "libc",
@@ -2320,11 +2323,11 @@ dependencies = [
 
 [[package]]
 name = "loom"
-version = "0.3.6"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0e8460f2f2121162705187214720353c517b97bdfb3494c0b1e33d83ebe4bed"
+checksum = "2111607c723d7857e0d8299d5ce7a0bf4b844d3e44f8de136b13da513eaf8fc4"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "generator",
  "scoped-tls",
  "serde",
@@ -3412,8 +3415,9 @@ dependencies = [
 
 [[package]]
 name = "rocket"
-version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=0d53e23b#0d53e23bf6cb86f9136fa8b37a92ba8076aacf67"
+version = "0.5.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a71c18c42a0eb15bf3816831caf0dad11e7966f2a41aaf486a701979c4dd1f2"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3450,8 +3454,9 @@ dependencies = [
 
 [[package]]
 name = "rocket_codegen"
-version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=0d53e23b#0d53e23bf6cb86f9136fa8b37a92ba8076aacf67"
+version = "0.5.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66f5fa462f7eb958bba8710c17c5d774bbbd59809fa76fb1957af7e545aea8bb"
 dependencies = [
  "devise",
  "glob",
@@ -3465,8 +3470,9 @@ dependencies = [
 
 [[package]]
 name = "rocket_http"
-version = "0.5.0-dev"
-source = "git+https://github.com/SergioBenitez/Rocket?rev=0d53e23b#0d53e23bf6cb86f9136fa8b37a92ba8076aacf67"
+version = "0.5.0-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23c8b7d512d2fcac2316ebe590cde67573844b99e6cc9ee0f53375fa16e25ebd"
 dependencies = [
  "cookie",
  "either",
@@ -3933,8 +3939,9 @@ dependencies = [
 
 [[package]]
 name = "state"
-version = "0.4.2"
-source = "git+https://github.com/SergioBenitez/state.git?rev=8f94dc#8f94dce673b7d4b0e7b96c808a84f5e2a4be4a60"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87cf4f5369e6d3044b5e365c9690f451516ac8f0954084622b49ea3fde2f6de5"
 dependencies = [
  "loom",
 ]
