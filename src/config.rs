@@ -1,3 +1,4 @@
+use crate::allow_list::OrbitAllowListService;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -5,6 +6,8 @@ use std::path::PathBuf;
 pub struct Config {
     pub database: Database,
     pub tzkt: Tzkt,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orbit_allow_list: Option<OrbitAllowListService>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

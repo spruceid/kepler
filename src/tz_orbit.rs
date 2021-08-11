@@ -1,11 +1,7 @@
-use crate::orbit::{OrbitMetadata, PID};
+use crate::orbit::{AuthTypes, OrbitMetadata, PID};
 use anyhow::Result;
-use ipfs_embed::{Block, Multiaddr, PeerId};
-use libipld::{
-    cid::{multihash::Code, Cid},
-    raw::RawCodec,
-    store::DefaultParams,
-};
+use ipfs_embed::Multiaddr;
+use libipld::cid::Cid;
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
 use ssi::did::DIDURL;
@@ -80,28 +76,27 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
+        auth: AuthTypes::ZCAP,
     })
 }
 
 pub async fn params_to_tz_orbit(
     oid: Cid,
-    params: &[(&str, &str)],
+    params: &Map<&str, &str>,
     tzkt_api: &str,
 ) -> Result<OrbitMetadata> {
-    match params
-        .iter()
-        .find(|(k, _)| *k == "address" || *k == "contract")
-    {
+    match (params.get("address"), params.get("contract")) {
         // try read orbit state from chain
-        Some(("contract", v)) => Ok(get_orbit_state(tzkt_api, v, oid).await?),
+        (_, Some(v)) => Ok(get_orbit_state(tzkt_api, v, oid).await?),
         // try use implicit address key as controller
-        Some(("address", v)) => Ok(OrbitMetadata {
+        (Some(v), None) => Ok(OrbitMetadata {
             id: oid,
             controllers: vec![pkh_to_did_vm(v)],
             read_delegators: vec![],
             write_delegators: vec![],
             revocations: vec![],
             hosts: Map::new(),
+            auth: AuthTypes::Tezos,
         }),
         _ => Err(anyhow!("Missing address or contract")),
     }

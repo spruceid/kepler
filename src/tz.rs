@@ -9,6 +9,7 @@ use nom::{
     sequence::{preceded, tuple},
     IResult, ParseTo,
 };
+use rocket::request::{FromRequest, Outcome, Request};
 use ssi::{
     did::DIDURL,
     jws::verify_bytes,
@@ -23,6 +24,7 @@ pub struct TezosAuthorizationString {
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
+    pub orbit: Cid,
     pub action: Action,
 }
 
@@ -30,28 +32,30 @@ impl FromStr for TezosAuthorizationString {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
         match tuple::<_, _, nom::error::Error<&'a str>, _>((
-            tag("Tezos Signed Message:"), // remove
-            space_delimit,                // domain string
-            space_delimit,                // get timestamp
-            space_delimit,                // get pk
-            space_delimit,                // get pkh
+            tag("Tezos Signed Message:"),         // remove
+            space_delimit,                        // domain string
+            space_delimit,                        // get timestamp
+            space_delimit,                        // get pk
+            space_delimit,                        // get pkh
+            map_parser(space_delimit, parse_cid), // get orbit
             tag(" "),
             parse_action, // get action
             tag(" "),
         ))(s)
         {
-            Ok((sig_str, (_, domain_str, timestamp_str, pk_str, pkh_str, _, action, _))) => {
+            Ok((sig_str, (_, domain_str, timestamp_str, pk_str, pkh_str, orbit, _, action, _))) => {
                 Ok(TezosAuthorizationString {
                     sig: sig_str.into(),
                     domain: domain_str.into(),
                     pk: pk_str.into(),
                     pkh: pkh_str.into(),
                     timestamp: timestamp_str.into(),
+                    orbit,
                     action,
                 })
             }
             // TODO there is a lifetime issue which prevents using the nom error here
-            Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
+            Err(e) => Err(anyhow!("TzAuth Parsing Failed")),
         }
     }
 }
@@ -60,57 +64,45 @@ fn space_delimit(s: &str) -> IResult<&str, &str> {
     preceded(tag(" "), take_until(" "))(s)
 }
 
-// NOTE this will consume the whole string, it should only be called on fragments which are already separated
+// NOTE this REQUIRES that the cid end with a space or the end of a string!!
 fn parse_cid(s: &str) -> IResult<&str, Cid> {
-    s.parse_to()
-        .ok_or_else(|| nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot)))
-        .map(|cid| ("", cid))
+    Ok((
+        "",
+        s.parse_to().ok_or_else(|| {
+            nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot))
+        })?,
+    ))
 }
 
 fn parse_list(s: &str) -> IResult<&str, Action> {
-    tuple((map_parser(take_until(" "), parse_cid), tag(" LIST")))(s)
-        .map(|(rest, (orbit_id, _))| (rest, Action::List { orbit_id }))
+    tag("LIST")(s).map(|(_, rest)| (rest, Action::List))
 }
 
 fn parse_get(s: &str) -> IResult<&str, Action> {
-    tuple((
-        map_parser(take_until(" "), parse_cid),
-        tag(" GET"),
-        many1(map_parser(space_delimit, parse_cid)),
-    ))(s)
-    .map(|(rest, (orbit_id, _, content))| (rest, Action::Get { orbit_id, content }))
+    tuple((tag("GET"), many1(map_parser(space_delimit, parse_cid))))(s)
+        .map(|(rest, (_, content))| (rest, Action::Get(content)))
 }
 
 fn parse_put(s: &str) -> IResult<&str, Action> {
-    tuple((
-        map_parser(take_until(" "), parse_cid),
-        tag(" PUT"),
-        many1(map_parser(space_delimit, parse_cid)),
-    ))(s)
-    .map(|(rest, (orbit_id, _, content))| (rest, Action::Put { orbit_id, content }))
+    tuple((tag("PUT"), many1(map_parser(space_delimit, parse_cid))))(s)
+        .map(|(rest, (_, content))| (rest, Action::Put(content)))
 }
 
 fn parse_del(s: &str) -> IResult<&str, Action> {
-    tuple((
-        map_parser(take_until(" "), parse_cid),
-        tag(" DEL"),
-        many1(map_parser(space_delimit, parse_cid)),
-    ))(s)
-    .map(|(rest, (orbit_id, _, content))| (rest, Action::Del { orbit_id, content }))
+    tuple((tag("DEL"), many1(map_parser(space_delimit, parse_cid))))(s)
+        .map(|(rest, (_, content))| (rest, Action::Del(content)))
 }
 
 fn parse_create(s: &str) -> IResult<&str, Action> {
     tuple((
-        map_parser(take_until(" "), parse_cid),
-        tag(" CREATE"),
+        tag("CREATE"),
         space_delimit, // parameters
         many1(map_parser(space_delimit, parse_cid)),
     ))(s)
-    .map(|(rest, (orbit_id, _, params, content))| {
+    .map(|(rest, (_, params, content))| {
         (
             rest,
             Action::Create {
-                orbit_id,
                 content,
                 parameters: params.into(),
             },
@@ -124,16 +116,14 @@ fn parse_action(s: &str) -> IResult<&str, Action> {
 
 fn serialize_action(action: &Action) -> Result<String> {
     match action {
-        Action::Put { orbit_id, content } => serialize_content_action("PUT", orbit_id, content),
-        Action::Get { orbit_id, content } => serialize_content_action("GET", orbit_id, content),
-        Action::Del { orbit_id, content } => serialize_content_action("DEL", orbit_id, content),
-        Action::List { orbit_id } => serialize_content_action("LIST", orbit_id, &[]),
+        Action::Put(content) => serialize_content_action("PUT", content),
+        Action::Get(content) => serialize_content_action("GET", content),
+        Action::Del(content) => serialize_content_action("DEL", content),
+        Action::List => Ok("LIST".into()),
         Action::Create {
-            orbit_id,
             content,
             parameters,
         } => Ok([
-            &orbit_id.to_string_of_base(Base::Base58Btc)?,
             "CREATE",
             &parameters,
             &content
@@ -146,9 +136,8 @@ fn serialize_action(action: &Action) -> Result<String> {
     }
 }
 
-fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Result<String> {
+fn serialize_content_action(action: &str, content: &[Cid]) -> Result<String> {
     Ok([
-        &orbit_id.to_string_of_base(Base::Base58Btc)?,
         action,
         &content
             .iter()
@@ -160,16 +149,20 @@ fn serialize_content_action(action: &str, orbit_id: &Cid, content: &[Cid]) -> Re
 }
 
 impl TezosAuthorizationString {
-    fn serialize_for_verification(&self) -> Result<Vec<u8>> {
-        let message = format!(
-            "Tezos Signed Message: {} {} {} {} {}",
+    pub fn serialize(&self) -> Result<String> {
+        Ok(format!(
+            "Tezos Signed Message: {} {} {} {} {} {}",
             &self.domain,
             &self.timestamp,
             &self.pk,
             &self.pkh,
+            &self.orbit.to_string_of_base(Base::Base58Btc)?,
             serialize_action(&self.action)?
-        );
-        Ok(encode_string(&message))
+        ))
+    }
+
+    fn serialize_for_verification(&self) -> Result<Vec<u8>> {
+        Ok(encode_string(&self.serialize()?))
     }
 
     fn verify(&self) -> Result<()> {
@@ -185,17 +178,27 @@ impl TezosAuthorizationString {
     }
 }
 
-impl AuthorizationToken for TezosAuthorizationString {
-    // const HEADER_KEY: &'static str = "Authorization";
-
-    fn extract(auth_data: &str) -> Result<Self> {
-        let auth = TezosAuthorizationString::from_str(auth_data)?;
-        auth.verify()?;
-        Ok(auth)
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for TezosAuthorizationString {
+    type Error = anyhow::Error;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match request
+            .headers()
+            .get_one("Authorization")
+            .map(|s| Self::from_str(s))
+        {
+            Some(Ok(t)) => Outcome::Success(t),
+            _ => Outcome::Forward(()),
+        }
     }
+}
 
-    fn action(&self) -> &Action {
-        &self.action
+impl AuthorizationToken for TezosAuthorizationString {
+    fn action(&self) -> Action {
+        self.action.clone()
+    }
+    fn target_orbit(&self) -> &Cid {
+        &self.orbit
     }
 }
 
@@ -215,11 +218,15 @@ impl core::fmt::Display for TezosAuthorizationString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: {} {} {} {} {} {}",
+            "Tezos Signed Message: {} {} {} {} {} {} {}",
             &self.domain,
             &self.timestamp,
             &self.pk,
             &self.pkh,
+            &self
+                .orbit
+                .to_string_of_base(Base::Base58Btc)
+                .map_err(|_| core::fmt::Error)?,
             serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
             &self.sig
         )
@@ -245,7 +252,7 @@ impl AuthorizationPolicy for TezosBasicAuthorization {
         if !self.controllers.contains(&requester) {
             Err(anyhow!("Requester not a controller of the orbit"))
         } else {
-            Ok(())
+            auth_token.verify()
         }
     }
 }
@@ -311,10 +318,8 @@ async fn round_trip() {
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
-        action: Action::Put {
-            orbit_id: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
-            content: vec![Cid::from_str(dummy_cid).expect("failed to parse CID")],
-        },
+        orbit: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
+        action: Action::Put(vec![Cid::from_str(dummy_cid).expect("failed to parse CID")]),
     };
     let message = tz_unsigned
         .serialize_for_verification()
