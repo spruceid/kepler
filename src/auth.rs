@@ -110,9 +110,7 @@ async fn extract_info<T>(
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
-        None => {
-            return Err(Outcome::Forward(()));
-        }
+        None => "",
     };
     info_!("Headers: {}", auth_data);
     let config = match req.rocket().state::<config::Config>() {
@@ -129,7 +127,7 @@ async fn extract_info<T>(
         _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
-                anyhow!("Could not retrieve config"),
+                anyhow!("Could not retrieve Orbit ID"),
             )));
         }
     };

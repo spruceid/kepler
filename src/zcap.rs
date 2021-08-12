@@ -14,7 +14,7 @@ use std::{collections::HashMap as Map, str::FromStr};
 #[serde(rename_all = "camelCase")]
 pub struct KeplerProps {
     #[serde(with = "cid_serde")]
-    pub orbit: Cid,
+    pub invocation_target: Cid,
     pub capability_action: Action,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,16 +40,17 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
         match (
             request
                 .headers()
-                .get_one("X-Kepler-Invocation")
+                .get_one("x-kepler-invocation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
                 .map(|s| serde_json::from_slice(&s)),
             request
                 .headers()
-                .get_one("X-Kepler-Delegation")
+                .get_one("x-kepler-delegation")
                 .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
-                .map(|s| serde_json::from_slice(&s)),
+                .map(|s| serde_json::from_slice(&s))
+                .transpose(),
         ) {
-            (Some(Ok(invocation)), Some(Ok(delegation))) => Outcome::Success(Self {
+            (Some(Ok(invocation)), Ok(delegation)) => Outcome::Success(Self {
                 invocation,
                 delegation,
             }),
@@ -63,7 +64,7 @@ impl AuthorizationToken for ZCAPTokens {
         self.invocation.property_set.capability_action.clone()
     }
     fn target_orbit(&self) -> &Cid {
-        &self.invocation.property_set.orbit
+        &self.invocation.property_set.invocation_target
     }
 }
 

@@ -41,7 +41,7 @@ pub struct OrbitMetadata {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(untagged, rename_all = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE")]
 pub enum AuthTypes {
     Tezos,
     ZCAP,
