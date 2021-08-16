@@ -278,7 +278,7 @@ async fn simple_verify_fail() {
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkvR6aAd12AiVyh9UJUntyNtLM2usrpCq4avG8KozdSMU7vvu7qU tz1c5eqtBarJ9brFnmUy2n7Bvg1RCpWk29eU z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my PUT z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtmtSYSCCB8yyvj3BiFHSgbS21UAoR2jrQMWEr3eA99Czyph3duzEVAVYnG8chBKBPMhxD9ZyTwQSAoMuGr6bnotP9m9wvK";
+    let auth_str = "Tezos Signed Message: test 2021-08-16T12:00:52.699Z edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my GET z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtigutx55QVaLT3iC89yQnF5bnRecztiYbs1LtaMN84KXWtTxtRGBpkiz9eVZG6MqwHp1K7KGAhjHSyfJRQMs1EAyYBNTYZ";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
     tza.verify().unwrap();
 }

@@ -113,3 +113,13 @@ impl AuthorizationPolicy for ZCAPAuthorization {
             .unwrap_or(Ok(()))
     }
 }
+
+#[test]
+async fn basic() -> Result<()> {
+    let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"urn:uuid:helo","capabilityAction":{"get":["z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv"]},"invocationTarget":"z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"capabilityInvocation","proofValue":"edsigtg5tr3rNwKQ9MmwsSCy8wx5NtU5ZwR51JDEFWb1Lhnq1xQwBxCz5UN2SGKWcWbzHSsBcdaBH8FHQhQNEmGr3LPhg47HAHr","verificationMethod":"did:pkh:tz:tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd#TezosMethod2021","created":"2021-08-16T12:00:52.721Z","capability":"kepler://z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my","publicKeyJwk":{"alg":"EdBlake2b","crv":"Ed25519","kty":"OKP","x":"pJMxEXxmUWrqHFX2Q6F1AdzhW9L7ityjVTJl5iLdMGw"}}}"#;
+
+    let inv: KeplerInvocation = serde_json::from_str(inv_str)?;
+    let res = inv.verify_signature(None, &did_pkh::DIDPKH).await;
+    assert!(res.errors.is_empty());
+    Ok(())
+}
