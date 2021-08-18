@@ -1,7 +1,10 @@
 use crate::auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
 use ipfs_embed::Cid;
-use rocket::request::{FromRequest, Outcome, Request};
+use rocket::{
+    http::Status,
+    request::{FromRequest, Outcome, Request},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssi::{
@@ -38,23 +41,28 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match (
+            request.headers().get_one("X-Kepler-Invocation").map(|b64| {
+                base64::decode_config(b64, base64::URL_SAFE_NO_PAD)
+                    .map_err(|e| anyhow!(e))
+                    .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
+            }),
             request
                 .headers()
-                .get_one("x-kepler-invocation")
-                .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
-                .map(|s| serde_json::from_slice(&s)),
-            request
-                .headers()
-                .get_one("x-kepler-delegation")
-                .and_then(|b64| base64::decode_config(b64, base64::URL_SAFE_NO_PAD).ok())
-                .map(|s| serde_json::from_slice(&s))
+                .get_one("X-Kepler-Delegation")
+                .map(|b64| {
+                    base64::decode_config(b64, base64::URL_SAFE_NO_PAD)
+                        .map_err(|e| anyhow!(e))
+                        .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
+                })
                 .transpose(),
         ) {
             (Some(Ok(invocation)), Ok(delegation)) => Outcome::Success(Self {
                 invocation,
                 delegation,
             }),
-            _ => Outcome::Forward(()),
+            (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
+            (_, Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
+            (None, Ok(None)) => Outcome::Forward(()),
         }
     }
 }
