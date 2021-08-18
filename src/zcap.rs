@@ -62,7 +62,7 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
             }),
             (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
             (_, Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
-            (None, Ok(None)) => Outcome::Forward(()),
+            (None, _) => Outcome::Forward(()),
         }
     }
 }
