@@ -1,8 +1,9 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
+    zcap::{ZCAPAuthorization, ZCAPTokens},
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, PeerId};
@@ -14,14 +15,18 @@ use libipld::{
     },
     store::DefaultParams,
 };
-use rocket::tokio::fs;
+use rocket::{
+    http::Status,
+    request::{FromRequest, Outcome, Request},
+    tokio::fs,
+};
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
-use std::{convert::TryFrom, path::PathBuf};
+use std::{collections::HashMap, convert::TryFrom, path::PathBuf};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
     #[serde(with = "cid_serde")]
@@ -31,93 +36,91 @@ pub struct OrbitMetadata {
     pub write_delegators: Vec<DIDURL>,
     // TODO placeholder type
     pub revocations: Vec<String>,
+    #[serde(default)]
+    pub auth: AuthTypes,
 }
 
-mod cid_serde {
-    use libipld::cid::{multibase::Base, Cid};
-    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum AuthTypes {
+    Tezos,
+    ZCAP,
+}
 
-    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        ser.serialize_str(
-            &cid.to_string_of_base(Base::Base58Btc)
-                .map_err(S::Error::custom)?,
-        )
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deser)?;
-        s.parse().map_err(D::Error::custom)
+impl Default for AuthTypes {
+    fn default() -> Self {
+        Self::Tezos
     }
 }
 
-// TODO I think this will need to go, using a trait for a core object creates
-// too much monomorphisation which shouldn't be too much of a problem for the
-// binary size but I'm not sure how Rocket handles it.
-// Or maybe implement the traits separately.
-// Ultimately I think we'll need to use an enum, it's not as fancy but because
-// we only have simple relationships (e.g. for the Tezos policy you need a
-// Tezos token) it will make the routing simpler and easier to use.
-#[rocket::async_trait]
-pub trait Orbit: ContentAddressedStorage {
-    // + AuthorizationPolicy {
-    fn id(&self) -> &Cid;
-
-    fn hosts(&self) -> Vec<PeerId>;
-
-    fn admins(&self) -> &[&DIDURL];
-
-    fn auth(&self) -> &AuthMethods;
-
-    fn make_uri(&self, cid: &Cid) -> Result<String>;
-
-    // async fn update(
-    //     &self,
-    //     update: Self::UpdateMessage,
-    // ) -> Result<(), <Self as ContentAddressedStorage>::Error>;
+impl From<&AuthMethods> for AuthTypes {
+    fn from(m: &AuthMethods) -> Self {
+        match m {
+            AuthMethods::Tezos(_) => Self::Tezos,
+            AuthMethods::ZCAP(_) => Self::ZCAP,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub enum AuthMethods {
     Tezos(TezosBasicAuthorization),
+    ZCAP(ZCAPAuthorization),
 }
 
 #[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
+    ZCAP(ZCAPTokens),
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AuthTokens {
+    type Error = anyhow::Error;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
+            Outcome::Success(Self::Tezos(tz))
+        } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
+            Outcome::Success(Self::ZCAP(zcap))
+        } else {
+            Outcome::Failure((
+                Status::Unauthorized,
+                anyhow!("No valid authorization headers"),
+            ))
+        }
+    }
 }
 
 impl AuthorizationToken for AuthTokens {
-    fn extract(auth_data: &str) -> Result<Self> {
-        Err(anyhow!("todo"))
-    }
-
-    fn action(&self) -> &Action {
+    fn action(&self) -> Action {
         match self {
             Self::Tezos(token) => token.action(),
+            Self::ZCAP(token) => token.action(),
+        }
+    }
+    fn target_orbit(&self) -> &Cid {
+        match self {
+            Self::Tezos(token) => token.target_orbit(),
+            Self::ZCAP(token) => token.target_orbit(),
         }
     }
 }
 
 impl AuthMethods {
     pub async fn authorize(&self, auth_token: AuthTokens) -> Result<()> {
-        match self {
-            Self::Tezos(method) => match auth_token {
-                AuthTokens::Tezos(token) => method.authorize(&token).await,
-            },
+        match (self, auth_token) {
+            (Self::Tezos(method), AuthTokens::Tezos(token)) => method.authorize(&token).await,
+            (Self::ZCAP(method), AuthTokens::ZCAP(token)) => method.authorize(&token).await,
+            _ => return Err(anyhow!("Bad token")),
         }
     }
 }
 
 #[derive(Clone)]
-pub struct SimpleOrbit {
+pub struct Orbit {
     ipfs: Ipfs<DefaultParams>,
-    oid: Cid,
+    metadata: OrbitMetadata,
     policy: AuthMethods,
 }
 
@@ -125,9 +128,10 @@ pub struct SimpleOrbit {
 pub async fn create_orbit(
     oid: Cid,
     path: PathBuf,
-    policy: TezosBasicAuthorization,
+    controllers: Vec<DIDURL>,
     auth: &[u8],
-) -> Result<Option<SimpleOrbit>> {
+    auth_type: AuthTypes,
+) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
@@ -141,10 +145,11 @@ pub async fn create_orbit(
     // create default and write
     let md = OrbitMetadata {
         id: oid.clone(),
-        controllers: policy.controllers,
+        controllers: controllers,
         read_delegators: vec![],
         write_delegators: vec![],
         revocations: vec![],
+        auth: auth_type,
     };
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
@@ -154,7 +159,7 @@ pub async fn create_orbit(
     })??))
 }
 
-pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> {
+pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
     if !dir.exists() {
         return Ok(None);
@@ -166,7 +171,7 @@ pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<SimpleOrbit>> 
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
+async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
     let mut cfg = Config::new(Some(dir.join("block_store")), 0);
     cfg.network.mdns = None;
     cfg.network.gossipsub = None;
@@ -178,45 +183,52 @@ async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<SimpleOrbit> {
     // TODO enable dht once orbits are defined
     cfg.network.kad = None;
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    let controllers = md.controllers.clone();
 
-    Ok(SimpleOrbit {
+    Ok(Orbit {
         ipfs,
-        oid,
-        policy: AuthMethods::Tezos(TezosBasicAuthorization {
-            controllers: md.controllers,
-        }),
+        policy: match &md.auth {
+            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization { controllers }),
+            AuthTypes::ZCAP => AuthMethods::ZCAP(controllers),
+        },
+        metadata: md,
     })
 }
 
-pub fn verify_oid(oid: &Cid, pkh: &str, uri_str: &str) -> Result<()> {
-    // try to parse as a URI with matrix params
-    let mut parts = uri_str.split(';');
-    let method = parts.next().ok_or(anyhow!("No URI"))?;
+pub fn get_params<'a>(matrix_params: &'a str) -> HashMap<&'a str, &'a str> {
+    matrix_params
+        .split(";")
+        .fold(HashMap::new(), |mut acc, pair_str| {
+            let mut ps = pair_str.split("=");
+            match (ps.next(), ps.next(), ps.next()) {
+                (Some(key), Some(value), None) => acc.insert(key, value),
+                _ => None,
+            };
+            acc
+        })
+}
 
+pub fn verify_oid<'a>(oid: &Cid, uri_str: &'a str) -> Result<(&'a str, HashMap<&'a str, &'a str>)> {
+    // try to parse as a URI with matrix params
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
-        && match method {
-            "tz" => parts
-                .map(|part| part.split('=').collect::<Vec<&str>>())
-                .filter_map(|kv| {
-                    if kv.len() == 2 {
-                        Some((kv[0], kv[1]))
-                    } else {
-                        None
-                    }
-                })
-                .any(|(name, value)| name == "address" && value == pkh),
-            _ => Err(anyhow!("Orbit method not registered"))?,
-        }
     {
-        Ok(())
+        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
+        Ok((
+            // method name
+            uri_str
+                .get(..first_sc)
+                .ok_or(anyhow!("Missing Orbit Method"))?,
+            // matrix parameters
+            get_params(uri_str.get(first_sc..).unwrap_or("")),
+        ))
     } else {
         Err(anyhow!("Failed to verify Orbit ID"))
     }
 }
 
 #[rocket::async_trait]
-impl ContentAddressedStorage for SimpleOrbit {
+impl ContentAddressedStorage for Orbit {
     type Error = anyhow::Error;
     async fn put(
         &self,
@@ -239,25 +251,24 @@ impl ContentAddressedStorage for SimpleOrbit {
     }
 }
 
-#[rocket::async_trait]
-impl Orbit for SimpleOrbit {
-    fn id(&self) -> &Cid {
-        &self.oid
+impl Orbit {
+    pub fn id(&self) -> &Cid {
+        &self.metadata.id
     }
 
-    fn hosts(&self) -> Vec<PeerId> {
+    pub fn hosts(&self) -> Vec<PeerId> {
         vec![self.ipfs.local_peer_id()]
     }
 
-    fn admins(&self) -> &[&DIDURL] {
-        todo!()
+    pub fn admins(&self) -> &[DIDURL] {
+        &self.metadata.controllers
     }
 
-    fn auth(&self) -> &AuthMethods {
+    pub fn auth(&self) -> &AuthMethods {
         &self.policy
     }
 
-    fn make_uri(&self, cid: &Cid) -> Result<String> {
+    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
             "kepler://{}/{}",
             self.id().to_string_of_base(Base::Base58Btc)?,
@@ -279,5 +290,9 @@ async fn oid_verification() {
     let domain = "kepler.tzprofiles.com";
     let index = 0;
     let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
-    verify_oid(&oid, pkh, &uri).unwrap();
+    let (method, params) = verify_oid(&oid, &uri).unwrap();
+    assert_eq!(method, "tz");
+    assert_eq!(params.get("address"), Some(&pkh));
+    assert_eq!(params.get("domain"), Some(&domain));
+    assert_eq!(params.get("index"), Some(&"0"));
 }

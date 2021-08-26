@@ -8,6 +8,7 @@ extern crate tokio;
 use anyhow::Result;
 use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
+pub mod allow_list;
 pub mod auth;
 pub mod cas;
 pub mod codec;
@@ -16,10 +17,11 @@ pub mod ipfs;
 pub mod orbit;
 pub mod routes;
 pub mod tz;
+pub mod zcap;
 
 use routes::{
-    batch_put_content, batch_put_create, cors, delete_content, get_content, get_content_no_auth,
-    list_content, list_content_no_auth, put_content, put_create,
+    batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
+    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content,
 };
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
@@ -44,8 +46,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 put_content,
                 batch_put_content,
                 delete_content,
-                put_create,
-                batch_put_create,
+                open_orbit_allowlist,
+                open_orbit_authz,
                 cors
             ],
         )
