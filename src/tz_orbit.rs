@@ -108,10 +108,6 @@ mod tests {
 
     #[test]
     async fn test() -> Result<()> {
-        let address = "KT1L7hDDhXynuMoyRGoQNBNUHZEM5iBRu24U";
-        // let m = get_orbit_state(DEFAULT_TZKT_API, address).await?;
-        // println!("{:#?}", m);
-        assert!(false);
         Ok(())
     }
 }

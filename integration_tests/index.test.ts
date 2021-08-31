@@ -44,7 +44,7 @@ const create = async (
     const hostInfo = await Promise.all([host, ...peers].map(async host => {
         const api = "http://" + host.url + ":" + host.port;
         // @ts-ignore
-        const key: string = await fetch(api + "/hostInfo").then(r => r.json()).then(({ id }) => id)
+        const key: string = await fetch(api + "/host").then(r => r.json()).then(({ id }) => id)
         return { [key]: ["/ip4/0.0.0.0/tcp/" + (host.port + 1)] }
     })).then(hosts => hosts.reduce((h, acc) => ({ ...h, ...acc })));
 

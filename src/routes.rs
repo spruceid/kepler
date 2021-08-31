@@ -224,7 +224,7 @@ pub struct HostInfo {
     pub id: PID,
 }
 
-#[get("/hostInfo")]
+#[get("/host")]
 pub async fn get_host_info(kp: &State<Keypair>) -> Result<Json<HostInfo>, (Status, &'static str)> {
     Ok(Json(HostInfo {
         id: PID(kp.to_peer_id()),
