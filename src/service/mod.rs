@@ -48,6 +48,8 @@ mod test {
     use ipfs_embed::{generate_keypair, Block, Config, Event as SwarmEvent, Ipfs};
     use libipld::{multihash::Code, raw::RawCodec, DefaultParams};
     use rocket::futures::StreamExt;
+    use std::collections::BTreeMap;
+
     fn tracing_try_init() {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -92,15 +94,24 @@ mod test {
         std::thread::sleep_ms(2000);
 
         let json = r#"{"hello":"there"}"#.as_bytes().to_vec();
+        let key = "my_json.json";
+        let md: BTreeMap<String, String> =
+            [("content-type".to_string(), "application/json".to_string())]
+                .to_vec()
+                .into_iter()
+                .collect();
 
-        let s3_obj = S3ObjectBuilder::new(
-            "my_json.json".as_bytes().to_vec(),
-            vec![("content-type".to_string(), "application/json".to_string())],
-        );
+        let s3_obj = S3ObjectBuilder::new(key.as_bytes().to_vec(), md.clone());
 
         alice_service.write(vec![(s3_obj, json)], vec![])?;
 
         std::thread::sleep_ms(2000);
+        let o = alice_service.get(key)?.expect("object not found for alice");
+        assert_eq!(&o.data.key, key.as_bytes());
+        assert_eq!(&o.data.metadata, &md);
+
+        let o2 = bob_service.get(key)?.expect("object not found for bob");
+        assert_eq!(&o2, &o);
 
         assert!(false);
         Ok(())

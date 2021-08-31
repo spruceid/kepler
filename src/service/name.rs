@@ -55,9 +55,9 @@ impl std::ops::Deref for KeplerNameService {
 #[derive(DagCbor)]
 pub struct Delta {
     // max depth
-    priority: u64,
-    add: Vec<Cid>,
-    rmv: Vec<Cid>,
+    pub priority: u64,
+    pub add: Vec<Cid>,
+    pub rmv: Vec<Cid>,
 }
 
 impl Delta {
@@ -85,8 +85,8 @@ impl Delta {
 #[derive(DagCbor)]
 pub struct LinkedDelta {
     // previous heads
-    prev: Vec<Cid>,
-    delta: Delta,
+    pub prev: Vec<Cid>,
+    pub delta: Delta,
 }
 
 impl LinkedDelta {
@@ -127,7 +127,7 @@ impl Heads {
             (vec![], 0),
             |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
                 let (head, hb) = r?;
-                let height = u64::from_be_bytes(hb[..].try_into()?);
+                let height = v2u64(hb)?;
                 heads.push(head[..].try_into()?);
                 Ok((heads, u64::max(max_height, height)))
             },
@@ -137,7 +137,7 @@ impl Heads {
     pub fn get(&self, head: Cid) -> Result<Option<u64>> {
         self.heads
             .get(head.to_bytes())?
-            .map(|h| Ok(u64::from_be_bytes(h[..].try_into()?)))
+            .map(|h| v2u64(h))
             .transpose()
     }
 
@@ -146,7 +146,7 @@ impl Heads {
         for (head, height) in heads.into_iter() {
             if !self.heads.contains_key(head.to_bytes())? {
                 tracing::debug!("setting head height {} {}", head, height);
-                batch.insert(head.to_bytes(), &height.to_be_bytes());
+                batch.insert(head.to_bytes(), &u642v(height));
             }
         }
         self.heads.apply_batch(batch)?;
@@ -159,6 +159,14 @@ impl Heads {
         self.heads.apply_batch(batch)?;
         Ok(())
     }
+}
+
+fn v2u64<V: AsRef<[u8]>>(v: V) -> Result<u64> {
+    Ok(u64::from_be_bytes(v.as_ref().try_into()?))
+}
+
+fn u642v(n: u64) -> [u8; 8] {
+    n.to_be_bytes()
 }
 
 impl KNSStore {
@@ -202,9 +210,14 @@ impl KNSStore {
     pub fn write(
         &self,
         add: impl IntoIterator<Item = (S3ObjectBuilder, Vec<u8>)>,
-        remove: impl IntoIterator<Item = (Vec<u8>, Option<String>)>,
+        _remove: impl IntoIterator<Item = (Vec<u8>, Option<String>)>,
     ) -> Result<()> {
         let (heads, height) = self.heads.state()?;
+        let height = if heads.is_empty() && height == 0 {
+            0
+        } else {
+            height + 1
+        };
         let adds: Vec<(S3Object, Block, Block)> = add
             .into_iter()
             .map(|(s, v)| {
@@ -227,10 +240,10 @@ impl KNSStore {
         let block = delta.to_block()?;
         // apply/pin root/update heads
         self.apply(
-            &(*block.cid(), delta),
-            adds.into_iter()
+            &(block, delta),
+            adds.iter()
                 .map(|(obj, block, _)| (*block.cid(), obj))
-                .collect::<Vec<(Cid, S3Object)>>(),
+                .collect::<Vec<(Cid, &S3Object)>>(),
         )?;
 
         // insert children
@@ -253,17 +266,47 @@ impl KNSStore {
         Ok(())
     }
 
-    fn apply(
+    fn apply<'a>(
         &self,
-        delta: &(Cid, LinkedDelta),
-        objs: impl IntoIterator<Item = (Cid, S3Object)>,
+        delta: &(Block, LinkedDelta),
+        objs: impl IntoIterator<Item = (Cid, &'a S3Object)>,
     ) -> Result<()> {
         // ensure dont double add or remove
         // find redundant heads and remove them
         // add new head
-        // TODO update tables
-        self.heads.set(vec![(delta.0, delta.1.delta.priority)])?;
-        self.ipfs.alias(delta.0.to_bytes(), Some(delta.0))?;
+        // TODO update tables atomically with transaction
+        for (cid, obj) in objs.into_iter() {
+            // current element priority
+            let prio = self
+                .priorities
+                .get(&obj.data.key)?
+                .map(|v| v2u64(v))
+                .transpose()?
+                .unwrap_or(0);
+            // current element CID at key
+            let curr = self
+                .elements
+                .get(&obj.data.key)?
+                .map(|b| Cid::try_from(b.as_ref()))
+                .transpose()?;
+            // order by priority, fall back to CID value ordering if priority equal
+            if delta.1.delta.priority > prio
+                || (delta.1.delta.priority == prio
+                    && match curr {
+                        Some(c) => c > cid,
+                        _ => true,
+                    })
+            {
+                self.elements.insert(&obj.data.key, cid.to_bytes())?;
+                self.priorities
+                    .insert(&obj.data.key, &u642v(delta.1.delta.priority))?;
+            }
+        }
+        self.heads
+            .set(vec![(*delta.0.cid(), delta.1.delta.priority)])?;
+        self.ipfs
+            .alias(delta.0.cid().to_bytes(), Some(delta.0.cid()))?;
+        self.ipfs.insert(&delta.0)?;
 
         Ok(())
     }

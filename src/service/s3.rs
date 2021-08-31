@@ -3,7 +3,7 @@ use anyhow::Result;
 use libipld::{cid::Cid, Block, DagCbor, DefaultParams};
 use std::collections::BTreeMap;
 
-#[derive(DagCbor)]
+#[derive(DagCbor, PartialEq, Debug)]
 pub struct S3Object {
     pub data: S3ObjectData,
     pub version_id: String,
@@ -19,7 +19,7 @@ impl S3Object {
     }
 }
 
-#[derive(DagCbor)]
+#[derive(DagCbor, PartialEq, Debug)]
 pub struct S3ObjectData {
     pub key: Vec<u8>,
     pub value: Cid,
