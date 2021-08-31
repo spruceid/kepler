@@ -1,12 +1,11 @@
 use ipfs_embed::{DefaultParams, Event as SwarmEvent, GossipEvent, Ipfs, PeerId, SwarmEvents};
-use libipld::cid::Cid;
+use libipld::{cid::Cid, Link};
 use rocket::async_trait;
-use rocket::futures::{
-    future::{join, join_all, ready},
-    Future, Stream, StreamExt,
-};
+use rocket::futures::{future::join_all, Stream, StreamExt};
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
+use sled::{Db, Tree};
+use std::convert::{TryFrom, TryInto};
 
 #[async_trait]
 pub trait KeplerService {
@@ -30,27 +29,53 @@ impl KeplerNameService {
     pub(crate) fn new(store: KNSStore, task: TaskHandle) -> Self {
         Self { store, task }
     }
+}
 
-    pub fn get<N: AsRef<[u8]>>(name: N) -> Result<Option<Cid>, anyhow::Error> {
-        // resolve name
-        // get from local storage
-        Ok(None)
+impl std::ops::Deref for KeplerNameService {
+    type Target = KNSStore;
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
+
+pub trait Element {
+    type Value;
+    fn key(&self) -> &[u8];
+    fn value(&self) -> Self::Value;
+}
+
+struct Delta {
+    // max depth
+    priority: u64,
+    add: Vec<Cid>,
+    rmv: Vec<Cid>,
+}
+
+pub struct LinkedDelta {
+    // previous heads
+    prev: Vec<Cid>,
+    delta: Delta,
+}
+
+impl Delta {
+    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<Cid>) -> Self {
+        Self { priority, add, rmv }
     }
 
-    pub fn set<N: AsRef<[u8]>>(name: N, value: Cid) -> Result<(), anyhow::Error> {
-        // make op
-        // set local
-        // start broadcast
-        // return
-        Ok(())
-    }
+    pub fn merge(self, other: Self) -> Self {
+        let mut add = self.add;
+        let mut other_add = other.add;
+        add.append(&mut other_add);
 
-    pub fn remove<N: AsRef<[u8]>>(name: N) -> Result<(), anyhow::Error> {
-        // make op
-        // set local
-        // start broadcast
-        // return
-        Ok(())
+        let mut rmv = self.rmv;
+        let mut other_rmv = other.rmv;
+        rmv.append(&mut other_rmv);
+
+        Self {
+            add,
+            rmv,
+            priority: u64::max(self.priority, other.priority),
+        }
     }
 }
 
@@ -58,11 +83,109 @@ impl KeplerNameService {
 pub struct KNSStore {
     pub id: String,
     pub ipfs: Ipfs<DefaultParams>,
+    elements: Tree,
+    tombs: Tree,
+    values: Tree,
+    priorities: Tree,
+    heads: Heads,
+}
+
+#[derive(Clone)]
+struct Heads {
+    store: Tree,
+}
+
+impl Heads {
+    pub fn new(store: Tree) -> anyhow::Result<Self> {
+        Ok(Self { store })
+    }
+
+    pub fn state(&self) -> anyhow::Result<(Vec<Cid>, u64)> {
+        self.store.iter().try_fold(
+            (vec![], 0),
+            |(mut heads, max_height), r| -> anyhow::Result<(Vec<Cid>, u64)> {
+                let (head, hb) = r?;
+                let height = u64::from_be_bytes(hb[..].try_into()?);
+                heads.push(head[..].try_into()?);
+                Ok((heads, u64::max(max_height, height)))
+            },
+        )
+    }
+
+    pub fn get(&self, head: Cid) -> anyhow::Result<Option<u64>> {
+        self.store
+            .get(head.to_bytes())?
+            .map(|h| Ok(u64::from_be_bytes(h[..].try_into()?)))
+            .transpose()
+    }
+
+    pub fn set(&self, head: Cid, height: u64) -> anyhow::Result<()> {
+        if !self.store.contains_key(head.to_bytes())? {
+            self.store.insert(head.to_bytes(), &height.to_be_bytes())?;
+        };
+        Ok(())
+    }
+
+    pub fn clear(&self, head: Cid) -> anyhow::Result<()> {
+        self.store.remove(head.to_bytes())?;
+        Ok(())
+    }
 }
 
 impl KNSStore {
-    pub fn new(id: String, ipfs: Ipfs<DefaultParams>) -> Self {
-        Self { id, ipfs }
+    pub fn new(id: String, ipfs: Ipfs<DefaultParams>, db: Db) -> anyhow::Result<Self> {
+        // map key to element CIDs
+        let elements = db.open_tree("elements")?;
+        // map key to element CIDs
+        let tombs = db.open_tree("tombs")?;
+        // map key to value (?)
+        let values = db.open_tree("values")?;
+        // map key to current max priority for key
+        let priorities = db.open_tree("priorities")?;
+        // map current DAG head cids to their priority
+        let heads = Heads::new(db.open_tree("heads")?)?;
+        Ok(Self {
+            id,
+            ipfs,
+            elements,
+            tombs,
+            values,
+            priorities,
+            heads,
+        })
+    }
+    pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Cid>, anyhow::Error> {
+        // get from local storage
+        Ok(None)
+    }
+
+    pub fn transact(&self, add: Vec<Cid>, rmv: Vec<Cid>) -> anyhow::Result<LinkedDelta> {
+        let (heads, height) = self.heads.state()?;
+        Ok(LinkedDelta {
+            prev: heads,
+            delta: Delta::new(height, add, rmv),
+        })
+    }
+
+    pub async fn commit(&self, delta: &LinkedDelta) -> anyhow::Result<()> {
+        self.apply(delta).await?;
+        self.broadcast_heads().await?;
+        Ok(())
+    }
+
+    async fn broadcast_heads(&self) -> anyhow::Result<()> {
+        let (heads, _) = self.heads.state()?;
+        self.ipfs
+            .publish(&self.id, bincode::serialize(&KVMessage::Heads(heads))?)?;
+        Ok(())
+    }
+
+    async fn apply(&self, delta: &LinkedDelta) -> anyhow::Result<()> {
+        // find redundant heads
+        // remove them
+        // add new head
+        // update tables
+        todo!()
     }
 }
 
@@ -179,7 +302,7 @@ mod test {
             .ok();
     }
 
-    async fn create_swarm(path: std::path::PathBuf) -> Result<Ipfs<DefaultParams>, anyhow::Error> {
+    async fn create_store(id: &str, path: std::path::PathBuf) -> Result<KNSStore, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
         let mut config = Config::new(&path, generate_keypair());
         config.network.broadcast = None;
@@ -199,26 +322,21 @@ mod test {
                 }
             }
         });
-        Ok(ipfs)
+        KNSStore::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test() -> Result<(), anyhow::Error> {
         tracing_try_init();
         let tmp = tempdir::TempDir::new("test_streams")?;
-        let db = sled::open(tmp.path().join("db"))?;
-
-        let alice = create_swarm(tmp.path().join("alice")).await?;
-        let bob = create_swarm(tmp.path().join("bob")).await?;
         let id = "test_id".to_string();
-        std::thread::sleep_ms(2000);
-        tracing::debug!("{:#?}", alice.peers());
 
-        let alice_service =
-            KeplerNameService::start(KNSStore::new(id.clone(), alice, db.open_tree("alice")?))
-                .await?;
-        let bob_service =
-            KeplerNameService::start(KNSStore::new(id, bob, db.open_tree("bob")?)).await?;
+        let alice = create_store(&id, tmp.path().join("alice")).await?;
+        let bob = create_store(&id, tmp.path().join("bob")).await?;
+        std::thread::sleep_ms(2000);
+
+        let alice_service = KeplerNameService::start(alice).await?;
+        let bob_service = KeplerNameService::start(bob).await?;
 
         std::thread::sleep_ms(2000);
 
