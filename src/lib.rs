@@ -35,22 +35,24 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         ));
     }
 
+    let mut routes = routes![
+        list_content,
+        get_content,
+        put_content,
+        batch_put_content,
+        delete_content,
+        open_orbit_allowlist,
+        open_orbit_authz,
+        cors
+    ];
+
+    if kepler_config.public_get {
+        let mut no_auth = routes![get_content_no_auth, list_content_no_auth];
+        routes.append(&mut no_auth);
+    };
+
     Ok(rocket::custom(config)
-        .mount(
-            "/",
-            routes![
-                list_content,
-                list_content_no_auth,
-                get_content,
-                get_content_no_auth,
-                put_content,
-                batch_put_content,
-                delete_content,
-                open_orbit_allowlist,
-                open_orbit_authz,
-                cors
-            ],
-        )
+        .mount("/", routes)
         .attach(AdHoc::config::<config::Config>())
         .attach(AdHoc::on_response("CORS", |_, resp| {
             Box::pin(async move {
