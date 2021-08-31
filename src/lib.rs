@@ -16,6 +16,7 @@ pub mod config;
 pub mod ipfs;
 pub mod orbit;
 pub mod routes;
+pub mod service;
 pub mod tz;
 pub mod zcap;
 

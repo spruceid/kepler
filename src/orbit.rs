@@ -171,12 +171,8 @@ pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
-    let mut cfg = Config::new(Some(dir.join("block_store")), 0);
-    cfg.network.mdns = None;
-    cfg.network.gossipsub = None;
-    cfg.network.broadcast = None;
-    cfg.network.bitswap = None;
+async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
+    let cfg = Config::new(&dir.join("block_store"), key_pair.0);
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
