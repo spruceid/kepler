@@ -7,7 +7,6 @@ use rocket::futures::{
 };
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
-use sled::Tree;
 
 #[async_trait]
 pub trait KeplerService {
@@ -59,12 +58,11 @@ impl KeplerNameService {
 pub struct KNSStore {
     pub id: String,
     pub ipfs: Ipfs<DefaultParams>,
-    pub store: Tree,
 }
 
 impl KNSStore {
-    pub fn new(id: String, ipfs: Ipfs<DefaultParams>, store: Tree) -> Self {
-        Self { id, ipfs, store }
+    pub fn new(id: String, ipfs: Ipfs<DefaultParams>) -> Self {
+        Self { id, ipfs }
     }
 }
 
