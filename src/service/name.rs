@@ -12,7 +12,7 @@ use libipld::{
 use rocket::async_trait;
 use rocket::futures::{
     future::{join_all, try_join_all},
-    Stream, StreamExt,
+    Future, Stream, StreamExt,
 };
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
@@ -242,8 +242,8 @@ impl KNSStore {
         self.apply(
             &(block, delta),
             adds.iter()
-                .map(|(obj, block, _)| (*block.cid(), obj))
-                .collect::<Vec<(Cid, &S3Object)>>(),
+                .map(|(obj, block, _)| (*block.cid(), obj.clone()))
+                .collect::<Vec<(Cid, S3Object)>>(),
         )?;
 
         // insert children
@@ -269,7 +269,7 @@ impl KNSStore {
     fn apply<'a>(
         &self,
         delta: &(Block, LinkedDelta),
-        objs: impl IntoIterator<Item = (Cid, &'a S3Object)>,
+        objs: impl IntoIterator<Item = (Cid, S3Object)>,
     ) -> Result<()> {
         // ensure dont double add or remove
         // find redundant heads and remove them
@@ -311,10 +311,29 @@ impl KNSStore {
         Ok(())
     }
 
+    async fn get_obj(&self, cid: &Cid) -> Result<(Cid, S3Object)> {
+        Ok((
+            *cid,
+            self.ipfs.fetch(cid, self.ipfs.peers()).await?.decode()?,
+        ))
+    }
+
     pub(crate) async fn try_merge_heads(&self, heads: impl Iterator<Item = Cid>) -> Result<()> {
         try_join_all(heads.map(|head| async move {
-            // fetch head block
-            // check block is an event
+            // fetch head block check block is an event
+            let delta_block = self.ipfs.fetch(&head, self.ipfs.peers()).await?;
+            let delta: LinkedDelta = delta_block.decode()?;
+            let objs: Vec<(Cid, S3Object)> = {
+                let res: Result<Vec<(Cid, S3Object)>> =
+                    join_all(delta.delta.add.iter().map(|c| self.get_obj(c)))
+                        .await
+                        .into_iter()
+                        .collect();
+                res?
+            };
+
+            self.apply(&(delta_block, delta), objs)?;
+
             // dispatch ipfs::sync
             tracing::debug!("syncing head {}", head);
             match self.ipfs.sync(&head, self.ipfs.peers()).await {

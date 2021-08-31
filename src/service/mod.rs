@@ -93,27 +93,52 @@ mod test {
         let bob_service = KeplerNameService::start(bob).await?;
         std::thread::sleep_ms(2000);
 
-        let json = r#"{"hello":"there"}"#.as_bytes().to_vec();
-        let key = "my_json.json";
+        let json = r#"{"hello":"there"}"#;
+        let key1 = "my_json.json";
+        let key2 = "my_dup_json.json";
         let md: BTreeMap<String, String> =
             [("content-type".to_string(), "application/json".to_string())]
                 .to_vec()
                 .into_iter()
                 .collect();
 
-        let s3_obj = S3ObjectBuilder::new(key.as_bytes().to_vec(), md.clone());
+        let s3_obj_1 = S3ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
+        let s3_obj_2 = S3ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
-        alice_service.write(vec![(s3_obj, json)], vec![])?;
+        alice_service.write(vec![(s3_obj_1, json.as_bytes().to_vec())], vec![])?;
+        bob_service.write(vec![(s3_obj_2, json.as_bytes().to_vec())], vec![])?;
 
-        std::thread::sleep_ms(2000);
-        let o = alice_service.get(key)?.expect("object not found for alice");
-        assert_eq!(&o.data.key, key.as_bytes());
-        assert_eq!(&o.data.metadata, &md);
+        {
+            // ensure only alice has s3_obj_1
+            let o = alice_service
+                .get(key1)?
+                .expect("object 1 not found for alice");
+            assert_eq!(&o.data.key, key1.as_bytes());
+            assert_eq!(&o.data.metadata, &md);
+            assert_eq!(bob_service.get(key1)?, None);
+        };
+        {
+            // ensure only bob has s3_obj_1
+            let o = bob_service.get(key2)?.expect("object 2 not found for bob");
+            assert_eq!(&o.data.key, key2.as_bytes());
+            assert_eq!(&o.data.metadata, &md);
+            assert_eq!(alice_service.get(key2)?, None);
+        };
 
-        let o2 = bob_service.get(key)?.expect("object not found for bob");
-        assert_eq!(&o2, &o);
+        std::thread::sleep_ms(500);
+        assert_eq!(
+            bob_service.get(key1)?.expect("object 1 not found for bob"),
+            alice_service
+                .get(key1)?
+                .expect("object 1 not found for alice")
+        );
+        assert_eq!(
+            bob_service.get(key2)?.expect("object 2 not found for bob"),
+            alice_service
+                .get(key2)?
+                .expect("object 2 not found for alice")
+        );
 
-        assert!(false);
         Ok(())
     }
 }
