@@ -40,6 +40,27 @@ impl S3ObjectData {
     }
 }
 
+pub struct S3ObjectBuilder {
+    pub key: Vec<u8>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+impl S3ObjectBuilder {
+    pub fn new(key: Vec<u8>, metadata: impl IntoIterator<Item = (String, String)>) -> Self {
+        Self {
+            key,
+            metadata: metadata.into_iter().collect(),
+        }
+    }
+
+    pub fn add_content(self, value: Cid, priority: u64) -> Result<S3Object> {
+        let d = S3ObjectData::new(self.key, value, self.metadata);
+        let d_cid = *to_block(&d)?.cid();
+        let version_id = format!("{}.{}", priority, d_cid);
+        Ok(S3Object::new(d, version_id))
+    }
+}
+
 #[derive(DagCbor)]
 pub struct DataTree {
     pub order: u64,

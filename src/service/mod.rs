@@ -91,18 +91,15 @@ mod test {
         let bob_service = KeplerNameService::start(bob).await?;
         std::thread::sleep_ms(2000);
 
-        let json = r#"{"hello":"there"}"#;
-        let json_block =
-            Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, json.as_bytes())?;
+        let json = r#"{"hello":"there"}"#.as_bytes().to_vec();
 
-        let s3_obj = S3ObjectData::new(
+        let s3_obj = S3ObjectBuilder::new(
             "my_json.json".as_bytes().to_vec(),
-            *json_block.cid(),
             vec![("content-type".to_string(), "application/json".to_string())],
         );
 
-        let delta = alice_service.make_delta(vec![s3_obj], vec![])?;
-        alice_service.commit(&delta).await?;
+        alice_service.write(vec![(s3_obj, json)], vec![])?;
+
         std::thread::sleep_ms(2000);
 
         assert!(false);

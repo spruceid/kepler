@@ -1,6 +1,6 @@
-use crate::service::s3::{S3Object, S3ObjectData};
+use crate::service::s3::{S3Object, S3ObjectBuilder, S3ObjectData};
 use anyhow::Result;
-use ipfs_embed::{Event as SwarmEvent, GossipEvent, PeerId, SwarmEvents};
+use ipfs_embed::{Event as SwarmEvent, GossipEvent, PeerId, SwarmEvents, TempPin};
 use libipld::{
     cbor::DagCborCodec,
     cid::Cid,
@@ -17,6 +17,7 @@ use rocket::futures::{
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use sled::{Batch, Db, Tree};
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use super::{vec_cid_bin, KeplerService};
@@ -198,39 +199,46 @@ impl KNSStore {
         Ok(Some(self.ipfs.get(&cid)?.decode()?))
     }
 
-    pub fn make_delta(
+    pub fn write(
         &self,
-        add: impl IntoIterator<Item = S3ObjectData>,
-        rmv: impl IntoIterator<Item = (Vec<u8>, Option<String>)>,
-    ) -> Result<LinkedDelta> {
+        add: impl IntoIterator<Item = (S3ObjectBuilder, Vec<u8>)>,
+        remove: impl IntoIterator<Item = (Vec<u8>, Option<String>)>,
+    ) -> Result<()> {
         let (heads, height) = self.heads.state()?;
-        let adds: Result<Vec<Cid>> = add
+        let adds: Vec<(S3Object, Block, Block)> = add
             .into_iter()
-            .map(|d| {
-                let d_block = to_block(&d)?;
-                // get version string, height + data cid
-                let version_id = format!("{}.{}", height, d_block.cid());
-                let s3_block = S3Object::new(d, version_id).to_block()?;
-                self.ipfs.insert(&s3_block)?;
-                Ok(*s3_block.cid())
+            .map(|(s, v)| {
+                let data_block = to_block_raw(&v)?;
+                let s3_obj = s.add_content(*data_block.cid(), height)?;
+                let s3_block = s3_obj.to_block()?;
+                Ok((s3_obj, s3_block, data_block))
             })
-            .collect();
-        let rmvs: Result<Vec<Cid>> = rmv
-            .into_iter()
-            .map(|(key, version_id)| {
-                // TODO find CID from version id and key
-                Err(anyhow!("todo"))
-            })
-            .collect();
-        Ok(LinkedDelta {
-            prev: heads,
-            delta: Delta::new(height, adds?, rmvs?),
-        })
-    }
+            .collect::<Result<Vec<(S3Object, Block, Block)>>>()?;
+        // TODO
+        let rmvs: Vec<Cid> = vec![];
+        let delta = LinkedDelta::new(
+            heads,
+            Delta::new(
+                height,
+                adds.iter().map(|(_, b, _)| *b.cid()).collect(),
+                rmvs,
+            ),
+        );
+        let block = delta.to_block()?;
+        // apply/pin root/update heads
+        self.apply(
+            &(*block.cid(), delta),
+            adds.into_iter()
+                .map(|(obj, block, _)| (*block.cid(), obj))
+                .collect::<Vec<(Cid, S3Object)>>(),
+        )?;
 
-    pub async fn commit(&self, delta: &LinkedDelta) -> Result<()> {
-        tracing::debug!("committing delta with priority {}", delta.delta.priority);
-        self.apply(delta).await?;
+        // insert children
+        for (_, obj, data) in adds.iter() {
+            self.ipfs.insert(obj)?;
+            self.ipfs.insert(data)?;
+        }
+        // broadcast
         self.broadcast_heads()?;
         Ok(())
     }
@@ -245,14 +253,17 @@ impl KNSStore {
         Ok(())
     }
 
-    async fn apply(&self, delta: &LinkedDelta) -> Result<()> {
+    fn apply(
+        &self,
+        delta: &(Cid, LinkedDelta),
+        objs: impl IntoIterator<Item = (Cid, S3Object)>,
+    ) -> Result<()> {
         // ensure dont double add or remove
         // find redundant heads and remove them
         // add new head
-        let block = delta.to_block()?;
-        self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
-        self.ipfs.insert(&block)?;
         // TODO update tables
+        self.heads.set(vec![(delta.0, delta.1.delta.priority)])?;
+        self.ipfs.alias(delta.0.to_bytes(), Some(delta.0))?;
 
         Ok(())
     }
