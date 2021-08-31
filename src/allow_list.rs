@@ -29,6 +29,7 @@ impl OrbitAllowList for OrbitAllowListService {
         Ok(
             get([self.api.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
                 .await?
+                .error_for_status()?
                 .json::<Vec<DIDURL>>()
                 .await?,
         )

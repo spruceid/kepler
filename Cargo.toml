@@ -12,8 +12,8 @@ resolver = "2"
 ipfs-embed = { version = "0.21", default-features = false, features = ["tokio"] }
 rocket = { version = "0.5.0-rc.1", features = ["json"] }
 anyhow = "1.0"
-ssi = { git = "https://github.com/spruceid/ssi", branch = "fix/zcap-attribute-check", features = ["secp256k1", "secp256r1", "ripemd160", "keccak-hash"] }
-did-pkh = { git = "https://github.com/spruceid/ssi", branch = "fix/zcap-attribute-check", package = "did-pkh" }
+ssi = { git = "https://github.com/spruceid/ssi", branch = "main", features = ["secp256k1", "secp256r1", "ripemd160", "keccak-hash"] }
+did-pkh = { git = "https://github.com/spruceid/ssi", branch = "main", package = "did-pkh" }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"
@@ -25,4 +25,3 @@ tokio-stream = { version = "0.1", features = ["fs"] }
 cached = "0.23"
 base64 = "0.13"
 reqwest = { version = "0.11", features = ["json"] }
-libp2p-core = "0.28"

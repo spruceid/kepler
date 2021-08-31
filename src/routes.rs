@@ -98,7 +98,7 @@ pub async fn get_content_no_auth(
     }
 }
 
-#[put("/<_orbit_id>", data = "<data>", rank = 1)]
+#[put("/<_orbit_id>", data = "<data>")]
 pub async fn put_content(
     _orbit_id: CidWrap,
     data: Data<'_>,
@@ -130,7 +130,12 @@ pub async fn put_content(
     }
 }
 
-#[put("/<_orbit_id>", format = "multipart/form-data", data = "<batch>")]
+#[put(
+    "/<_orbit_id>",
+    format = "multipart/form-data",
+    data = "<batch>",
+    rank = 2
+)]
 pub async fn batch_put_content(
     _orbit_id: CidWrap,
     orbit: PutAuthWrapper,
@@ -203,7 +208,7 @@ pub async fn open_orbit_allowlist(
                 .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
                 Ok(())
             }
-            _ => Err((Status::BadRequest, "Orbit not allowed")),
+            _ => Err((Status::Unauthorized, "Orbit not allowed")),
         },
         (Err(_), _) => Err((Status::BadRequest, "Invalid Orbit Params")),
     }

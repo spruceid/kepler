@@ -1,7 +1,6 @@
 use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
-use crate::tz::{TezosAuthorizationString, TezosBasicAuthorization};
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
 use ipfs_embed::Keypair;
@@ -108,7 +107,12 @@ pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<'a, T>(
     req: &'a Request<'_>,
-) -> Result<(AuthTokens, config::Config, &'a Keypair, Cid), Outcome<T, anyhow::Error>> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config, &'a Keypair, Cid), Outcome<T, anyhow::Error>> {
+    // TODO need to identify auth method from the headers
+    let auth_data = match req.headers().get_one("Authorization") {
+        Some(a) => a,
+        None => "",
+    };
     let config = match req.rocket().state::<config::Config>() {
         Some(c) => c,
         None => {
@@ -137,7 +141,13 @@ async fn extract_info<'a, T>(
         }
     };
     match AuthTokens::from_request(req).await {
-        Outcome::Success(token) => Ok((token, config.clone(), kp, oid)),
+        Outcome::Success(token) => Ok((
+            auth_data.as_bytes().to_vec(),
+            token,
+            config.clone(),
+            kp,
+            oid,
+        )),
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
@@ -155,7 +165,7 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (token, config, kp, oid) = match extract_info(req).await {
+                let (_, token, config, kp, oid) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
@@ -206,7 +216,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (token, config, kp, oid) = match extract_info(req).await {
+        let (auth_data, token, config, kp, oid) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
