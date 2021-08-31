@@ -43,8 +43,10 @@ mod vec_cid_bin {
 #[cfg(test)]
 mod test {
     use super::name::*;
+    use super::s3::*;
     use super::*;
-    use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
+    use ipfs_embed::{generate_keypair, Block, Config, Event as SwarmEvent, Ipfs};
+    use libipld::{multihash::Code, raw::RawCodec, DefaultParams};
     use rocket::futures::StreamExt;
     fn tracing_try_init() {
         tracing_subscriber::fmt()
@@ -84,11 +86,23 @@ mod test {
 
         let alice = create_store(&id, tmp.path().join("alice")).await?;
         let bob = create_store(&id, tmp.path().join("bob")).await?;
-        std::thread::sleep_ms(2000);
 
         let alice_service = KeplerNameService::start(alice).await?;
         let bob_service = KeplerNameService::start(bob).await?;
+        std::thread::sleep_ms(2000);
 
+        let json = r#"{"hello":"there"}"#;
+        let json_block =
+            Block::<DefaultParams>::encode(RawCodec, Code::Blake3_256, json.as_bytes())?;
+
+        let s3_obj = S3ObjectData::new(
+            "my_json.json".as_bytes().to_vec(),
+            *json_block.cid(),
+            vec![("content-type".to_string(), "application/json".to_string())],
+        );
+
+        let delta = alice_service.make_delta(vec![s3_obj], vec![])?;
+        alice_service.commit(&delta).await?;
         std::thread::sleep_ms(2000);
 
         assert!(false);
