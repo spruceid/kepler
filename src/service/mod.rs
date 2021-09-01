@@ -113,15 +113,15 @@ mod test {
             let o = alice_service
                 .get(key1)?
                 .expect("object 1 not found for alice");
-            assert_eq!(&o.data.key, key1.as_bytes());
-            assert_eq!(&o.data.metadata, &md);
+            assert_eq!(&o.key, key1.as_bytes());
+            assert_eq!(&o.metadata, &md);
             assert_eq!(bob_service.get(key1)?, None);
         };
         {
             // ensure only bob has s3_obj_1
             let o = bob_service.get(key2)?.expect("object 2 not found for bob");
-            assert_eq!(&o.data.key, key2.as_bytes());
-            assert_eq!(&o.data.metadata, &md);
+            assert_eq!(&o.key, key2.as_bytes());
+            assert_eq!(&o.metadata, &md);
             assert_eq!(alice_service.get(key2)?, None);
         };
 

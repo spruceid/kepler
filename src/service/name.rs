@@ -193,24 +193,28 @@ impl KNSStore {
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<S3Object>> {
         let key = name;
-        let cid = match (
-            // check element isnt tombstoned
-            !self.tombs.contains_key(&key)?,
-            self.elements
-                .get(&key)?
-                .map(|b| Cid::try_from(b.as_ref()))
-                .transpose()?,
-        ) {
-            (true, Some(cid)) => cid,
-            _ => return Ok(None),
-        };
-        Ok(Some(self.ipfs.get(&cid)?.decode()?))
+        match self.elements
+                  .get(&key)?
+        .map(|b| Cid::try_from(b.as_ref()))
+        .transpose()? {
+            Some(cid) => if !self
+                .tombs
+                .contains_key([key.as_ref(), &cid.to_bytes()].concat())? {
+                    Ok(Some(self.ipfs.get(&cid)?.decode()?))
+                } else {
+                    Ok(None)
+                }
+            ,
+            None => Ok(None)
+        }
     }
 
     pub fn write(
         &self,
+        // tuples of (obj-data, content bytes)
         add: impl IntoIterator<Item = (S3ObjectBuilder, Vec<u8>)>,
-        _remove: impl IntoIterator<Item = (Vec<u8>, Option<String>)>,
+        // tuples of (key, opt (priority, obj-cid))
+        remove: impl IntoIterator<Item = (Vec<u8>, Option<(u64, Cid)>)>,
     ) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         let height = if heads.is_empty() && height == 0 {
@@ -218,6 +222,7 @@ impl KNSStore {
         } else {
             height + 1
         };
+        // get s3 objects, s3 object blocks and data blocks to add
         let adds: Vec<(S3Object, Block, Block)> = add
             .into_iter()
             .map(|(s, v)| {
@@ -227,14 +232,28 @@ impl KNSStore {
                 Ok((s3_obj, s3_block, data_block))
             })
             .collect::<Result<Vec<(S3Object, Block, Block)>>>()?;
-        // TODO
-        let rmvs: Vec<Cid> = vec![];
+        let rmvs: Vec<(Vec<u8>, Cid)> = remove.into_iter().map(|(key, version)| {
+            match version {
+                Some((_, cid)) => {
+                    // TODO check position better
+                    Ok((key, cid))
+                },
+                None => Ok((
+                    key,
+                    self.elements
+                        .get(&key)?
+                    .map(|b| Cid::try_from(b.as_ref()))
+                    .transpose()?
+                    .ok_or(anyhow!("Failed to find Object ID for key {:?}", key))?
+                ))
+            }
+        }).collect::<Result<Vec<(Vec<u8>, Cid)>>>()?;
         let delta = LinkedDelta::new(
             heads,
             Delta::new(
                 height,
                 adds.iter().map(|(_, b, _)| *b.cid()).collect(),
-                rmvs,
+                rmvs.iter().map(|(_, c)| *c).collect(),
             ),
         );
         let block = delta.to_block()?;
@@ -244,6 +263,7 @@ impl KNSStore {
             adds.iter()
                 .map(|(obj, block, _)| (*block.cid(), obj.clone()))
                 .collect::<Vec<(Cid, S3Object)>>(),
+            rmvs
         )?;
 
         // insert children
@@ -268,45 +288,55 @@ impl KNSStore {
 
     fn apply<'a>(
         &self,
-        delta: &(Block, LinkedDelta),
-        objs: impl IntoIterator<Item = (Cid, S3Object)>,
+        &(block, delta): &(Block, LinkedDelta),
+        // tuples of (obj-cid, obj)
+        adds: impl IntoIterator<Item = (Cid, S3Object)>,
+        // tuples of (key, obj-cid)
+        removes: impl IntoIterator<Item = (Vec<u8>, Cid)>,
     ) -> Result<()> {
-        // ensure dont double add or remove
-        // find redundant heads and remove them
-        // add new head
         // TODO update tables atomically with transaction
-        for (cid, obj) in objs.into_iter() {
+        // tombstone removed elements
+        for (key, cid) in removes.into_iter() {
+            self.tombs.insert(Self::get_key_id(&key, &cid), &[])?;
+        }
+        // add new head
+        for (cid, obj) in adds.into_iter() {
+            // ensure dont double add or remove
+            if self.tombs.contains_key(Self::get_key_id(&obj.key, &cid))? {
+                continue
+            };
             // current element priority
             let prio = self
                 .priorities
-                .get(&obj.data.key)?
+                .get(&obj.key)?
                 .map(|v| v2u64(v))
                 .transpose()?
                 .unwrap_or(0);
             // current element CID at key
             let curr = self
                 .elements
-                .get(&obj.data.key)?
+                .get(&obj.key)?
                 .map(|b| Cid::try_from(b.as_ref()))
                 .transpose()?;
             // order by priority, fall back to CID value ordering if priority equal
-            if delta.1.delta.priority > prio
-                || (delta.1.delta.priority == prio
+            if delta.delta.priority > prio
+                || (delta.delta.priority == prio
                     && match curr {
                         Some(c) => c > cid,
                         _ => true,
                     })
             {
-                self.elements.insert(&obj.data.key, cid.to_bytes())?;
+                self.elements.insert(&obj.key, cid.to_bytes())?;
                 self.priorities
-                    .insert(&obj.data.key, &u642v(delta.1.delta.priority))?;
+                    .insert(&obj.key, &u642v(delta.delta.priority))?;
             }
         }
+        // find redundant heads and remove them
         self.heads
-            .set(vec![(*delta.0.cid(), delta.1.delta.priority)])?;
+            .set(vec![(*block.cid(), delta.delta.priority)])?;
         self.ipfs
-            .alias(delta.0.cid().to_bytes(), Some(delta.0.cid()))?;
-        self.ipfs.insert(&delta.0)?;
+            .alias(block.cid().to_bytes(), Some(block.cid()))?;
+        self.ipfs.insert(&block)?;
 
         Ok(())
     }
@@ -323,7 +353,7 @@ impl KNSStore {
             // fetch head block check block is an event
             let delta_block = self.ipfs.fetch(&head, self.ipfs.peers()).await?;
             let delta: LinkedDelta = delta_block.decode()?;
-            let objs: Vec<(Cid, S3Object)> = {
+            let adds: Vec<(Cid, S3Object)> = {
                 let res: Result<Vec<(Cid, S3Object)>> =
                     join_all(delta.delta.add.iter().map(|c| self.get_obj(c)))
                         .await
@@ -332,7 +362,7 @@ impl KNSStore {
                 res?
             };
 
-            self.apply(&(delta_block, delta), objs)?;
+            self.apply(&(delta_block, delta), adds)?;
 
             // dispatch ipfs::sync
             tracing::debug!("syncing head {}", head);
@@ -356,6 +386,10 @@ impl KNSStore {
         self.ipfs
             .publish(&self.id, bincode::serialize(&KVMessage::StateReq)?)?;
         Ok(())
+    }
+
+    fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
+        [key.as_ref(), &cid.to_bytes()].concat()
     }
 }
 

@@ -5,28 +5,12 @@ use std::collections::BTreeMap;
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
 pub struct S3Object {
-    pub data: S3ObjectData,
-    pub version_id: String,
-}
-
-impl S3Object {
-    pub fn new(data: S3ObjectData, version_id: String) -> Self {
-        Self { data, version_id }
-    }
-
-    pub fn to_block(&self) -> Result<Block<DefaultParams>> {
-        to_block(self)
-    }
-}
-
-#[derive(DagCbor, PartialEq, Debug, Clone)]
-pub struct S3ObjectData {
     pub key: Vec<u8>,
     pub value: Cid,
     pub metadata: BTreeMap<String, String>,
 }
 
-impl S3ObjectData {
+impl S3Object {
     pub fn new(
         key: Vec<u8>,
         value: Cid,
@@ -37,6 +21,10 @@ impl S3ObjectData {
             value,
             metadata: metadata.into_iter().collect(),
         }
+    }
+
+    pub fn to_block(&self) -> Result<Block<DefaultParams>> {
+        to_block(self)
     }
 }
 
@@ -54,10 +42,7 @@ impl S3ObjectBuilder {
     }
 
     pub fn add_content(self, value: Cid, priority: u64) -> Result<S3Object> {
-        let d = S3ObjectData::new(self.key, value, self.metadata);
-        let d_cid = *to_block(&d)?.cid();
-        let version_id = format!("{}.{}", priority, d_cid);
-        Ok(S3Object::new(d, version_id))
+        Ok(S3Object::new(self.key, value, self.metadata))
     }
 }
 
