@@ -1,10 +1,10 @@
-use crate::service::s3::{S3Object, S3ObjectBuilder, S3ObjectData};
+use crate::service::s3::{S3Object, S3ObjectBuilder};
 use anyhow::Result;
-use ipfs_embed::{Event as SwarmEvent, GossipEvent, PeerId, SwarmEvents, TempPin};
+use ipfs_embed::{GossipEvent, PeerId};
 use libipld::{
     cbor::DagCborCodec,
     cid::Cid,
-    codec::{Codec, Decode, Encode},
+    codec::Encode,
     multihash::Code,
     raw::RawCodec,
     DagCbor,
@@ -12,12 +12,11 @@ use libipld::{
 use rocket::async_trait;
 use rocket::futures::{
     future::{join_all, try_join_all},
-    Future, Stream, StreamExt,
+    Stream, StreamExt,
 };
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use sled::{Batch, Db, Tree};
-use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use super::{vec_cid_bin, KeplerService};
@@ -233,20 +232,20 @@ impl KNSStore {
             })
             .collect::<Result<Vec<(S3Object, Block, Block)>>>()?;
         let rmvs: Vec<(Vec<u8>, Cid)> = remove.into_iter().map(|(key, version)| {
-            match version {
+            Ok(match version {
                 Some((_, cid)) => {
                     // TODO check position better
-                    Ok((key, cid))
+                    (key, cid)
                 },
-                None => Ok((
-                    key,
-                    self.elements
+                None => {
+                    let cid = self.elements
                         .get(&key)?
                     .map(|b| Cid::try_from(b.as_ref()))
                     .transpose()?
-                    .ok_or(anyhow!("Failed to find Object ID for key {:?}", key))?
-                ))
-            }
+                    .ok_or(anyhow!("Failed to find Object ID for key {:?}", key))?;
+                    (key, cid)
+                }
+            })
         }).collect::<Result<Vec<(Vec<u8>, Cid)>>>()?;
         let delta = LinkedDelta::new(
             heads,
@@ -288,7 +287,7 @@ impl KNSStore {
 
     fn apply<'a>(
         &self,
-        &(block, delta): &(Block, LinkedDelta),
+        (block, delta): &(Block, LinkedDelta),
         // tuples of (obj-cid, obj)
         adds: impl IntoIterator<Item = (Cid, S3Object)>,
         // tuples of (key, obj-cid)
@@ -355,14 +354,29 @@ impl KNSStore {
             let delta: LinkedDelta = delta_block.decode()?;
             let adds: Vec<(Cid, S3Object)> = {
                 let res: Result<Vec<(Cid, S3Object)>> =
-                    join_all(delta.delta.add.iter().map(|c| self.get_obj(c)))
-                        .await
-                        .into_iter()
-                        .collect();
+                    join_all(delta.delta.add.iter().map(|c| async move {
+                        let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                        Ok((*c, obj))
+                    }))
+                    .await
+                    .into_iter()
+                    .collect();
                 res?
             };
 
-            self.apply(&(delta_block, delta), adds)?;
+            let removes: Vec<(Vec<u8>, Cid)> = {
+                let res: Result<Vec<(Vec<u8>, Cid)>> =
+                    join_all(delta.delta.rmv.iter().map(|c| async move {
+                        let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                        Ok((obj.key, *c))
+                    }))
+                    .await
+                    .into_iter()
+                    .collect();
+                res?
+            };
+
+            self.apply(&(delta_block, delta), adds, removes)?;
 
             // dispatch ipfs::sync
             tracing::debug!("syncing head {}", head);
