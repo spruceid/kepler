@@ -36,8 +36,6 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     }
 
     let mut routes = routes![
-        list_content,
-        get_content,
         put_content,
         batch_put_content,
         delete_content,
@@ -49,7 +47,10 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     if kepler_config.public_get {
         let mut no_auth = routes![get_content_no_auth, list_content_no_auth];
         routes.append(&mut no_auth);
-    };
+    } else {
+        let mut auth = routes![get_content, list_content];
+        routes.append(&mut auth);
+    }
 
     Ok(rocket::custom(config)
         .mount("/", routes)
