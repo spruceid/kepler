@@ -1,13 +1,9 @@
 use crate::service::s3::{S3Object, S3ObjectBuilder};
 use anyhow::Result;
+use async_recursion::async_recursion;
 use ipfs_embed::{GossipEvent, PeerId};
 use libipld::{
-    cbor::DagCborCodec,
-    cid::Cid,
-    codec::Encode,
-    multihash::Code,
-    raw::RawCodec,
-    DagCbor,
+    cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec, DagCbor,
 };
 use rocket::async_trait;
 use rocket::futures::{
@@ -104,19 +100,20 @@ pub struct KNSStore {
     pub ipfs: Ipfs,
     elements: Tree,
     tombs: Tree,
-    values: Tree,
     priorities: Tree,
     heads: Heads,
 }
 
 #[derive(Clone)]
 pub struct Heads {
+    heights: Tree,
     heads: Tree,
 }
 
 impl Heads {
     pub fn new(db: Db) -> Result<Self> {
         Ok(Self {
+            heights: db.open_tree("heights")?,
             heads: db.open_tree("heads")?,
         })
     }
@@ -125,36 +122,43 @@ impl Heads {
         self.heads.iter().try_fold(
             (vec![], 0),
             |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
-                let (head, hb) = r?;
-                let height = v2u64(hb)?;
+                let (head, _) = r?;
+                let height = v2u64(
+                    self.heights
+                        .get(&head)?
+                        .ok_or(anyhow!("Failed to find head height"))?,
+                )?;
                 heads.push(head[..].try_into()?);
                 Ok((heads, u64::max(max_height, height)))
             },
         )
     }
 
-    pub fn get(&self, head: Cid) -> Result<Option<u64>> {
-        self.heads
+    pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
+        self.heights
             .get(head.to_bytes())?
             .map(|h| v2u64(h))
             .transpose()
     }
 
-    pub fn set(&self, heads: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
+    pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
         let mut batch = Batch::default();
-        for (head, height) in heads.into_iter() {
-            if !self.heads.contains_key(head.to_bytes())? {
-                tracing::debug!("setting head height {} {}", head, height);
-                batch.insert(head.to_bytes(), &u642v(height));
+        for (op, height) in heights.into_iter() {
+            if !self.heights.contains_key(op.to_bytes())? {
+                tracing::debug!("setting head height {} {}", op, height);
+                batch.insert(op.to_bytes(), &u642v(height));
             }
         }
-        self.heads.apply_batch(batch)?;
+        self.heights.apply_batch(batch)?;
         Ok(())
     }
 
-    pub fn clear(&self, heads: impl IntoIterator<Item = Cid>) -> Result<()> {
+    pub fn new_head(&self, head: &Cid, prev: impl IntoIterator<Item = Cid>) -> Result<()> {
         let mut batch = Batch::default();
-        heads.into_iter().for_each(|h| batch.remove(h.to_bytes()));
+        batch.insert(head.to_bytes(), &[]);
+        for p in prev {
+            batch.remove(p.to_bytes());
+        }
         self.heads.apply_batch(batch)?;
         Ok(())
     }
@@ -174,8 +178,6 @@ impl KNSStore {
         let elements = db.open_tree("elements")?;
         // map key to element cid
         let tombs = db.open_tree("tombs")?;
-        // map key to value (?)
-        let values = db.open_tree("values")?;
         // map key to current max priority for key
         let priorities = db.open_tree("priorities")?;
         // map current DAG head cids to their priority
@@ -185,26 +187,29 @@ impl KNSStore {
             ipfs,
             elements,
             tombs,
-            values,
             priorities,
             heads,
         })
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<S3Object>> {
         let key = name;
-        match self.elements
-                  .get(&key)?
-        .map(|b| Cid::try_from(b.as_ref()))
-        .transpose()? {
-            Some(cid) => if !self
-                .tombs
-                .contains_key([key.as_ref(), &cid.to_bytes()].concat())? {
+        match self
+            .elements
+            .get(&key)?
+            .map(|b| Cid::try_from(b.as_ref()))
+            .transpose()?
+        {
+            Some(cid) => {
+                if !self
+                    .tombs
+                    .contains_key([key.as_ref(), &cid.to_bytes()].concat())?
+                {
                     Ok(Some(self.ipfs.get(&cid)?.decode()?))
                 } else {
                     Ok(None)
                 }
-            ,
-            None => Ok(None)
+            }
+            None => Ok(None),
         }
     }
 
@@ -231,22 +236,26 @@ impl KNSStore {
                 Ok((s3_obj, s3_block, data_block))
             })
             .collect::<Result<Vec<(S3Object, Block, Block)>>>()?;
-        let rmvs: Vec<(Vec<u8>, Cid)> = remove.into_iter().map(|(key, version)| {
-            Ok(match version {
-                Some((_, cid)) => {
-                    // TODO check position better
-                    (key, cid)
-                },
-                None => {
-                    let cid = self.elements
-                        .get(&key)?
-                    .map(|b| Cid::try_from(b.as_ref()))
-                    .transpose()?
-                    .ok_or(anyhow!("Failed to find Object ID for key {:?}", key))?;
-                    (key, cid)
-                }
+        let rmvs: Vec<(Vec<u8>, Cid)> = remove
+            .into_iter()
+            .map(|(key, version)| {
+                Ok(match version {
+                    Some((_, cid)) => {
+                        // TODO check position better
+                        (key, cid)
+                    }
+                    None => {
+                        let cid = self
+                            .elements
+                            .get(&key)?
+                            .map(|b| Cid::try_from(b.as_ref()))
+                            .transpose()?
+                            .ok_or(anyhow!("Failed to find Object ID for key {:?}", key))?;
+                        (key, cid)
+                    }
+                })
             })
-        }).collect::<Result<Vec<(Vec<u8>, Cid)>>>()?;
+            .collect::<Result<Vec<(Vec<u8>, Cid)>>>()?;
         let delta = LinkedDelta::new(
             heads,
             Delta::new(
@@ -262,7 +271,7 @@ impl KNSStore {
             adds.iter()
                 .map(|(obj, block, _)| (*block.cid(), obj.clone()))
                 .collect::<Vec<(Cid, S3Object)>>(),
-            rmvs
+            rmvs,
         )?;
 
         // insert children
@@ -298,11 +307,10 @@ impl KNSStore {
         for (key, cid) in removes.into_iter() {
             self.tombs.insert(Self::get_key_id(&key, &cid), &[])?;
         }
-        // add new head
         for (cid, obj) in adds.into_iter() {
             // ensure dont double add or remove
             if self.tombs.contains_key(Self::get_key_id(&obj.key, &cid))? {
-                continue
+                continue;
             };
             // current element priority
             let prio = self
@@ -331,50 +339,57 @@ impl KNSStore {
             }
         }
         // find redundant heads and remove them
-        self.heads
-            .set(vec![(*block.cid(), delta.delta.priority)])?;
-        self.ipfs
-            .alias(block.cid().to_bytes(), Some(block.cid()))?;
+        // add new head
+        self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
+        self.heads.new_head(block.cid(), delta.prev.clone())?;
+        self.ipfs.alias(block.cid().to_bytes(), Some(block.cid()))?;
         self.ipfs.insert(&block)?;
 
         Ok(())
     }
 
-    async fn get_obj(&self, cid: &Cid) -> Result<(Cid, S3Object)> {
-        Ok((
-            *cid,
-            self.ipfs.fetch(cid, self.ipfs.peers()).await?.decode()?,
-        ))
-    }
-
-    pub(crate) async fn try_merge_heads(&self, heads: impl Iterator<Item = Cid>) -> Result<()> {
+    #[async_recursion]
+    pub(crate) async fn try_merge_heads(
+        &self,
+        heads: impl Iterator<Item = Cid> + Send + 'async_recursion,
+    ) -> Result<()> {
         try_join_all(heads.map(|head| async move {
             // fetch head block check block is an event
             let delta_block = self.ipfs.fetch(&head, self.ipfs.peers()).await?;
             let delta: LinkedDelta = delta_block.decode()?;
-            let adds: Vec<(Cid, S3Object)> = {
-                let res: Result<Vec<(Cid, S3Object)>> =
-                    join_all(delta.delta.add.iter().map(|c| async move {
-                        let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
-                        Ok((*c, obj))
-                    }))
-                    .await
-                    .into_iter()
-                    .collect();
-                res?
-            };
 
-            let removes: Vec<(Vec<u8>, Cid)> = {
-                let res: Result<Vec<(Vec<u8>, Cid)>> =
-                    join_all(delta.delta.rmv.iter().map(|c| async move {
-                        let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
-                        Ok((obj.key, *c))
-                    }))
-                    .await
-                    .into_iter()
-                    .collect();
-                res?
-            };
+            // recurse through unseen prevs first
+            self.try_merge_heads(
+                delta
+                    .prev
+                    .iter()
+                    .filter_map(|p| {
+                        self.heads
+                            .get(p)
+                            .map(|o| match o {
+                                Some(_) => None,
+                                None => Some(*p),
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<Cid>>>()?
+                    .into_iter(),
+            )
+            .await?;
+
+            let adds: Vec<(Cid, S3Object)> =
+                try_join_all(delta.delta.add.iter().map(|c| async move {
+                    let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    Ok((*c, obj)) as Result<(Cid, S3Object)>
+                }))
+                .await?;
+
+            let removes: Vec<(Vec<u8>, Cid)> =
+                try_join_all(delta.delta.rmv.iter().map(|c| async move {
+                    let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
+                }))
+                .await?;
 
             self.apply(&(delta_block, delta), adds, removes)?;
 

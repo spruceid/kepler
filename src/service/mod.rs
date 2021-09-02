@@ -45,8 +45,7 @@ mod test {
     use super::name::*;
     use super::s3::*;
     use super::*;
-    use ipfs_embed::{generate_keypair, Block, Config, Event as SwarmEvent, Ipfs};
-    use libipld::{multihash::Code, raw::RawCodec, DefaultParams};
+    use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
     use std::collections::BTreeMap;
 
@@ -118,7 +117,7 @@ mod test {
             assert_eq!(bob_service.get(key1)?, None);
         };
         {
-            // ensure only bob has s3_obj_1
+            // ensure only bob has s3_obj_2
             let o = bob_service.get(key2)?.expect("object 2 not found for bob");
             assert_eq!(&o.key, key2.as_bytes());
             assert_eq!(&o.metadata, &md);
