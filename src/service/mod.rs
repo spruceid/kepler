@@ -139,6 +139,15 @@ mod test {
                 .expect("object 2 not found for alice")
         );
 
+        // remove key1
+        alice_service.write(vec![], vec![(key1.as_bytes().to_vec(), None)])?;
+
+        assert_eq!(alice_service.get(key1)?, None);
+
+        std::thread::sleep_ms(500);
+
+        assert_eq!(bob_service.get(key1)?, None);
+
         Ok(())
     }
 }
