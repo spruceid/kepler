@@ -44,7 +44,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         cors
     ];
 
-    if kepler_config.public_get {
+    if kepler_config.orbits.public {
         let mut no_auth = routes![get_content_no_auth, list_content_no_auth];
         routes.append(&mut no_auth);
     } else {

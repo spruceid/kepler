@@ -11,15 +11,11 @@ pub trait OrbitAllowList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OrbitAllowListService {
-    pub api: String,
-}
+pub struct OrbitAllowListService(pub String);
 
 impl Default for OrbitAllowListService {
     fn default() -> Self {
-        Self {
-            api: "http://localhost:11000".into(),
-        }
+        Self("http://localhost:11000".into())
     }
 }
 
@@ -27,7 +23,7 @@ impl Default for OrbitAllowListService {
 impl OrbitAllowList for OrbitAllowListService {
     async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>> {
         Ok(
-            get([self.api.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
+            get([self.0.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
                 .await?
                 .error_for_status()?
                 .json::<Vec<DIDURL>>()

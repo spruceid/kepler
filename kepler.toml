@@ -9,6 +9,8 @@
 ## Directory where the database will be stored.
 # path = "/tmp"
 
+[global.orbits]
+## allow unauthorized get requests
+# public = true
 ## Orbit allow list api endpoint
-[global.orbit_allow_list]
-# api = "http://localhost:10000"
+# allowlist = "http://localhost:10000"
