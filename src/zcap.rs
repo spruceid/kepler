@@ -12,6 +12,7 @@ use serde_json::Value;
 use ssi::{
     did::DIDURL,
     did_resolve::DIDResolver,
+    vc::URI,
     zcap::{Delegation, Invocation},
 };
 use std::{collections::HashMap as Map, str::FromStr};
@@ -20,8 +21,7 @@ use std::{collections::HashMap as Map, str::FromStr};
 #[serde(rename_all = "camelCase")]
 pub struct DelProps {
     pub capability_action: Vec<String>,
-    pub invoker: DIDURL,
-    pub expiry: Option<DateTime<Utc>>,
+    pub expiration: Option<DateTime<Utc>>,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_fields: Option<Map<String, Value>>,
@@ -54,16 +54,16 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match (
-            request.headers().get_one("X-Kepler-Invocation").map(|b64| {
-                base64::decode_config(b64, base64::URL_SAFE_NO_PAD)
+            request.headers().get_one("x-kepler-invocation").map(|b64| {
+                base64::decode_config(b64, base64::URL_SAFE)
                     .map_err(|e| anyhow!(e))
                     .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
             }),
             request
                 .headers()
-                .get_one("X-Kepler-Delegation")
+                .get_one("x-kepler-delegation")
                 .map(|b64| {
-                    base64::decode_config(b64, base64::URL_SAFE_NO_PAD)
+                    base64::decode_config(b64, base64::URL_SAFE)
                         .map_err(|e| anyhow!(e))
                         .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
                 })
@@ -112,10 +112,12 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                 if !self.contains(&delegator_vm) {
                     return Err(anyhow!("Delegator not authorized"));
                 };
-                if d.property_set.invoker != invoker_vm {
-                    return Err(anyhow!("Invoker not authorized"));
+                if let Some(ref authorized_invoker) = d.invoker {
+                    if authorized_invoker != &URI::String(invoker_vm.to_string()) {
+                        return Err(anyhow!("Invoker not authorized"));
+                    };
                 };
-                if let Some(exp) = d.property_set.expiry {
+                if let Some(exp) = d.property_set.expiration {
                     if exp < Utc::now() {
                         return Err(anyhow!("Delegation has Expired"));
                     }
@@ -163,10 +165,9 @@ impl AuthorizationPolicy for ZCAPAuthorization {
 
 #[test]
 async fn basic() -> Result<()> {
-    let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"urn:uuid:helo","capabilityAction":{"get":["z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv"]},"invocationTarget":"z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"capabilityInvocation","proofValue":"edsigtg5tr3rNwKQ9MmwsSCy8wx5NtU5ZwR51JDEFWb1Lhnq1xQwBxCz5UN2SGKWcWbzHSsBcdaBH8FHQhQNEmGr3LPhg47HAHr","verificationMethod":"did:pkh:tz:tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd#TezosMethod2021","created":"2021-08-16T12:00:52.721Z","capability":"kepler://z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my","publicKeyJwk":{"alg":"EdBlake2b","crv":"Ed25519","kty":"OKP","x":"pJMxEXxmUWrqHFX2Q6F1AdzhW9L7ityjVTJl5iLdMGw"}}}"#;
-
-    let inv: KeplerInvocation = serde_json::from_str(inv_str)?;
-    let res = inv.verify_signature(None, DID_METHODS.to_resolver()).await;
+    let del_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:bac4da68-eb75-446b-8f9f-87608cbf872b","parentCapability":"kepler://zCT5htkeDnBhDwQ9JsPnZKuzzQG6fSe3U44oCjZ5tkAPyNvPVXvg","invoker":"did:key:z6MkmhGnWtb1bo18Z3QfvKXFxRp6e3LHmG7i8z7ZkAa39tKA#z6MkmhGnWtb1bo18Z3QfvKXFxRp6e3LHmG7i8z7ZkAa39tKA","capabilityAction":["get","list","put","del"],"expiration":"2021-09-08T17:01:13.991Z","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"capabilityDelegation","proofValue":"edsigtXsZpmWpUqm5eNgFehmnpRbFVuJsLTTwDvrYkK8pmswpTxKFCUhDyfjjs13Gw6oGtBkgJxSMECdfvpN49pCruyokvQrg41","verificationMethod":"did:pkh:tz:tz1auyCb6BDGYqZL38UqpazAoHrztt197Tfr#TezosMethod2021","created":"2021-09-08T17:00:13.995Z","publicKeyJwk":{"alg":"EdBlake2b","crv":"Ed25519","kty":"OKP","x":"aEofZ76eliz8VX4ys9XsR1q3HXQ4sGsPT9p00kx-SLU"},"capabilityChain":[]}}"#;
+    let del: KeplerDelegation = serde_json::from_str(del_str)?;
+    let res = del.verify(None, DID_METHODS.to_resolver()).await;
     assert!(res.errors.is_empty());
     Ok(())
 }
