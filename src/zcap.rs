@@ -1,5 +1,6 @@
 use crate::auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use ipfs_embed::Cid;
 use rocket::{
     http::Status,
@@ -15,7 +16,18 @@ use std::{collections::HashMap as Map, str::FromStr};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct KeplerProps {
+pub struct DelProps {
+    pub capability_action: Vec<String>,
+    pub invoker: DIDURL,
+    pub expiry: Option<DateTime<Utc>>,
+    #[serde(flatten)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_fields: Option<Map<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InvProps {
     #[serde(with = "cid_serde")]
     pub invocation_target: Cid,
     pub capability_action: Action,
@@ -24,9 +36,9 @@ pub struct KeplerProps {
     pub extra_fields: Option<Map<String, Value>>,
 }
 
-pub type KeplerInvocation = Invocation<KeplerProps>;
+pub type KeplerInvocation = Invocation<InvProps>;
 
-pub type KeplerDelegation = Delegation<(), KeplerProps>;
+pub type KeplerDelegation = Delegation<(), DelProps>;
 
 pub type ZCAPAuthorization = Vec<DIDURL>;
 
@@ -81,6 +93,13 @@ impl AuthorizationPolicy for ZCAPAuthorization {
     type Token = ZCAPTokens;
 
     async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
+        let invoker_vm = auth_token
+            .invocation
+            .proof
+            .as_ref()
+            .and_then(|proof| proof.verification_method.as_ref())
+            .ok_or_else(|| anyhow!("Missing delegation verification method"))
+            .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
         let res = match &auth_token.delegation {
             Some(d) => {
                 let delegator_vm = d
@@ -92,21 +111,22 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                 if !self.iter().any(|vm| vm == &delegator_vm) {
                     return Err(anyhow!("Delegator not authorized"));
                 };
+                if d.property_set.invoker != invoker_vm {
+                    return Err(anyhow!("Invoker not authorized"));
+                };
+                if let Some(exp) = d.property_set.expiry {
+                    if exp < Utc::now() {
+                        return Err(anyhow!("Delegation has Expired"));
+                    }
+                };
                 auth_token
                     .invocation
                     .verify(Default::default(), &did_pkh::DIDPKH, &d)
                     .await
             }
             None => {
-                let invoker_vm = auth_token
-                    .invocation
-                    .proof
-                    .as_ref()
-                    .and_then(|proof| proof.verification_method.as_ref())
-                    .ok_or_else(|| anyhow!("Missing delegation verification method"))
-                    .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
                 if !self.iter().any(|vm| vm == &invoker_vm) {
-                    return Err(anyhow!("Delegator not authorized"));
+                    return Err(anyhow!("Invoker not authorized"));
                 };
                 auth_token
                     .invocation

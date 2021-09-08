@@ -1738,6 +1738,7 @@ dependencies = [
  "base64 0.13.0",
  "bs58",
  "cached",
+ "chrono",
  "did-pkh",
  "hex",
  "ipfs-embed",
