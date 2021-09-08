@@ -108,7 +108,7 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                     .and_then(|proof| proof.verification_method.as_ref())
                     .ok_or_else(|| anyhow!("Missing delegation verification method"))
                     .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
-                if !self.iter().any(|vm| vm == &delegator_vm) {
+                if !self.contains(&delegator_vm) {
                     return Err(anyhow!("Delegator not authorized"));
                 };
                 if d.property_set.invoker != invoker_vm {
@@ -119,13 +119,16 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                         return Err(anyhow!("Delegation has Expired"));
                     }
                 };
-                auth_token
+                let mut res = d.verify(Default::default(), &did_pkh::DIDPKH).await;
+                let mut res2 = auth_token
                     .invocation
                     .verify(Default::default(), &did_pkh::DIDPKH, &d)
-                    .await
+                    .await;
+                res.append(&mut res2);
+                res
             }
             None => {
-                if !self.iter().any(|vm| vm == &invoker_vm) {
+                if !self.contains(&invoker_vm) {
                     return Err(anyhow!("Invoker not authorized"));
                 };
                 auth_token
