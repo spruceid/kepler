@@ -37,7 +37,6 @@ pub struct InvProps {
 }
 
 pub type KeplerInvocation = Invocation<InvProps>;
-
 pub type KeplerDelegation = Delegation<(), DelProps>;
 
 pub type ZCAPAuthorization = Vec<DIDURL>;
@@ -119,6 +118,20 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                         return Err(anyhow!("Delegation has Expired"));
                     }
                 };
+                if !d.property_set.capability_action.contains(&match auth_token
+                    .invocation
+                    .property_set
+                    .capability_action
+                {
+                    Action::List => "list".into(),
+                    Action::Put(_) => "put".into(),
+                    Action::Get(_) => "get".into(),
+                    Action::Del(_) => "del".into(),
+                    _ => return Err(anyhow!("Invalid Action")),
+                }) {
+                    return Err(anyhow!("Invoked action not authorized by delegation"));
+                };
+                // TODO URGENT use didkit::DID_METHODS for these
                 let mut res = d.verify(Default::default(), &did_pkh::DIDPKH).await;
                 let mut res2 = auth_token
                     .invocation
