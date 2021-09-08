@@ -10,6 +10,7 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct OrbitsConfig {
+    #[serde(default)]
     pub public: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowlist: Option<OrbitAllowListService>,

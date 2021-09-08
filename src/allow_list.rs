@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ipfs_embed::Cid;
 use libipld::multibase::Base;
-use reqwest::{get, StatusCode};
+use reqwest::get;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 
@@ -11,11 +11,18 @@ pub trait OrbitAllowList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(from = "String", into = "String")]
 pub struct OrbitAllowListService(pub String);
 
-impl Default for OrbitAllowListService {
-    fn default() -> Self {
-        Self("http://localhost:11000".into())
+impl From<String> for OrbitAllowListService {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<OrbitAllowListService> for String {
+    fn from(oals: OrbitAllowListService) -> Self {
+        oals.0
     }
 }
 
