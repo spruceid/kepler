@@ -258,6 +258,27 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
+                        match (method, params.get("did"), params.get("vm")) {
+                            ("did", Some(&did), Some(&vm_id)) => {
+                                let d = DIDURL {
+                                    did: did.into(),
+                                    fragment: Some(vm_id.into()),
+                                    ..Default::default()
+                                };
+                                if d != vm {
+                                    return Outcome::Failure((
+                                        Status::Unauthorized,
+                                        anyhow!("Invoker is not Controller"),
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Outcome::Failure((
+                                    Status::BadRequest,
+                                    anyhow!("Incorrect Orbit ID"),
+                                ))
+                            }
+                        }
                         vec![vm]
                     }
                     _ => {
