@@ -1,4 +1,4 @@
-name: Rust
+name: ci
 
 on:
   push:
@@ -9,35 +9,35 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+defaults:
+  run:
+    working-directory: kepler
+
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Install latest stable
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-        components: rustfmt, clippy
-
-    - name: Checkout Rocket
+    - name: Checkout Kepler repository
       uses: actions/checkout@v2
       with:
-        repository: SergioBenitez/Rocket
-        path: Rocket
-        ref: 8d4d01106e2e10b08100805d40bfa19a7357e900
+        path: kepler
+
+    - name: Checkout SSI library
+      uses: actions/checkout@v2
+      with:
+        repository: spruceid/ssi
+        path: ssi
+        ref: 21c13cc96a28c36fa6d1cb8407fc235035fb9f6d
         submodules: true
 
-      # `cargo check` command here will use installed `nightly`
-      # as it is set as an "override" for current directory
-    - name: Run cargo check
-      uses: actions-rs/cargo@v1
+    - name: Checkout DIDKit library
+      uses: actions/checkout@v2
       with:
-        command: check
-
+        repository: spruceid/didkit
+        path: didkit
+        ref: 436f53baa875564dccf8c04deb57a424290358af
+        submodules: true
+        
     - name: Build
       run: cargo build --verbose
 
