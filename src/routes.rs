@@ -177,7 +177,12 @@ pub async fn open_orbit_authz(
     Ok(())
 }
 
-#[post("/<orbit_id>", format = "text/plain", data = "<params_str>", rank = 2)]
+#[post(
+    "/al/<orbit_id>",
+    format = "text/plain",
+    data = "<params_str>",
+    rank = 2
+)]
 pub async fn open_orbit_allowlist(
     orbit_id: CidWrap,
     params_str: &str,
