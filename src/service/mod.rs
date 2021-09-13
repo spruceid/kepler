@@ -3,17 +3,6 @@ use rocket::async_trait;
 pub mod name;
 pub mod s3;
 
-#[async_trait]
-pub trait KeplerService {
-    type Error;
-    type Stopped;
-
-    async fn start(config: Self::Stopped) -> Result<Self, Self::Error>
-    where
-        Self: Sized;
-    async fn stop(self);
-}
-
 mod vec_cid_bin {
     use libipld::cid::Cid;
     use serde::{de::Error as DeError, ser::SerializeSeq, Deserialize, Deserializer, Serializer};
@@ -56,7 +45,10 @@ mod test {
             .ok();
     }
 
-    async fn create_store(id: &str, path: std::path::PathBuf) -> Result<KNSStore, anyhow::Error> {
+    async fn create_store(
+        id: &str,
+        path: std::path::PathBuf,
+    ) -> Result<NameServiceStore, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
         let mut config = Config::new(&path, generate_keypair());
         config.network.broadcast = None;
@@ -76,7 +68,7 @@ mod test {
                 }
             }
         });
-        KNSStore::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
+        NameServiceStore::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -88,8 +80,8 @@ mod test {
         let alice = create_store(&id, tmp.path().join("alice")).await?;
         let bob = create_store(&id, tmp.path().join("bob")).await?;
 
-        let alice_service = KeplerNameService::start(alice).await?;
-        let bob_service = KeplerNameService::start(bob).await?;
+        let alice_service = alice.start().await?;
+        let bob_service = bob.start().await?;
         std::thread::sleep_ms(2000);
 
         let json = r#"{"hello":"there"}"#;

@@ -5,18 +5,14 @@ use ipfs_embed::{GossipEvent, PeerId};
 use libipld::{
     cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec, DagCbor,
 };
-use rocket::async_trait;
-use rocket::futures::{
-    future::{join_all, try_join_all},
-    Stream, StreamExt,
-};
+use rocket::futures::{future::try_join_all, Stream, StreamExt};
 use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use sled::{Batch, Db, Tree};
 use std::convert::{TryFrom, TryInto};
 use tracing::{debug, error};
 
-use super::{vec_cid_bin, KeplerService};
+use super::vec_cid_bin;
 
 type TaskHandle = tokio::task::JoinHandle<()>;
 type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
@@ -30,19 +26,42 @@ pub fn to_block_raw<T: Encode<RawCodec>>(data: &T) -> Result<Block> {
     Ok(Block::encode(RawCodec, Code::Blake3_256, data)?)
 }
 
-pub struct KeplerNameService {
-    store: KNSStore,
+pub struct NameService {
+    store: NameServiceStore,
     task: TaskHandle,
 }
 
-impl KeplerNameService {
-    pub(crate) fn new(store: KNSStore, task: TaskHandle) -> Self {
+impl NameService {
+    pub(crate) fn new(store: NameServiceStore, task: TaskHandle) -> Self {
         Self { store, task }
+    }
+
+    pub async fn start(config: NameServiceStore) -> Result<Self> {
+        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
+            match e {
+                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
+                    Ok(m) => Ok((p, m)),
+                    Err(e) => Err(anyhow!(e)),
+                }),
+                _ => None,
+            }
+        });
+        config.request_heads()?;
+        Ok(NameService::new(
+            config.clone(),
+            tokio::spawn(kv_task(events, config)),
+        ))
     }
 }
 
-impl std::ops::Deref for KeplerNameService {
-    type Target = KNSStore;
+impl Drop for NameService {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl std::ops::Deref for NameService {
+    type Target = NameServiceStore;
     fn deref(&self) -> &Self::Target {
         &self.store
     }
@@ -96,7 +115,7 @@ impl LinkedDelta {
 }
 
 #[derive(Clone)]
-pub struct KNSStore {
+pub struct NameServiceStore {
     pub id: String,
     pub ipfs: Ipfs,
     elements: Tree,
@@ -173,7 +192,7 @@ fn u642v(n: u64) -> [u8; 8] {
     n.to_be_bytes()
 }
 
-impl KNSStore {
+impl NameServiceStore {
     pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
@@ -421,37 +440,9 @@ impl KNSStore {
     fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
         [key.as_ref(), &cid.to_bytes()].concat()
     }
-}
 
-#[async_trait]
-impl KeplerService for KeplerNameService {
-    type Error = anyhow::Error;
-    type Stopped = KNSStore;
-
-    async fn start(config: Self::Stopped) -> Result<Self, Self::Error> {
-        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
-            match e {
-                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
-                    Ok(m) => Ok((p, m)),
-                    Err(e) => Err(anyhow!(e)),
-                }),
-                _ => None,
-            }
-        });
-        config.request_heads()?;
-        Ok(KeplerNameService::new(
-            config.clone(),
-            tokio::spawn(kv_task(events, config)),
-        ))
-    }
-    async fn stop(self) {
-        self.task.abort();
-    }
-}
-
-impl Drop for KeplerNameService {
-    fn drop(&mut self) {
-        self.task.abort();
+    pub async fn start(self) -> Result<NameService> {
+        NameService::start(self).await
     }
 }
 
@@ -461,7 +452,10 @@ enum KVMessage {
     StateReq,
 }
 
-async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send, store: KNSStore) {
+async fn kv_task(
+    events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
+    store: NameServiceStore,
+) {
     debug!("starting KV task");
     events
         .for_each_concurrent(None, |ev| async {
