@@ -14,6 +14,7 @@ use rocket::tokio;
 use serde::{Deserialize, Serialize};
 use sled::{Batch, Db, Tree};
 use std::convert::{TryFrom, TryInto};
+use tracing::{debug, error};
 
 use super::{vec_cid_bin, KeplerService};
 
@@ -145,7 +146,7 @@ impl Heads {
         let mut batch = Batch::default();
         for (op, height) in heights.into_iter() {
             if !self.heights.contains_key(op.to_bytes())? {
-                tracing::debug!("setting head height {} {}", op, height);
+                debug!("setting head height {} {}", op, height);
                 batch.insert(op.to_bytes(), &u642v(height));
             }
         }
@@ -287,7 +288,7 @@ impl KNSStore {
     fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         if !heads.is_empty() {
-            tracing::debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
+            debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
             self.ipfs
                 .publish(&self.id, bincode::serialize(&KVMessage::Heads(heads))?)?;
         }
@@ -394,14 +395,14 @@ impl KNSStore {
             self.apply(&(delta_block, delta), adds, removes)?;
 
             // dispatch ipfs::sync
-            tracing::debug!("syncing head {}", head);
+            debug!("syncing head {}", head);
             match self.ipfs.sync(&head, self.ipfs.peers()).await {
                 Ok(_) => {
-                    tracing::debug!("synced head {}", head);
+                    debug!("synced head {}", head);
                     Ok(())
                 }
                 Err(e) => {
-                    tracing::error!("failed sync head {}", e);
+                    error!("failed sync head {}", e);
                     Err(anyhow!(e))
                 }
             }
@@ -411,7 +412,7 @@ impl KNSStore {
     }
 
     pub(crate) fn request_heads(&self) -> Result<()> {
-        tracing::debug!("requesting heads");
+        debug!("requesting heads");
         self.ipfs
             .publish(&self.id, bincode::serialize(&KVMessage::StateReq)?)?;
         Ok(())
@@ -461,22 +462,22 @@ enum KVMessage {
 }
 
 async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send, store: KNSStore) {
-    tracing::debug!("starting KV task");
+    debug!("starting KV task");
     events
         .for_each_concurrent(None, |ev| async {
             match ev {
                 Ok((p, KVMessage::Heads(heads))) => {
-                    tracing::debug!("new heads from {}", p);
+                    debug!("new heads from {}", p);
                     // sync heads
                     &store.try_merge_heads(heads.into_iter()).await;
                 }
                 Ok((p, KVMessage::StateReq)) => {
-                    tracing::debug!("{} requests state", p);
+                    debug!("{} requests state", p);
                     // send heads
                     &store.broadcast_heads();
                 }
                 Err(e) => {
-                    tracing::error!("{}", e);
+                    error!("{}", e);
                 }
             }
         })
