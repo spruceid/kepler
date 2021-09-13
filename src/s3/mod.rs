@@ -1,7 +1,59 @@
-use rocket::async_trait;
+use anyhow::Result;
+use ipfs_embed::{GossipEvent, PeerId};
+use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
+use rocket::futures::{Stream, StreamExt};
+use serde::{Deserialize, Serialize};
 
-pub mod name;
-pub mod s3;
+mod entries;
+mod store;
+
+pub use entries::{Object, ObjectBuilder};
+pub use store::Store;
+
+type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
+type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
+type TaskHandle = tokio::task::JoinHandle<()>;
+
+pub struct Service {
+    store: Store,
+    task: TaskHandle,
+}
+
+impl Service {
+    pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
+        Self { store, task }
+    }
+
+    pub fn start(config: Store) -> Result<Self> {
+        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
+            match e {
+                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
+                    Ok(m) => Ok((p, m)),
+                    Err(e) => Err(anyhow!(e)),
+                }),
+                _ => None,
+            }
+        });
+        config.request_heads()?;
+        Ok(Service::new(
+            config.clone(),
+            tokio::spawn(kv_task(events, config)),
+        ))
+    }
+}
+
+impl Drop for Service {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl std::ops::Deref for Service {
+    type Target = Store;
+    fn deref(&self) -> &Self::Target {
+        &self.store
+    }
+}
 
 mod vec_cid_bin {
     use libipld::cid::Cid;
@@ -29,10 +81,45 @@ mod vec_cid_bin {
     }
 }
 
+fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
+    Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
+}
+
+fn to_block_raw<T: Encode<RawCodec>>(data: &T) -> Result<Block> {
+    Ok(Block::encode(RawCodec, Code::Blake3_256, data)?)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum KVMessage {
+    Heads(#[serde(with = "vec_cid_bin")] Vec<Cid>),
+    StateReq,
+}
+
+async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send, store: Store) {
+    debug!("starting KV task");
+    events
+        .for_each_concurrent(None, |ev| async {
+            match ev {
+                Ok((p, KVMessage::Heads(heads))) => {
+                    debug!("new heads from {}", p);
+                    // sync heads
+                    &store.try_merge_heads(heads.into_iter()).await;
+                }
+                Ok((p, KVMessage::StateReq)) => {
+                    debug!("{} requests state", p);
+                    // send heads
+                    &store.broadcast_heads();
+                }
+                Err(e) => {
+                    error!("{}", e);
+                }
+            }
+        })
+        .await;
+}
+
 #[cfg(test)]
 mod test {
-    use super::name::*;
-    use super::s3::*;
     use super::*;
     use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
@@ -45,10 +132,7 @@ mod test {
             .ok();
     }
 
-    async fn create_store(
-        id: &str,
-        path: std::path::PathBuf,
-    ) -> Result<NameServiceStore, anyhow::Error> {
+    async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
         let mut config = Config::new(&path, generate_keypair());
         config.network.broadcast = None;
@@ -68,7 +152,7 @@ mod test {
                 }
             }
         });
-        NameServiceStore::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
+        Store::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -80,8 +164,8 @@ mod test {
         let alice = create_store(&id, tmp.path().join("alice")).await?;
         let bob = create_store(&id, tmp.path().join("bob")).await?;
 
-        let alice_service = alice.start().await?;
-        let bob_service = bob.start().await?;
+        let alice_service = alice.start_service()?;
+        let bob_service = bob.start_service()?;
         std::thread::sleep_ms(2000);
 
         let json = r#"{"hello":"there"}"#;
@@ -93,8 +177,8 @@ mod test {
                 .into_iter()
                 .collect();
 
-        let s3_obj_1 = S3ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
-        let s3_obj_2 = S3ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
+        let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
+        let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
         alice_service.write(vec![(s3_obj_1, json.as_bytes().to_vec())], vec![])?;
         bob_service.write(vec![(s3_obj_2, json.as_bytes().to_vec())], vec![])?;

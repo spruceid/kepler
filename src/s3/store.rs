@@ -1,74 +1,16 @@
-use crate::service::s3::{S3Object, S3ObjectBuilder};
+use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use ipfs_embed::{GossipEvent, PeerId};
-use libipld::{
-    cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec, DagCbor,
-};
-use rocket::futures::{future::try_join_all, Stream, StreamExt};
-use rocket::tokio;
-use serde::{Deserialize, Serialize};
+use libipld::{cid::Cid, DagCbor};
+use rocket::futures::future::try_join_all;
 use sled::{Batch, Db, Tree};
 use std::convert::{TryFrom, TryInto};
 use tracing::{debug, error};
 
-use super::vec_cid_bin;
-
-type TaskHandle = tokio::task::JoinHandle<()>;
-type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
-type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
-
-pub fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
-}
-
-pub fn to_block_raw<T: Encode<RawCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(RawCodec, Code::Blake3_256, data)?)
-}
-
-pub struct NameService {
-    store: NameServiceStore,
-    task: TaskHandle,
-}
-
-impl NameService {
-    pub(crate) fn new(store: NameServiceStore, task: TaskHandle) -> Self {
-        Self { store, task }
-    }
-
-    pub async fn start(config: NameServiceStore) -> Result<Self> {
-        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
-            match e {
-                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
-                    Ok(m) => Ok((p, m)),
-                    Err(e) => Err(anyhow!(e)),
-                }),
-                _ => None,
-            }
-        });
-        config.request_heads()?;
-        Ok(NameService::new(
-            config.clone(),
-            tokio::spawn(kv_task(events, config)),
-        ))
-    }
-}
-
-impl Drop for NameService {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-impl std::ops::Deref for NameService {
-    type Target = NameServiceStore;
-    fn deref(&self) -> &Self::Target {
-        &self.store
-    }
-}
+use super::{to_block, to_block_raw, Block, Ipfs, KVMessage};
 
 #[derive(DagCbor)]
-pub struct Delta {
+struct Delta {
     // max depth
     pub priority: u64,
     pub add: Vec<Cid>,
@@ -98,7 +40,7 @@ impl Delta {
 }
 
 #[derive(DagCbor)]
-pub struct LinkedDelta {
+struct LinkedDelta {
     // previous heads
     pub prev: Vec<Cid>,
     pub delta: Delta,
@@ -115,7 +57,7 @@ impl LinkedDelta {
 }
 
 #[derive(Clone)]
-pub struct NameServiceStore {
+pub struct Store {
     pub id: String,
     pub ipfs: Ipfs,
     elements: Tree,
@@ -124,75 +66,7 @@ pub struct NameServiceStore {
     heads: Heads,
 }
 
-#[derive(Clone)]
-pub struct Heads {
-    heights: Tree,
-    heads: Tree,
-}
-
-impl Heads {
-    pub fn new(db: Db) -> Result<Self> {
-        Ok(Self {
-            heights: db.open_tree("heights")?,
-            heads: db.open_tree("heads")?,
-        })
-    }
-
-    pub fn state(&self) -> Result<(Vec<Cid>, u64)> {
-        self.heads.iter().try_fold(
-            (vec![], 0),
-            |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
-                let (head, _) = r?;
-                let height = v2u64(
-                    self.heights
-                        .get(&head)?
-                        .ok_or(anyhow!("Failed to find head height"))?,
-                )?;
-                heads.push(head[..].try_into()?);
-                Ok((heads, u64::max(max_height, height)))
-            },
-        )
-    }
-
-    pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
-        self.heights
-            .get(head.to_bytes())?
-            .map(|h| v2u64(h))
-            .transpose()
-    }
-
-    pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
-        let mut batch = Batch::default();
-        for (op, height) in heights.into_iter() {
-            if !self.heights.contains_key(op.to_bytes())? {
-                debug!("setting head height {} {}", op, height);
-                batch.insert(op.to_bytes(), &u642v(height));
-            }
-        }
-        self.heights.apply_batch(batch)?;
-        Ok(())
-    }
-
-    pub fn new_head(&self, head: &Cid, prev: impl IntoIterator<Item = Cid>) -> Result<()> {
-        let mut batch = Batch::default();
-        batch.insert(head.to_bytes(), &[]);
-        for p in prev {
-            batch.remove(p.to_bytes());
-        }
-        self.heads.apply_batch(batch)?;
-        Ok(())
-    }
-}
-
-fn v2u64<V: AsRef<[u8]>>(v: V) -> Result<u64> {
-    Ok(u64::from_be_bytes(v.as_ref().try_into()?))
-}
-
-fn u642v(n: u64) -> [u8; 8] {
-    n.to_be_bytes()
-}
-
-impl NameServiceStore {
+impl Store {
     pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
@@ -211,7 +85,7 @@ impl NameServiceStore {
             heads,
         })
     }
-    pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<S3Object>> {
+    pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
         match self
             .elements
@@ -236,7 +110,7 @@ impl NameServiceStore {
     pub fn write(
         &self,
         // tuples of (obj-data, content bytes)
-        add: impl IntoIterator<Item = (S3ObjectBuilder, Vec<u8>)>,
+        add: impl IntoIterator<Item = (ObjectBuilder, Vec<u8>)>,
         // tuples of (key, opt (priority, obj-cid))
         remove: impl IntoIterator<Item = (Vec<u8>, Option<(u64, Cid)>)>,
     ) -> Result<()> {
@@ -247,7 +121,7 @@ impl NameServiceStore {
             height + 1
         };
         // get s3 objects, s3 object blocks and data blocks to add
-        let adds: Vec<(S3Object, Block, Block)> = add
+        let adds: Vec<(Object, Block, Block)> = add
             .into_iter()
             .map(|(s, v)| {
                 let data_block = to_block_raw(&v)?;
@@ -255,7 +129,7 @@ impl NameServiceStore {
                 let s3_block = s3_obj.to_block()?;
                 Ok((s3_obj, s3_block, data_block))
             })
-            .collect::<Result<Vec<(S3Object, Block, Block)>>>()?;
+            .collect::<Result<Vec<(Object, Block, Block)>>>()?;
         let rmvs: Vec<(Vec<u8>, Cid)> = remove
             .into_iter()
             .map(|(key, version)| {
@@ -290,7 +164,7 @@ impl NameServiceStore {
             &(block, delta),
             adds.iter()
                 .map(|(obj, block, _)| (*block.cid(), obj.clone()))
-                .collect::<Vec<(Cid, S3Object)>>(),
+                .collect::<Vec<(Cid, Object)>>(),
             rmvs,
         )?;
 
@@ -304,7 +178,7 @@ impl NameServiceStore {
         Ok(())
     }
 
-    fn broadcast_heads(&self) -> Result<()> {
+    pub(crate) fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         if !heads.is_empty() {
             debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
@@ -318,7 +192,7 @@ impl NameServiceStore {
         &self,
         (block, delta): &(Block, LinkedDelta),
         // tuples of (obj-cid, obj)
-        adds: impl IntoIterator<Item = (Cid, S3Object)>,
+        adds: impl IntoIterator<Item = (Cid, Object)>,
         // tuples of (key, obj-cid)
         removes: impl IntoIterator<Item = (Vec<u8>, Cid)>,
     ) -> Result<()> {
@@ -397,16 +271,16 @@ impl NameServiceStore {
             )
             .await?;
 
-            let adds: Vec<(Cid, S3Object)> =
+            let adds: Vec<(Cid, Object)> =
                 try_join_all(delta.delta.add.iter().map(|c| async move {
-                    let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
-                    Ok((*c, obj)) as Result<(Cid, S3Object)>
+                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    Ok((*c, obj)) as Result<(Cid, Object)>
                 }))
                 .await?;
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: S3Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
@@ -441,39 +315,75 @@ impl NameServiceStore {
         [key.as_ref(), &cid.to_bytes()].concat()
     }
 
-    pub async fn start(self) -> Result<NameService> {
-        NameService::start(self).await
+    pub fn start_service(self) -> Result<Service> {
+        Service::start(self)
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-enum KVMessage {
-    Heads(#[serde(with = "vec_cid_bin")] Vec<Cid>),
-    StateReq,
+#[derive(Clone)]
+pub struct Heads {
+    heights: Tree,
+    heads: Tree,
 }
 
-async fn kv_task(
-    events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
-    store: NameServiceStore,
-) {
-    debug!("starting KV task");
-    events
-        .for_each_concurrent(None, |ev| async {
-            match ev {
-                Ok((p, KVMessage::Heads(heads))) => {
-                    debug!("new heads from {}", p);
-                    // sync heads
-                    &store.try_merge_heads(heads.into_iter()).await;
-                }
-                Ok((p, KVMessage::StateReq)) => {
-                    debug!("{} requests state", p);
-                    // send heads
-                    &store.broadcast_heads();
-                }
-                Err(e) => {
-                    error!("{}", e);
-                }
-            }
+impl Heads {
+    pub fn new(db: Db) -> Result<Self> {
+        Ok(Self {
+            heights: db.open_tree("heights")?,
+            heads: db.open_tree("heads")?,
         })
-        .await;
+    }
+
+    pub fn state(&self) -> Result<(Vec<Cid>, u64)> {
+        self.heads.iter().try_fold(
+            (vec![], 0),
+            |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
+                let (head, _) = r?;
+                let height = v2u64(
+                    self.heights
+                        .get(&head)?
+                        .ok_or(anyhow!("Failed to find head height"))?,
+                )?;
+                heads.push(head[..].try_into()?);
+                Ok((heads, u64::max(max_height, height)))
+            },
+        )
+    }
+
+    pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
+        self.heights
+            .get(head.to_bytes())?
+            .map(|h| v2u64(h))
+            .transpose()
+    }
+
+    pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
+        let mut batch = Batch::default();
+        for (op, height) in heights.into_iter() {
+            if !self.heights.contains_key(op.to_bytes())? {
+                debug!("setting head height {} {}", op, height);
+                batch.insert(op.to_bytes(), &u642v(height));
+            }
+        }
+        self.heights.apply_batch(batch)?;
+        Ok(())
+    }
+
+    pub fn new_head(&self, head: &Cid, prev: impl IntoIterator<Item = Cid>) -> Result<()> {
+        let mut batch = Batch::default();
+        batch.insert(head.to_bytes(), &[]);
+        for p in prev {
+            batch.remove(p.to_bytes());
+        }
+        self.heads.apply_batch(batch)?;
+        Ok(())
+    }
+}
+
+fn v2u64<V: AsRef<[u8]>>(v: V) -> Result<u64> {
+    Ok(u64::from_be_bytes(v.as_ref().try_into()?))
+}
+
+fn u642v(n: u64) -> [u8; 8] {
+    n.to_be_bytes()
 }
