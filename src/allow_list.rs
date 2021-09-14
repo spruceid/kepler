@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ipfs_embed::Cid;
 use libipld::multibase::Base;
-use reqwest::{get, StatusCode};
+use reqwest::get;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 
@@ -11,15 +11,18 @@ pub trait OrbitAllowList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OrbitAllowListService {
-    pub api: String,
+#[serde(from = "String", into = "String")]
+pub struct OrbitAllowListService(pub String);
+
+impl From<String> for OrbitAllowListService {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
 }
 
-impl Default for OrbitAllowListService {
-    fn default() -> Self {
-        Self {
-            api: "http://localhost:11000".into(),
-        }
+impl From<OrbitAllowListService> for String {
+    fn from(oals: OrbitAllowListService) -> Self {
+        oals.0
     }
 }
 
@@ -27,7 +30,7 @@ impl Default for OrbitAllowListService {
 impl OrbitAllowList for OrbitAllowListService {
     async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>> {
         Ok(
-            get([self.api.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
+            get([self.0.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
                 .await?
                 .error_for_status()?
                 .json::<Vec<DIDURL>>()

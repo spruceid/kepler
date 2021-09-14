@@ -6,8 +6,15 @@ use std::path::PathBuf;
 pub struct Config {
     pub database: Database,
     pub tzkt: Tzkt,
+    pub orbits: OrbitsConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct OrbitsConfig {
+    #[serde(default)]
+    pub public: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub orbit_allow_list: Option<OrbitAllowListService>,
+    pub allowlist: Option<OrbitAllowListService>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

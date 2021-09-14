@@ -238,7 +238,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         ))
                     }
                 };
-                let (controllers, auth_data, auth_type) = match &token {
+                let (controllers, auth_type) = match &token {
                     AuthTokens::Tezos(token_tz) => {
                         match method {
                             "tz" => {}
@@ -260,19 +260,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                             fragment: Some("TezosMethod2021".to_string()),
                             ..Default::default()
                         };
-                        (
-                            vec![vm],
-                            match token_tz.serialize() {
-                                Ok(t) => t.into(),
-                                Err(_) => {
-                                    return Outcome::Failure((
-                                        Status::Unauthorized,
-                                        anyhow!("Invalid Tz Signed String Params"),
-                                    ))
-                                }
-                            },
-                            AuthTypes::Tezos,
-                        )
+                        (vec![vm], AuthTypes::Tezos)
                     }
                     AuthTokens::ZCAP(ZCAPTokens { invocation, .. }) => {
                         let vm = match invocation.proof.as_ref().and_then(|p| {
@@ -286,19 +274,28 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        (
-                            vec![vm],
-                            match serde_json::to_vec(&invocation) {
-                                Ok(t) => t,
-                                Err(_) => {
+                        match (method, params.get("did"), params.get("vm")) {
+                            ("did", Some(&did), Some(&vm_id)) => {
+                                let d = DIDURL {
+                                    did: did.into(),
+                                    fragment: Some(vm_id.into()),
+                                    ..Default::default()
+                                };
+                                if d != vm {
                                     return Outcome::Failure((
                                         Status::Unauthorized,
-                                        anyhow!("Invalid ZCAP Invocation Params"),
-                                    ))
+                                        anyhow!("Invoker is not Controller"),
+                                    ));
                                 }
-                            },
-                            AuthTypes::ZCAP,
-                        )
+                            }
+                            _ => {
+                                return Outcome::Failure((
+                                    Status::BadRequest,
+                                    anyhow!("Incorrect Orbit ID"),
+                                ))
+                            }
+                        }
+                        (vec![vm], AuthTypes::ZCAP)
                     }
                     _ => {
                         return Outcome::Failure((

@@ -246,8 +246,7 @@ impl Hash for KP {
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
 async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
-    let mut cfg = Config::new(Some(dir.join("block_store")), 0);
-    cfg.network.node_key = key_pair.0;
+    let cfg = Config::new(&dir.join("block_store"), key_pair.0);
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 

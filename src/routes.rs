@@ -179,7 +179,12 @@ pub async fn open_orbit_authz(
     Ok(())
 }
 
-#[post("/<orbit_id>", format = "text/plain", data = "<params_str>", rank = 2)]
+#[post(
+    "/al/<orbit_id>",
+    format = "text/plain",
+    data = "<params_str>",
+    rank = 2
+)]
 pub async fn open_orbit_allowlist(
     orbit_id: CidWrap,
     params_str: &str,
@@ -189,7 +194,7 @@ pub async fn open_orbit_allowlist(
     // no auth token, use allowlist
     match (
         verify_oid(&orbit_id.0, params_str),
-        config.orbit_allow_list.as_ref(),
+        config.orbits.allowlist.as_ref(),
     ) {
         (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
         (Ok(_), Some(list)) => match list.is_allowed(&orbit_id.0).await {

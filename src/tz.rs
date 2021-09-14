@@ -288,7 +288,7 @@ async fn simple_verify_succeed() {
 
 #[test]
 async fn round_trip() {
-    use did_pkh::DIDPKH;
+    use didkit::DID_METHODS;
     use ssi::{
         did::{DIDMethod, Source},
         jwk::{Algorithm, Params, JWK},
@@ -298,7 +298,9 @@ async fn round_trip() {
     let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";
     let dummy_orbit = "uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA";
     let j = JWK::generate_ed25519().unwrap();
-    let did = DIDPKH.generate(&Source::KeyAndPattern(&j, "tz")).unwrap();
+    let did = DID_METHODS
+        .generate(&Source::KeyAndPattern(&j, "tz"))
+        .unwrap();
     let pkh = did.split(":").last().unwrap();
     let pk: String = match &j.params {
         Params::OKP(p) => bs58::encode(
