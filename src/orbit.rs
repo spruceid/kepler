@@ -2,12 +2,15 @@ use crate::{
     auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
+    ipfs_embed::{
+        db::{open_store, StorageConfig, StorageService},
+        open_orbit_ipfs,
+    },
     tz::{TezosAuthorizationString, TezosBasicAuthorization},
     tz_orbit::params_to_tz_orbit,
     zcap::{ZCAPAuthorization, ZCAPTokens},
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{Config, Ipfs, Keypair, Multiaddr, PeerId};
 use libipld::{
     cid::{
         multibase::Base,
@@ -16,6 +19,7 @@ use libipld::{
     },
     store::DefaultParams,
 };
+use libp2p::{Multiaddr, PeerId};
 use rocket::{
     futures::{Stream, StreamExt},
     http::Status,
@@ -154,7 +158,8 @@ impl AuthMethods {
 
 #[derive(Clone)]
 pub struct Orbit {
-    ipfs: Ipfs<DefaultParams>,
+    storage: StorageService<DefaultParams>,
+    oid: Cid,
     metadata: OrbitMetadata,
     policy: AuthMethods,
 }
@@ -167,8 +172,8 @@ pub async fn create_orbit(
     auth: &[u8],
     auth_type: AuthTypes,
     uri: &str,
-    key_pair: &Keypair,
     tzkt_api: &str,
+    relay_addr: Multiaddr,
 ) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -198,77 +203,98 @@ pub async fn create_orbit(
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
 
-    Ok(Some(load_orbit(oid, path, key_pair).await.map(|o| {
-        o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
-    })??))
+    let orbit = load_orbit(oid, path)
+        .await
+        .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??;
+
+    open_orbit_ipfs(oid, dir, relay_addr).await?;
+
+    Ok(Some(orbit))
 }
 
-pub async fn load_orbit(oid: Cid, path: PathBuf, key_pair: &Keypair) -> Result<Option<Orbit>> {
+pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(oid, dir, key_pair.into())
-        .await
-        .map(|o| Some(o))
+    load_orbit_(oid, dir).await.map(|o| Some(o))
 }
 
-struct KP(pub Keypair);
+// struct KP(pub Keypair);
 
-impl From<&Keypair> for KP {
-    fn from(kp: &Keypair) -> Self {
-        KP(Keypair::from_bytes(&kp.to_bytes()).unwrap())
-    }
-}
+// impl From<&Keypair> for KP {
+//     fn from(kp: &Keypair) -> Self {
+//         KP(Keypair::from_bytes(&kp.to_bytes()).unwrap())
+//     }
+// }
 
-impl Clone for KP {
-    fn clone(&self) -> Self {
-        KP(Keypair::from_bytes(&self.0.to_bytes()).unwrap())
-    }
-}
+// impl Clone for KP {
+//     fn clone(&self) -> Self {
+//         KP(Keypair::from_bytes(&self.0.to_bytes()).unwrap())
+//     }
+// }
 
-impl PartialEq for KP {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.to_bytes() == other.0.to_bytes()
-    }
-}
+// impl PartialEq for KP {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.0.to_bytes() == other.0.to_bytes()
+//     }
+// }
 
-impl Eq for KP {}
+// impl Eq for KP {}
 
-impl Hash for KP {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bytes().hash(state);
-    }
-}
+// impl Hash for KP {
+//     fn hash<H: Hasher>(&self, state: &mut H) {
+//         self.0.to_bytes().hash(state);
+//     }
+// }
 
+// TODO oid and dir are redundant
+//
+// Only used for reads
+//
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
-#[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
-    let cfg = Config::new(&dir.join("block_store"), key_pair.0);
+// #[cached(size = 100, time = 60, result = true)]
+async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
+    // let mut cfg = db::Config::new(&dir.join("block_store"), generate_keypair());
+    let sweep_interval = std::time::Duration::from_millis(10000);
+    let storage_config = StorageConfig::new(
+        oid.to_string(),
+        dir.join("block_store").join("blocks"),
+        sweep_interval,
+    );
+    // let network = NetworkConfig::new(path.join("streams"), keypair);
+    // cfg.network.node_key = key_pair.0;
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
-
-    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     let controllers = md.controllers.clone();
 
-    if let Some(addrs) = md.hosts.get(&PID(ipfs.local_peer_id())) {
-        for addr in addrs {
-            ipfs.listen_on(addr.clone())?.next().await;
-        }
-    }
+    // let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    let storage = open_store(oid, dir)?;
+    // let bitswap = BitswapStorage {
+    //     oid,
+    //     dir,
+    // };
+    // let network = NetworkService::new(config.network, bitswap, executor).await?;
 
-    for (id, addrs) in md.hosts.iter() {
-        if id.0 != ipfs.local_peer_id() {
-            for addr in addrs {
-                ipfs.add_address(&id.0, addr.clone())
-            }
-        }
-    }
+    // if let Some(addrs) = md.hosts.get(&PID(ipfs.local_peer_id())) {
+    //     for addr in addrs {
+    //         ipfs.listen_on(addr.clone())?.next().await;
+    //     }
+    // }
+
+    // for (id, addrs) in md.hosts.iter() {
+    //     if id.0 != ipfs.local_peer_id() {
+    //         for addr in addrs {
+    //             ipfs.add_address(&id.0, addr.clone())
+    //         }
+    //     }
+    // }
 
     Ok(Orbit {
-        ipfs,
+        storage,
+        oid,
         policy: match &md.auth {
             AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization { controllers }),
             AuthTypes::ZCAP => AuthMethods::ZCAP(controllers),
@@ -317,19 +343,19 @@ impl ContentAddressedStorage for Orbit {
         content: &[u8],
         codec: SupportedCodecs,
     ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
-        self.ipfs.put(content, codec).await
+        self.storage.put(content, codec).await
     }
     async fn get(
         &self,
         address: &Cid,
     ) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
-        ContentAddressedStorage::get(&self.ipfs, address).await
+        ContentAddressedStorage::get(&self.storage, address).await
     }
     async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
-        self.ipfs.delete(address).await
+        self.storage.delete(address).await
     }
     async fn list(&self) -> Result<Vec<Cid>, <Self as ContentAddressedStorage>::Error> {
-        self.ipfs.list().await
+        self.storage.list().await
     }
 }
 
@@ -339,7 +365,8 @@ impl Orbit {
     }
 
     pub fn hosts(&self) -> Vec<PeerId> {
-        vec![self.ipfs.local_peer_id()]
+        // vec![self.storage.local_peer_id()]
+        vec![]
     }
 
     pub fn admins(&self) -> &[DIDURL] {
@@ -363,18 +390,30 @@ impl Orbit {
     // }
 }
 
-#[test]
-async fn oid_verification() {
-    let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
-        .parse()
-        .unwrap();
-    let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
-    let domain = "kepler.tzprofiles.com";
-    let index = 0;
-    let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
-    let (method, params) = verify_oid(&oid, &uri).unwrap();
-    assert_eq!(method, "tz");
-    assert_eq!(params.get("address"), Some(&pkh));
-    assert_eq!(params.get("domain"), Some(&domain));
-    assert_eq!(params.get("index"), Some(&"0"));
-}
+// #[test]
+// async fn oid_verification() {
+//     let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
+//         .parse()
+//         .unwrap();
+//     let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
+//     let domain = "kepler.tzprofiles.com";
+//     let index = 0;
+//     let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
+//     let (method, params) = verify_oid(&oid, &uri).unwrap();
+//     assert_eq!(method, "tz");
+//     assert_eq!(params.get("address"), Some(&pkh));
+//     assert_eq!(params.get("domain"), Some(&domain));
+//     assert_eq!(params.get("index"), Some(&"0"));
+// }
+
+// #[test]
+// async fn oid_verification() {
+//     let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
+//         .parse()
+//         .unwrap();
+//     let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
+//     let domain = "kepler.tzprofiles.com";
+//     let index = 0;
+//     let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
+//     verify_oid(&oid, pkh, &uri).unwrap();
+// }

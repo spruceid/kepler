@@ -3,8 +3,8 @@ use crate::config;
 use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
-use ipfs_embed::Keypair;
 use libipld::cid::Cid;
+use libp2p::Multiaddr;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -107,7 +107,7 @@ pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<'a, T>(
     req: &'a Request<'_>,
-) -> Result<(Vec<u8>, AuthTokens, config::Config, &'a Keypair, Cid), Outcome<T, anyhow::Error>> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config, Multiaddr, Cid), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -122,12 +122,12 @@ async fn extract_info<'a, T>(
             )));
         }
     };
-    let kp = match req.rocket().state::<Keypair>() {
-        Some(kp) => kp,
+    let relay_addr = match req.rocket().state::<Multiaddr>() {
+        Some(ra) => ra.clone(),
         None => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
-                anyhow!("Could not retrieve key pair"),
+                anyhow!("Could not retrieve relay address"),
             )))
         }
     };
@@ -145,7 +145,7 @@ async fn extract_info<'a, T>(
             auth_data.as_bytes().to_vec(),
             token,
             config.clone(),
-            kp,
+            relay_addr,
             oid,
         )),
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
@@ -165,7 +165,7 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config, kp, oid) = match extract_info(req).await {
+                let (_, token, config, _, oid) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
@@ -177,8 +177,7 @@ macro_rules! impl_fromreq {
                     (Action::$method { .. }, true) => {
                         let orbit = match load_orbit(
                             *token.target_orbit(),
-                            config.database.path.clone(),
-                            kp,
+                            config.database.path.clone()
                         )
                         .await
                         {
@@ -216,7 +215,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config, kp, oid) = match extract_info(req).await {
+        let (auth_data, token, config, relay_addr, oid) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
@@ -304,20 +303,20 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         ))
                     }
                 };
-                match create_orbit(
-                    *token.target_orbit(),
-                    config.database.path.clone(),
-                    controllers,
-                    &auth_data,
-                    auth_type,
-                    &parameters,
-                    kp,
-                    &config.tzkt.api,
-                )
-                .await
-                {
-                    Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
-                    Ok(None) => {
+match create_orbit(
+*token.target_orbit(),
+    config.database.path.clone(),
+controllers,
+    &auth_data,
+auth_type,
+    &parameters,
+    &config.tzkt.api,
+    relay_addr,
+)
+.await
+{
+    Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
+    Ok(None) => {
                         return Outcome::Failure((
                             Status::Conflict,
                             anyhow!("Orbit already exists"),

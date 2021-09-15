@@ -1,6 +1,5 @@
 use anyhow::Result;
-use ipfs_embed::Cid;
-use libipld::multibase::Base;
+use libipld::{multibase::Base, Cid};
 use reqwest::get;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;

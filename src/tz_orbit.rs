@@ -1,11 +1,11 @@
 use crate::orbit::{AuthTypes, OrbitMetadata, PID};
 use anyhow::Result;
-use ipfs_embed::Multiaddr;
 use libipld::cid::Cid;
+use libp2p::Multiaddr;
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
 use ssi::did::DIDURL;
-use std::{collections::HashMap as Map, convert::TryFrom, str::FromStr};
+use std::collections::HashMap as Map;
 
 #[derive(Deserialize)]
 struct OrbitStorage {
@@ -23,7 +23,7 @@ struct BigmapKey<K, V> {
 #[derive(Debug, Deserialize)]
 struct UnitObject {}
 
-const DEFAULT_TZKT_API: &str = "http://localhost:5000";
+// const DEFAULT_TZKT_API: &str = "http://localhost:5000";
 
 async fn get_bigmap<K, V>(tzkt_api: &str, bigmap_id: u64) -> Result<impl Iterator<Item = (K, V)>>
 where

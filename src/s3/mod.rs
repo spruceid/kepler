@@ -1,6 +1,10 @@
+use crate::ipfs_embed::net::GossipEvent;
 use anyhow::Result;
-use ipfs_embed::{GossipEvent, PeerId};
-use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
+use libipld::{
+    cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec,
+    store::DefaultParams,
+};
+use libp2p::PeerId;
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +14,7 @@ mod store;
 pub use entries::{Object, ObjectBuilder};
 pub use store::Store;
 
-type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
-type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
+type Block = libipld::Block<DefaultParams>;
 type TaskHandle = tokio::task::JoinHandle<()>;
 
 pub struct Service {
@@ -24,20 +27,23 @@ impl Service {
         Self { store, task }
     }
 
-    pub fn start(config: Store) -> Result<Self> {
-        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
-            match e {
-                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
-                    Ok(m) => Ok((p, m)),
-                    Err(e) => Err(anyhow!(e)),
-                }),
-                _ => None,
-            }
-        });
-        config.request_heads()?;
+    pub fn start(store: Store) -> Result<Self> {
+        let events = store
+            .network_service
+            .subscribe(&store.id)?
+            .filter_map(|e| async {
+                match e {
+                    GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
+                        Ok(m) => Ok((p, m)),
+                        Err(e) => Err(anyhow!(e)),
+                    }),
+                    _ => None,
+                }
+            });
+        store.request_heads()?;
         Ok(Service::new(
-            config.clone(),
-            tokio::spawn(kv_task(events, config)),
+            store.clone(),
+            tokio::spawn(kv_task(events, store)),
         ))
     }
 }

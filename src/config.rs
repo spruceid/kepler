@@ -7,6 +7,7 @@ pub struct Config {
     pub database: Database,
     pub tzkt: Tzkt,
     pub orbits: OrbitsConfig,
+    pub ipfs: Ipfs,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -39,6 +40,21 @@ impl Default for Tzkt {
     fn default() -> Self {
         Self {
             api: "http://localhost:5000".into(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Ipfs {
+    pub address: String,
+    pub port: u64,
+}
+
+impl Default for Ipfs {
+    fn default() -> Self {
+        Self {
+            address: "127.0.0.1".into(),
+            port: 8081,
         }
     }
 }
