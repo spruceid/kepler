@@ -5,12 +5,14 @@ use libipld::cid::Cid;
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
 use ssi::did::DIDURL;
-use std::{collections::HashMap as Map, convert::TryFrom, str::FromStr};
+use std::{collections::HashMap as Map, str::FromStr};
 
 #[derive(Deserialize)]
 struct OrbitStorage {
     admins: u64,
     hosts: u64,
+    readers: u64,
+    writers: u64
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,8 +75,14 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
                 acc.insert(k, v);
                 acc
             }),
-        read_delegators: vec![],
-        write_delegators: vec![],
+        read_delegators: get_bigmap::<String, UnitObject>(tzkt_api, storage.readers)
+            .await?
+            .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
+            .collect::<Result<Vec<DIDURL>>>()?,
+        write_delegators: get_bigmap::<String, UnitObject>(tzkt_api, storage.writers)
+            .await?
+            .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
+            .collect::<Result<Vec<DIDURL>>>()?,
         revocations: vec![],
         auth: AuthTypes::ZCAP,
     })

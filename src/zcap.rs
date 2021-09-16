@@ -41,7 +41,11 @@ pub struct InvProps {
 pub type KeplerInvocation = Invocation<InvProps>;
 pub type KeplerDelegation = Delegation<(), DelProps>;
 
-pub type ZCAPAuthorization = Vec<DIDURL>;
+#[derive(Clone)]
+pub struct ZCAPAuthorization {
+    pub readers: Vec<DIDURL>,
+    pub writers: Vec<DIDURL>,
+}
 
 #[derive(Clone)]
 pub struct ZCAPTokens {
@@ -109,8 +113,20 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                     .and_then(|proof| proof.verification_method.as_ref())
                     .ok_or_else(|| anyhow!("Missing delegation verification method"))
                     .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
-                if !self.contains(&delegator_vm) {
-                    return Err(anyhow!("Delegator not authorized"));
+                match auth_token.invocation.property_set.capability_action {
+                    Action::List | Action::Get(_) => {
+                        if !self.readers.contains(&delegator_vm)
+                            && !self.writers.contains(&delegator_vm)
+                        {
+                            return Err(anyhow!("Delegator not authorized"));
+                        }
+                    }
+                    Action::Put(_) | Action::Del(_) => {
+                        if !self.writers.contains(&delegator_vm) {
+                            return Err(anyhow!("Delegator not write-authorized"));
+                        }
+                    }
+                    _ => return Err(anyhow!("Invalid Action")),
                 };
                 if let Some(ref authorized_invoker) = d.invoker {
                     if authorized_invoker != &URI::String(invoker_vm.to_string()) {
@@ -146,8 +162,20 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                 res
             }
             None => {
-                if !self.contains(&invoker_vm) {
-                    return Err(anyhow!("Invoker not authorized"));
+                match auth_token.invocation.property_set.capability_action {
+                    Action::List | Action::Get(_) => {
+                        if !self.readers.contains(&invoker_vm)
+                            && !self.writers.contains(&invoker_vm)
+                        {
+                            return Err(anyhow!("Invoker not authorized"));
+                        }
+                    }
+                    Action::Put(_) | Action::Del(_) => {
+                        if !self.writers.contains(&invoker_vm) {
+                            return Err(anyhow!("Invoker not authorized"));
+                        }
+                    }
+                    _ => return Err(anyhow!("Invalid Action")),
                 };
                 auth_token
                     .invocation

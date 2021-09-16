@@ -251,7 +251,6 @@ async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
-    let controllers = md.controllers.clone();
 
     if let Some(addrs) = md.hosts.get(&PID(ipfs.local_peer_id())) {
         for addr in addrs {
@@ -270,8 +269,14 @@ async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
     Ok(Orbit {
         ipfs,
         policy: match &md.auth {
-            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization { controllers }),
-            AuthTypes::ZCAP => AuthMethods::ZCAP(controllers),
+            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization {
+                controllers: md.controllers.clone(),
+            }),
+            AuthTypes::ZCAP => {
+                let readers = md.read_delegators.clone();
+                let writers = [md.write_delegators.clone(), md.controllers.clone()].concat();
+                AuthMethods::ZCAP(ZCAPAuthorization { readers, writers })
+            }
         },
         metadata: md,
     })
@@ -339,7 +344,7 @@ impl Orbit {
     }
 
     pub fn hosts(&self) -> Vec<PeerId> {
-        vec![self.ipfs.local_peer_id()]
+        self.metadata.hosts.iter().map(|(id, _)| id.0).collect()
     }
 
     pub fn admins(&self) -> &[DIDURL] {
