@@ -1,4 +1,7 @@
-use crate::auth::{Action, AuthorizationPolicy, AuthorizationToken};
+use crate::{
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    orbit::OrbitMetadata,
+};
 use anyhow::Result;
 use libipld::{cid::multibase::Base, Cid};
 use nom::{
@@ -233,16 +236,9 @@ impl core::fmt::Display for TezosAuthorizationString {
     }
 }
 
-#[derive(Clone)]
-pub struct TezosBasicAuthorization {
-    pub controllers: Vec<DIDURL>,
-}
-
 #[rocket::async_trait]
-impl AuthorizationPolicy for TezosBasicAuthorization {
-    type Token = TezosAuthorizationString;
-
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
+impl AuthorizationPolicy<TezosAuthorizationString> for OrbitMetadata {
+    async fn authorize(&self, auth_token: &TezosAuthorizationString) -> Result<()> {
         let requester = DIDURL {
             did: format!("did:pkh:tz:{}", &auth_token.pkh),
             fragment: Some("TezosMethod2021".to_string()),

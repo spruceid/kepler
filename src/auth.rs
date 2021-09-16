@@ -1,6 +1,6 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
 use ipfs_embed::Keypair;
@@ -94,9 +94,8 @@ pub trait AuthorizationToken {
 }
 
 #[rocket::async_trait]
-pub trait AuthorizationPolicy {
-    type Token: AuthorizationToken;
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()>;
+pub trait AuthorizationPolicy<T> {
+    async fn authorize(&self, auth_token: &T) -> Result<()>;
 }
 
 pub struct PutAuthWrapper(pub Orbit);
@@ -191,7 +190,7 @@ macro_rules! impl_fromreq {
                             }
                             Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
                         };
-                        match orbit.auth().authorize(token).await {
+                        match orbit.authorize(&token).await {
                             Ok(_) => Outcome::Success(Self(orbit)),
                             Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                         }
@@ -238,7 +237,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         ))
                     }
                 };
-                let (controllers, auth_type) = match &token {
+                let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
                         match method {
                             "tz" => {}
@@ -260,7 +259,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                             fragment: Some("TezosMethod2021".to_string()),
                             ..Default::default()
                         };
-                        (vec![vm], AuthTypes::Tezos)
+                        vec![vm]
                     }
                     AuthTokens::ZCAP(ZCAPTokens { invocation, .. }) => {
                         let vm = match invocation.proof.as_ref().and_then(|p| {
@@ -295,7 +294,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         }
-                        (vec![vm], AuthTypes::ZCAP)
+                        vec![vm]
                     }
                     _ => {
                         return Outcome::Failure((
@@ -309,7 +308,6 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     config.database.path.clone(),
                     controllers,
                     &auth_data,
-                    auth_type,
                     &parameters,
                     kp,
                     &config.tzkt.api,

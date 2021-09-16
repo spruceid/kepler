@@ -16,7 +16,7 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTypes, Orbit, PID};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, Orbit, PID};
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
 async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)> {
@@ -204,7 +204,6 @@ pub async fn open_orbit_allowlist(
                     config.database.path.clone(),
                     controllers,
                     &[],
-                    AuthTypes::ZCAP,
                     params_str,
                     &kp,
                     &config.tzkt.api,

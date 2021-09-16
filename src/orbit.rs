@@ -2,9 +2,9 @@ use crate::{
     auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
-    tz::{TezosAuthorizationString, TezosBasicAuthorization},
+    tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
-    zcap::{ZCAPAuthorization, ZCAPTokens},
+    zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
 use ipfs_embed::{Config, Ipfs, Keypair, Multiaddr, PeerId};
@@ -17,7 +17,7 @@ use libipld::{
     store::DefaultParams,
 };
 use rocket::{
-    futures::{Stream, StreamExt},
+    futures::StreamExt,
     http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::fs,
@@ -47,8 +47,6 @@ pub struct OrbitMetadata {
     pub hosts: Map<PID, Vec<Multiaddr>>,
     // TODO placeholder type
     pub revocations: Vec<String>,
-    #[serde(default)]
-    pub auth: AuthTypes,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Hash, Debug)]
@@ -73,34 +71,6 @@ impl From<PID> for String {
     fn from(pid: PID) -> Self {
         pid.to_base58()
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(untagged, rename_all = "UPPERCASE")]
-pub enum AuthTypes {
-    Tezos,
-    ZCAP,
-}
-
-impl Default for AuthTypes {
-    fn default() -> Self {
-        Self::Tezos
-    }
-}
-
-impl From<&AuthMethods> for AuthTypes {
-    fn from(m: &AuthMethods) -> Self {
-        match m {
-            AuthMethods::Tezos(_) => Self::Tezos,
-            AuthMethods::ZCAP(_) => Self::ZCAP,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum AuthMethods {
-    Tezos(TezosBasicAuthorization),
-    ZCAP(ZCAPAuthorization),
 }
 
 #[derive(Clone)]
@@ -141,12 +111,12 @@ impl AuthorizationToken for AuthTokens {
         }
     }
 }
-
-impl AuthMethods {
-    pub async fn authorize(&self, auth_token: AuthTokens) -> Result<()> {
-        match (self, auth_token) {
-            (Self::Tezos(method), AuthTokens::Tezos(token)) => method.authorize(&token).await,
-            (Self::ZCAP(method), AuthTokens::ZCAP(token)) => method.authorize(&token).await,
+#[rocket::async_trait]
+impl AuthorizationPolicy<AuthTokens> for Orbit {
+    async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
+        match auth_token {
+            AuthTokens::Tezos(token) => self.metadata.authorize(token).await,
+            AuthTokens::ZCAP(token) => self.metadata.authorize(token).await,
             _ => return Err(anyhow!("Bad token")),
         }
     }
@@ -156,7 +126,6 @@ impl AuthMethods {
 pub struct Orbit {
     ipfs: Ipfs<DefaultParams>,
     metadata: OrbitMetadata,
-    policy: AuthMethods,
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -165,7 +134,6 @@ pub async fn create_orbit(
     path: PathBuf,
     controllers: Vec<DIDURL>,
     auth: &[u8],
-    auth_type: AuthTypes,
     uri: &str,
     key_pair: &Keypair,
     tzkt_api: &str,
@@ -190,7 +158,6 @@ pub async fn create_orbit(
             read_delegators: vec![],
             write_delegators: vec![],
             revocations: vec![],
-            auth: auth_type,
             hosts: Map::default(),
         },
     };
@@ -266,20 +233,7 @@ async fn load_orbit_(oid: Cid, dir: PathBuf, key_pair: KP) -> Result<Orbit> {
         }
     }
 
-    Ok(Orbit {
-        ipfs,
-        policy: match &md.auth {
-            AuthTypes::Tezos => AuthMethods::Tezos(TezosBasicAuthorization {
-                controllers: md.controllers.clone(),
-            }),
-            AuthTypes::ZCAP => {
-                let readers = md.read_delegators.clone();
-                let writers = [md.write_delegators.clone(), md.controllers.clone()].concat();
-                AuthMethods::ZCAP(ZCAPAuthorization { readers, writers })
-            }
-        },
-        metadata: md,
-    })
+    Ok(Orbit { ipfs, metadata: md })
 }
 
 pub fn get_params<'a>(matrix_params: &'a str) -> Map<&'a str, &'a str> {
@@ -343,16 +297,20 @@ impl Orbit {
         &self.metadata.id
     }
 
-    pub fn hosts(&self) -> Vec<PeerId> {
-        self.metadata.hosts.iter().map(|(id, _)| id.0).collect()
+    pub fn hosts<'a>(&'a self) -> Vec<&PeerId> {
+        self.metadata.hosts.iter().map(|(id, _)| &id.0).collect()
     }
 
-    pub fn admins(&self) -> &[DIDURL] {
+    pub fn controllers(&self) -> &[DIDURL] {
         &self.metadata.controllers
     }
 
-    pub fn auth(&self) -> &AuthMethods {
-        &self.policy
+    pub fn read_delegators(&self) -> &[DIDURL] {
+        &self.metadata.read_delegators
+    }
+
+    pub fn write_delegators(&self) -> &[DIDURL] {
+        &self.metadata.write_delegators
     }
 
     pub fn make_uri(&self, cid: &Cid) -> Result<String> {

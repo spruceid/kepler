@@ -1,4 +1,4 @@
-use crate::orbit::{AuthTypes, OrbitMetadata, PID};
+use crate::orbit::{OrbitMetadata, PID};
 use anyhow::Result;
 use ipfs_embed::Multiaddr;
 use libipld::cid::Cid;
@@ -12,7 +12,7 @@ struct OrbitStorage {
     admins: u64,
     hosts: u64,
     readers: u64,
-    writers: u64
+    writers: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,7 +84,6 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
             .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
             .collect::<Result<Vec<DIDURL>>>()?,
         revocations: vec![],
-        auth: AuthTypes::ZCAP,
     })
 }
 
@@ -104,7 +103,6 @@ pub async fn params_to_tz_orbit(
             write_delegators: vec![],
             revocations: vec![],
             hosts: Map::new(),
-            auth: AuthTypes::Tezos,
         }),
         _ => Err(anyhow!("Missing address or contract")),
     }
