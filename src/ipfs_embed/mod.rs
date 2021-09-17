@@ -8,7 +8,7 @@ mod test_util;
 
 pub use db::open_store;
 use libipld::{store::DefaultParams, Block, Cid, Result};
-use libp2p::Multiaddr;
+use libp2p::{multiaddr::Protocol, Multiaddr};
 use net::BitswapStore;
 pub use net::{open_relay, NetworkService};
 use std::path::PathBuf;
@@ -25,7 +25,10 @@ pub async fn open_orbit_ipfs(
         oid,
         dir: dir.clone(),
     };
-    NetworkService::new(bitswap, executor, relay_addr, dir).await
+    let network_service = NetworkService::new(bitswap, executor, dir).await?;
+    let addr = relay_addr.with(Protocol::P2p(network_service.local_peer_id().into()));
+    let _ = network_service.listen_on(addr)?;
+    Ok(network_service)
 }
 
 struct BitswapStorage {

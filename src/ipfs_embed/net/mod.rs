@@ -13,17 +13,15 @@ use libp2p::dns::DnsConfig as Dns;
 use libp2p::tcp::TcpConfig;
 use libp2p::{
     core::{
-        either::EitherTransport,
         transport::Transport,
         upgrade::{self, SelectUpgrade},
     },
     dns::TokioDnsConfig as Dns,
-    identity::PublicKey,
     kad::kbucket::Key as BucketKey,
     mplex::MplexConfig,
+    multiaddr::Protocol,
     noise::{self, NoiseConfig, X25519Spec},
-    pnet::{PnetConfig, PreSharedKey},
-    relay::{new_transport_and_behaviour, Relay, RelayConfig},
+    relay::{new_transport_and_behaviour, RelayConfig},
     swarm::{AddressScore, Swarm, SwarmBuilder},
     tcp::TokioTcpConfig as TcpConfig,
     yamux::YamuxConfig,
@@ -41,7 +39,6 @@ use std::{
 };
 
 mod behaviour;
-// mod config;
 mod p2p_wrapper;
 mod peers;
 mod relay;
@@ -49,20 +46,18 @@ mod utils;
 
 pub use behaviour::GossipEvent;
 use behaviour::{QueryId, SyncEvent};
-// use config::*;
 use libp2p::{
-    core::{connection::ListenerId, identity, transport::memory::MemoryTransport},
+    core::identity,
     kad::{
         record::{Key, Record},
         PeerRecord, Quorum,
     },
     swarm::AddressRecord,
-    Multiaddr, PeerId, TransportError,
+    Multiaddr, PeerId,
 };
 pub use libp2p_bitswap::BitswapStore;
-use libp2p_blake_streams::{DocId, Head, LocalStreamWriter, SignedHead, StreamId, StreamReader};
-// pub use libp2p_quic::{generate_keypair, PublicKey, SecretKey, ToLibp2p};
-use peers::{AddressSource, Event, PeerInfo, SwarmEvents};
+pub use peers::Event;
+use peers::{AddressSource, PeerInfo, SwarmEvents};
 pub use relay::open_relay;
 
 // TODO remove use of rocket, maybe go directly to Tokio
@@ -77,7 +72,6 @@ pub enum ListenerEvent {
 #[derive(Clone)]
 pub struct NetworkService<P: StoreParams> {
     db_path: PathBuf,
-    relay_addr: Multiaddr,
     executor: Executor,
     swarm: Arc<Mutex<Swarm<NetworkBackendBehaviour<P>>>>,
     waker: Arc<AtomicWaker>,
@@ -89,7 +83,6 @@ impl<P: StoreParams> NetworkService<P> {
         // mut config: NetworkConfig,
         store: S,
         executor: Executor,
-        relay_addr: Multiaddr,
         db_path: PathBuf,
     ) -> Result<Self> {
         let kp = if let Ok(mut bytes) = fs::read(db_path.join("kp")).await {
@@ -111,14 +104,6 @@ impl<P: StoreParams> NetworkService<P> {
         let peer_id = kp.public().into_peer_id();
         let behaviour =
             NetworkBackendBehaviour::<P>::new(store, kp.clone(), relay_behaviour).await?;
-        // let transport = if let Some(psk) = config.psk {
-        //     let psk = PreSharedKey::new(psk);
-        //     EitherTransport::Left(
-        //         transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
-        //     )
-        // } else {
-        //     EitherTransport::Right(transport)
-        // };
         let dh_key = noise::Keypair::<X25519Spec>::new()
             .into_authentic(&kp)
             .unwrap();
@@ -133,17 +118,8 @@ impl<P: StoreParams> NetworkService<P> {
             .boxed();
         let tcp = p2p_wrapper::P2pWrapper(transport);
 
-        // #[cfg(feature = "async_global")]
-        // let transport = if let Some(config) = config.dns {
-        //     Dns::custom(tcp, config.config, config.opts).await?.boxed()
-        // } else {
-        //     Dns::system(tcp).await?.boxed()
-        // };
-        // let transport = if let Some(config) = config.dns {
-        //     Dns::custom(tcp, config.config, config.opts)?.boxed()
-        // } else {
+        // TODO is DNS required for listener (to the relay)?
         let transport = Dns::system(tcp)?.boxed();
-        // };
 
         let exec = executor.clone();
         let swarm = SwarmBuilder::new(transport, behaviour, peer_id)
@@ -169,7 +145,6 @@ impl<P: StoreParams> NetworkService<P> {
 
         Ok(Self {
             db_path,
-            relay_addr,
             executor,
             swarm: swarm2,
             waker: waker2,
@@ -421,56 +396,6 @@ impl<P: StoreParams> NetworkService<P> {
     pub fn swarm_events(&self) -> SwarmEvents {
         let mut swarm = self.swarm.lock();
         swarm.behaviour_mut().swarm_events()
-    }
-
-    pub fn docs(&self) -> Result<Vec<DocId>> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().docs()
-    }
-
-    pub fn streams(&self) -> Result<Vec<StreamId>> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().streams()
-    }
-
-    pub fn substreams(&self, doc: DocId) -> Result<Vec<StreamId>> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().substreams(doc)
-    }
-
-    pub fn stream_add_peers(&self, doc: DocId, peers: impl Iterator<Item = PeerId>) {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().add_peers(doc, peers)
-    }
-
-    pub fn stream_head(&self, id: &StreamId) -> Result<Option<SignedHead>> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().head(id)
-    }
-
-    pub fn stream_slice(&self, id: &StreamId, start: u64, len: u64) -> Result<StreamReader> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().slice(id, start, len)
-    }
-
-    pub fn stream_remove(&self, id: &StreamId) -> Result<()> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().remove(id)
-    }
-
-    pub fn stream_append(&self, id: DocId) -> Result<LocalStreamWriter> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().append(id)
-    }
-
-    pub fn stream_subscribe(&self, id: &StreamId) -> Result<()> {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().subscribe(id)
-    }
-
-    pub fn stream_update_head(&self, head: SignedHead) {
-        let mut swarm = self.swarm.lock();
-        swarm.behaviour_mut().streams().update_head(head)
     }
 }
 

@@ -1,4 +1,3 @@
-// use super::config::NetworkConfig;
 use super::peers::{AddressBook, AddressSource, Event, PeerInfo, SwarmEvents};
 use fnv::FnvHashMap;
 use futures::{
@@ -28,9 +27,7 @@ use libp2p::{
     {Multiaddr, NetworkBehaviour, PeerId},
 };
 use libp2p_bitswap::{Bitswap, BitswapConfig, BitswapEvent, BitswapStore};
-use libp2p_blake_streams::{StreamSync, StreamSyncEvent};
 use libp2p_broadcast::{Broadcast, BroadcastConfig, BroadcastEvent, Topic};
-// use libp2p_quic::{PublicKey, ToLibp2p};
 use prometheus::Registry;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
@@ -101,7 +98,6 @@ pub struct NetworkBackendBehaviour<P: StoreParams> {
     bitswap: Toggle<Bitswap<P>>,
     gossipsub: Toggle<Gossipsub>,
     broadcast: Toggle<Broadcast>,
-    streams: Toggle<StreamSync>,
     relay: Relay,
 
     #[behaviour(ignore)]
@@ -376,16 +372,6 @@ impl<P: StoreParams> NetworkBehaviourEventProcess<BroadcastEvent> for NetworkBac
     }
 }
 
-impl<P: StoreParams> NetworkBehaviourEventProcess<StreamSyncEvent> for NetworkBackendBehaviour<P> {
-    fn inject_event(&mut self, event: StreamSyncEvent) {
-        match event {
-            StreamSyncEvent::NewHead(head) => {
-                self.peers.notify(Event::NewHead(head));
-            }
-        }
-    }
-}
-
 impl<P: StoreParams> NetworkBehaviourEventProcess<void::Void> for NetworkBackendBehaviour<P> {
     fn inject_event(&mut self, _event: void::Void) {}
 }
@@ -404,46 +390,21 @@ impl<P: StoreParams> NetworkBackendBehaviour<P> {
     ) -> Result<Self> {
         let public = keypair.public();
         let node_key = keypair;
-        // let node_name = config.node_name.clone();
         let node_name = names::Generator::with_naming(names::Name::Numbered)
             .next()
             .ok_or_else(|| anyhow!("Could not generate node name."))?;
         let peer_id = node_key.public().into_peer_id();
-        // let kad = if let Some(config) = config.kad.take() {
         let kad_store = MemoryStore::with_config(peer_id, KadConfig::default());
         let kad = Some(Kademlia::new(peer_id, kad_store));
-        // } else {
-        //     None
-        // };
-        // let ping = config.ping.take().map(Ping::new);
         let identify = Some(Identify::new(IdentifyConfig::new(
             "/kepler/1.0".into(),
             node_key.public(),
         )));
-        //  if let Some(mut config) = config.identify.take() {
-        //         } else {
-        //             None
-        //         };
-        // let gossipsub = if let Some(config) = config.gossipsub.take() {
         let gossipsub = Gossipsub::new(
             MessageAuthenticity::Signed(node_key),
             GossipsubConfig::default(),
         )
         .map_err(|err| anyhow::anyhow!("{}", err))?;
-        // Some(gossipsub)
-        // } else {
-        // None
-        // };
-        // let broadcast = config.broadcast.take().map(Broadcast::new);
-        // let bitswap = config
-        //     .bitswap
-        //     .take()
-        //     .map(|config| Bitswap::new(config, store));
-        // let streams = if let Some(config) = config.streams.take() {
-        //     Some(StreamSync::new(config)?)
-        // } else {
-        //     None
-        // };
         Ok(Self {
             bootstrap_complete: false,
             peers: AddressBook::new(peer_id, node_name, public, true, true),
@@ -453,7 +414,6 @@ impl<P: StoreParams> NetworkBackendBehaviour<P> {
             bitswap: Some(Bitswap::new(BitswapConfig::default(), store)).into(),
             gossipsub: Some(gossipsub).into(),
             broadcast: Some(Broadcast::new(BroadcastConfig::default())).into(),
-            streams: None.into(),
             queries: Default::default(),
             subscriptions: Default::default(),
             relay: relay_behaviour,
@@ -735,9 +695,5 @@ impl<P: StoreParams> NetworkBackendBehaviour<P> {
 
     pub fn swarm_events(&mut self) -> SwarmEvents {
         self.peers.swarm_events()
-    }
-
-    pub fn streams(&mut self) -> &mut StreamSync {
-        self.streams.as_mut().expect("streams enabled")
     }
 }

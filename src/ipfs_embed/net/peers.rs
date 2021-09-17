@@ -11,7 +11,6 @@ use libp2p::{
     swarm::{DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction, PollParameters},
     Multiaddr, PeerId,
 };
-use libp2p_blake_streams::Head;
 use prometheus::{IntCounter, IntGauge, Registry};
 use std::{
     borrow::Cow,
@@ -35,7 +34,6 @@ pub enum Event {
     Disconnected(PeerId),
     Subscribed(PeerId, String),
     Unsubscribed(PeerId, String),
-    NewHead(Head),
     Bootstrapped,
 }
 
@@ -452,18 +450,17 @@ impl NetworkBehaviour for AddressBook {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generate_keypair;
     use futures::stream::StreamExt;
+    use libp2p::identity;
+
+    fn generate_keypair() -> PublicKey {
+        identity::Keypair::generate_ed25519().public()
+    }
 
     #[async_std::test]
     async fn test_dial_basic() {
-        let mut book = AddressBook::new(
-            PeerId::random(),
-            "".into(),
-            generate_keypair().public,
-            false,
-            true,
-        );
+        let mut book =
+            AddressBook::new(PeerId::random(), "".into(), generate_keypair(), false, true);
         let mut stream = book.swarm_events();
         let peer_a = PeerId::random();
         let addr_1: Multiaddr = "/ip4/1.1.1.1/tcp/3333".parse().unwrap();
@@ -486,13 +483,8 @@ mod tests {
 
     #[async_std::test]
     async fn test_dial_with_added_addrs() {
-        let mut book = AddressBook::new(
-            PeerId::random(),
-            "".into(),
-            generate_keypair().public,
-            false,
-            true,
-        );
+        let mut book =
+            AddressBook::new(PeerId::random(), "".into(), generate_keypair(), false, true);
         let mut stream = book.swarm_events();
         let peer_a = PeerId::random();
         let addr_1: Multiaddr = "/ip4/1.1.1.1/tcp/3333".parse().unwrap();

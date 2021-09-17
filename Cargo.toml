@@ -11,8 +11,8 @@ resolver = "2"
 [dependencies]
 rocket = { version = "0.5.0-rc.1", features = ["json"] }
 anyhow = "1.0"
-didkit = { version = "0.2.1", path = "../didkit/lib" }
-ssi = { version = "0.2.2", path = "../ssi" }
+didkit = { path = "../didkit/lib" }
+ssi = { path = "../ssi" }
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 nom = "6"
 bs58 = "0.4"
@@ -38,7 +38,6 @@ futures = "0.3.15"
 ipfs-sqlite-block-store = "0.6.1"
 lazy_static = "1.4.0"
 libp2p-bitswap = "0.19.0"
-libp2p-blake-streams = "0.1.0"
 libp2p-broadcast = "0.5.0"
 names = "0.11.0"
 parking_lot = "0.11.1"
@@ -65,10 +64,9 @@ features = [
 ]
 
 [dev-dependencies]
-did-pkh = { git = "https://github.com/spruceid/ssi", branch = "main", package = "did-pkh" }
 async-std = { version = "1.9.0", features = ["attributes"] }
-libipld = { version = "0.12.0", default-features = false, features = ["dag-cbor", "dag-pb", "derive"] }
-libp2p-bitswap = { version = "0.19.0", default-features = false, features = ["compat"] }
+# libipld = { version = "0.12.0", default-features = false, features = ["dag-cbor", "dag-pb", "derive"] }
+# libp2p-bitswap = { version = "0.19.0", default-features = false, features = ["compat"] }
 multihash = { version = "0.14.0", default-features = false, features = ["blake3"] }
 rand = "0.8.4"
 tempdir = "0.3.7"

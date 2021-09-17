@@ -21,13 +21,11 @@ use libipld::{
 };
 use libp2p::{Multiaddr, PeerId};
 use rocket::{
-    futures::{Stream, StreamExt},
     http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::fs,
 };
 
-use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use ssi::did::DIDURL;
 use std::{
@@ -191,7 +189,7 @@ pub async fn create_orbit(
         "tz" => params_to_tz_orbit(oid, &params, tzkt_api).await?,
         _ => OrbitMetadata {
             id: oid.clone(),
-            controllers: controllers,
+            controllers,
             read_delegators: vec![],
             write_delegators: vec![],
             revocations: vec![],
@@ -219,34 +217,6 @@ pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
     }
     load_orbit_(oid, dir).await.map(|o| Some(o))
 }
-
-// struct KP(pub Keypair);
-
-// impl From<&Keypair> for KP {
-//     fn from(kp: &Keypair) -> Self {
-//         KP(Keypair::from_bytes(&kp.to_bytes()).unwrap())
-//     }
-// }
-
-// impl Clone for KP {
-//     fn clone(&self) -> Self {
-//         KP(Keypair::from_bytes(&self.0.to_bytes()).unwrap())
-//     }
-// }
-
-// impl PartialEq for KP {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.0.to_bytes() == other.0.to_bytes()
-//     }
-// }
-
-// impl Eq for KP {}
-
-// impl Hash for KP {
-//     fn hash<H: Hasher>(&self, state: &mut H) {
-//         self.0.to_bytes().hash(state);
-//     }
-// }
 
 // TODO oid and dir are redundant
 //

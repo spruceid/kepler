@@ -59,8 +59,16 @@ impl<S: StoreParams> Drop for StorageService<S> {
     }
 }
 
-#[cached(size = 100, time = 60, result = true)]
 pub fn open_store(oid: Cid, dir: PathBuf) -> Result<StorageService<DefaultParams>> {
+    match open_store_(oid, dir.clone()) {
+        Ok(s) => Ok(s),
+        Err(_) => open_store_(oid, dir),
+    }
+}
+
+// TODO race condition because there can't be multiple sqlite connections
+#[cached(size = 100, time = 60, result = true)]
+pub fn open_store_(oid: Cid, dir: PathBuf) -> Result<StorageService<DefaultParams>> {
     let sweep_interval = std::time::Duration::from_millis(10000);
     let storage_config = StorageConfig::new(
         oid.to_string(),
@@ -266,7 +274,9 @@ where
     F: FnOnce() -> Result<T>,
 {
     QUERIES_TOTAL.with_label_values(&[orbit, name]).inc();
-    let timer = QUERY_DURATION.with_label_values(&[name]).start_timer();
+    let timer = QUERY_DURATION
+        .with_label_values(&[orbit, name])
+        .start_timer();
     let res = query();
     if res.is_ok() {
         timer.observe_duration();
@@ -281,7 +291,9 @@ where
     F: Future<Output = anyhow::Result<T>>,
 {
     QUERIES_TOTAL.with_label_values(&[orbit, name]).inc();
-    let timer = QUERY_DURATION.with_label_values(&[name]).start_timer();
+    let timer = QUERY_DURATION
+        .with_label_values(&[orbit, name])
+        .start_timer();
     let res = query.await;
     if res.is_ok() {
         timer.observe_duration();

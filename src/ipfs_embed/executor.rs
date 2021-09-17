@@ -103,46 +103,46 @@ impl<T> Future for JoinHandle<T> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::super::*;
-    use super::*;
-    use tempdir::TempDir;
+// #[cfg(test)]
+// mod test {
+//     use super::super::*;
+//     use super::*;
+//     use tempdir::TempDir;
 
-    #[test]
-    async fn should_work_with_async_global_per_default() {
-        use futures::executor::block_on;
-        let tmp = TempDir::new("ipfs-embed").unwrap();
-        block_on(Ipfs::<DefaultParams>::new(Config::new(
-            tmp.path(),
-            generate_keypair(),
-        )))
-        .unwrap();
-    }
+//     #[test]
+//     async fn should_work_with_async_global_per_default() {
+//         use futures::executor::block_on;
+//         let tmp = TempDir::new("ipfs-embed").unwrap();
+//         block_on(Ipfs::<DefaultParams>::new(Config::new(
+//             tmp.path(),
+//             generate_keypair(),
+//         )))
+//         .unwrap();
+//     }
 
-    #[test]
-    #[should_panic(
-        expected = "here is no reactor running, must be called from the context of a Tokio 1.x runtime"
-    )]
-    async fn should_panic_without_a_tokio_runtime() {
-        use futures::executor::block_on;
-        let tmp = TempDir::new("ipfs-embed").unwrap();
-        let _ = block_on(Ipfs::<DefaultParams>::new0(
-            Config::new(tmp.path(), generate_keypair()),
-            Executor::Tokio,
-        ));
-    }
+//     #[test]
+//     #[should_panic(
+//         expected = "here is no reactor running, must be called from the context of a Tokio 1.x runtime"
+//     )]
+//     async fn should_panic_without_a_tokio_runtime() {
+//         use futures::executor::block_on;
+//         let tmp = TempDir::new("ipfs-embed").unwrap();
+//         let _ = block_on(Ipfs::<DefaultParams>::new0(
+//             Config::new(tmp.path(), generate_keypair()),
+//             Executor::Tokio,
+//         ));
+//     }
 
-    #[test]
-    async fn should_not_panic_with_a_tokio_runtime() {
-        let tmp = TempDir::new("ipfs-embed").unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        rt.block_on(Ipfs::<DefaultParams>::new0(
-            Config::new(tmp.path(), generate_keypair()),
-            Executor::Tokio,
-        ))
-        .unwrap();
-    }
-}
+//     #[test]
+//     async fn should_not_panic_with_a_tokio_runtime() {
+//         let tmp = TempDir::new("ipfs-embed").unwrap();
+//         let rt = tokio::runtime::Builder::new_current_thread()
+//             .build()
+//             .unwrap();
+//         rt.block_on(Ipfs::<DefaultParams>::new0(
+//             Config::new(tmp.path(), generate_keypair()),
+//             Executor::Tokio,
+//         ))
+//         .unwrap();
+//     }
+// }

@@ -28,6 +28,7 @@ use libp2p::Multiaddr;
 use std::collections::HashMap as Map;
 
 type RelayAddr = Multiaddr;
+// TODO remove type, let inference do its work?
 type NetworkServices<'a> = Map<Cid, &'a NetworkService<DefaultParams>>;
 
 use routes::{

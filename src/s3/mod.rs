@@ -126,10 +126,10 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 
 #[cfg(test)]
 mod test {
+    use super::super::ipfs_embed::{db::open_store, net::Event as SwarmEvent, open_orbit_ipfs};
     use super::*;
-    use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, thread::sleep, time::Duration};
 
     fn tracing_try_init() {
         tracing_subscriber::fmt()
@@ -140,25 +140,25 @@ mod test {
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
-        let mut config = Config::new(&path, generate_keypair());
-        config.network.broadcast = None;
-        let ipfs = Ipfs::new(config).await?;
-        ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?.next().await;
-        let task_ipfs = ipfs.clone();
+        let oid = Cid::default();
+        let network_service =
+            open_orbit_ipfs(oid, path.clone(), "/ip4/0.0.0.0/tcp/0".parse()?).await?;
+        let network_service2 = network_service.clone();
         tokio::spawn(async move {
-            let mut events = task_ipfs.swarm_events();
+            // TODO I think maybe this should go through the behaviour or the event_stream?
+            let mut events = network_service2.swarm_events();
             loop {
                 match events.next().await {
                     Some(SwarmEvent::Discovered(p)) => {
                         tracing::debug!("dialing peer {}", p);
-                        &task_ipfs.dial(&p);
+                        &network_service2.dial(&p);
                     }
                     None => return,
                     _ => continue,
                 }
             }
         });
-        Store::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
+        Store::new(id.to_string(), network_service, oid, path)
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -169,10 +169,18 @@ mod test {
 
         let alice = create_store(&id, tmp.path().join("alice")).await?;
         let bob = create_store(&id, tmp.path().join("bob")).await?;
+        alice.network_service.add_address(
+            &bob.network_service.local_peer_id(),
+            bob.network_service.listeners()[0].clone(),
+        );
+        bob.network_service.add_address(
+            &alice.network_service.local_peer_id(),
+            alice.network_service.listeners()[0].clone(),
+        );
 
         let alice_service = alice.start_service()?;
         let bob_service = bob.start_service()?;
-        std::thread::sleep_ms(2000);
+        sleep(Duration::from_millis(2000));
 
         let json = r#"{"hello":"there"}"#;
         let key1 = "my_json.json";
@@ -206,7 +214,7 @@ mod test {
             assert_eq!(alice_service.get(key2)?, None);
         };
 
-        std::thread::sleep_ms(500);
+        sleep(Duration::from_millis(500));
         assert_eq!(
             bob_service.get(key1)?.expect("object 1 not found for bob"),
             alice_service
@@ -225,7 +233,7 @@ mod test {
 
         assert_eq!(alice_service.get(key1)?, None);
 
-        std::thread::sleep_ms(500);
+        sleep(Duration::from_millis(500));
 
         assert_eq!(bob_service.get(key1)?, None);
 
