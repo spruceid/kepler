@@ -4,7 +4,7 @@ use libp2p::{
         identity::Keypair,
         multiaddr::multiaddr,
         transport::MemoryTransport,
-        upgrade::{Version, SelectUpgrade}, Multiaddr, Transport
+        upgrade::{Version, SelectUpgrade}, Multiaddr, Transport, PeerId
     },
     noise::{self, NoiseConfig, X25519Spec},
     relay::new_transport_and_behaviour,

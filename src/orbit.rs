@@ -6,7 +6,7 @@ use crate::{
     zcap::{ZCAPAuthorization, ZCAPTokens},
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{generate_keypair, Config, Ipfs, PeerId};
+use ipfs_embed::{generate_keypair, Config, Ipfs, PeerId, multiaddr::multiaddr, Multiaddr};
 use libipld::{
     cid::{
         multibase::Base,
@@ -19,6 +19,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::fs,
+    futures::StreamExt
 };
 
 use cached::proc_macro::cached;
@@ -131,6 +132,7 @@ pub async fn create_orbit(
     controllers: Vec<DIDURL>,
     auth: &[u8],
     auth_type: AuthTypes,
+    relay: (PeerId, Multiaddr)
 ) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -154,30 +156,33 @@ pub async fn create_orbit(
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
 
-    Ok(Some(load_orbit(oid, path).await.map(|o| {
+    Ok(Some(load_orbit(oid, path, relay).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
     })??))
 }
 
-pub async fn load_orbit(oid: Cid, path: PathBuf) -> Result<Option<Orbit>> {
+pub async fn load_orbit(oid: Cid, path: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(oid, dir).await.map(|o| Some(o))
+    load_orbit_(oid, dir, relay).await.map(|o| Some(o))
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(oid: Cid, dir: PathBuf) -> Result<Orbit> {
+async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
     let cfg = Config::new(&dir.join("block_store"), generate_keypair());
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     let controllers = md.controllers.clone();
+
+    ipfs.listen_on(multiaddr!(P2pCircuit))?.next().await;
+    ipfs.dial_address(&relay.0, relay.1);
 
     Ok(Orbit {
         ipfs,

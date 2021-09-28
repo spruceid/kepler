@@ -19,11 +19,14 @@ pub mod routes;
 pub mod s3;
 pub mod tz;
 pub mod zcap;
+pub mod relay;
 
 use routes::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
-    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content,
+    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content, relay_addr
 };
+use relay::RelayNode;
+use ipfs_embed::{generate_keypair, ToLibp2p};
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
@@ -36,13 +39,16 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         ));
     }
 
+    let relay_node = RelayNode::new(kepler_config.relay.port, generate_keypair().to_keypair())?;
+
     let mut routes = routes![
         put_content,
         batch_put_content,
         delete_content,
         open_orbit_allowlist,
         open_orbit_authz,
-        cors
+        cors,
+        relay_addr
     ];
 
     if kepler_config.orbits.public {
@@ -66,7 +72,9 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
-        })))
+        }))
+       .manage(relay_node)
+    )
 }
 
 #[test]
