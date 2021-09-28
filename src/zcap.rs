@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssi::{
     did::DIDURL,
-    did_resolve::DIDResolver,
     vc::URI,
     zcap::{Delegation, Invocation},
 };
