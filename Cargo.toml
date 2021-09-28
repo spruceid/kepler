@@ -9,7 +9,7 @@ resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ipfs-embed = { path = "../ipfs-embed", default-features = false, features = ["tokio"] }
+ipfs-embed = { git = "https://github.com/spruceid/ipfs-embed", branch = "feat/p2pcircuit-v1", default-features = false, features = ["tokio"] }
 rocket = { version = "0.5.0-rc.1", features = ["json"] }
 anyhow = "1.0"
 didkit = "0.3"

@@ -2092,6 +2092,7 @@ dependencies = [
 [[package]]
 name = "ipfs-embed"
 version = "0.22.4"
+source = "git+https://github.com/spruceid/ipfs-embed?branch=feat/p2pcircuit-v1#1feedd1420b5b829d17a15403d343399a35c286a"
 dependencies = [
  "anyhow",
  "async-io",
