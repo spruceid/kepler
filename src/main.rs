@@ -1,8 +1,10 @@
-use kepler::{app, config};
+use kepler::{app, config, tracing_try_init};
 use rocket::figment::providers::{Format, Serialized, Toml, Env};
 
 #[rocket::main]
 async fn main() {
+    tracing_try_init();
+
     let config = rocket::figment::Figment::from(rocket::Config::default())
         .merge(Serialized::defaults(config::Config::default()))
         .merge(Toml::file("kepler.toml").nested())

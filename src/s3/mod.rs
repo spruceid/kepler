@@ -124,13 +124,7 @@ mod test {
     use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
     use std::{collections::BTreeMap, time::Duration};
-
-    fn tracing_try_init() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .try_init()
-            .ok();
-    }
+    use crate::tracing_try_init;
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;

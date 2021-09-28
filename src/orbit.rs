@@ -181,7 +181,9 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
     let controllers = md.controllers.clone();
 
+    // listen for any relayed messages
     ipfs.listen_on(multiaddr!(P2pCircuit))?.next().await;
+    // establish a connection to the relay
     ipfs.dial_address(&relay.0, relay.1);
 
     Ok(Orbit {

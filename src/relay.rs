@@ -101,7 +101,7 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn relay() -> Result<()>{
-        crate::s3::test::tracing_try_init();
+        crate::tracing_try_init();
         let relay = RelayNode::new(10000, generate_keypair().to_keypair())?;
         let tmp = TempDir::new("test")?;
 

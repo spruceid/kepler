@@ -28,6 +28,13 @@ use routes::{
 use relay::RelayNode;
 use ipfs_embed::{generate_keypair, ToLibp2p, Keypair};
 
+pub fn tracing_try_init() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+}
+
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
 
