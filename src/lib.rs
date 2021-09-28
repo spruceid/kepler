@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
+use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket, tokio::fs};
 
 pub mod allow_list;
 pub mod auth;
@@ -26,7 +26,7 @@ use routes::{
     list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content, relay_addr
 };
 use relay::RelayNode;
-use ipfs_embed::{generate_keypair, ToLibp2p};
+use ipfs_embed::{generate_keypair, ToLibp2p, Keypair};
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
@@ -39,7 +39,15 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         ));
     }
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, generate_keypair().to_keypair())?;
+    let kp: Keypair = if let Ok(bytes) = fs::read(kepler_config.database.path.join("kp")).await {
+        Keypair::from_bytes(&bytes)?
+    } else {
+        let kp = generate_keypair();
+        fs::write(kepler_config.database.path.join("kp"), kp.to_bytes()).await?;
+        kp
+    };
+
+    let relay_node = RelayNode::new(kepler_config.relay.port, kp.to_keypair())?;
 
     let mut routes = routes![
         put_content,
