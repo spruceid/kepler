@@ -21,6 +21,7 @@ pub mod s3;
 pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
+pub mod nft;
 
 use ipfs_embed::{generate_keypair, Keypair, ToLibp2p};
 use relay::RelayNode;
