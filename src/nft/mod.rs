@@ -1,7 +1,39 @@
 use ethcontract::{
     contract,
-    web3::types::{Address, U256},
+    web3::{
+        types::{Address, U256},
+        Web3,
+    },
 };
+
+pub mod caip2 {
+    pub struct ChainId {
+        namespace: String,
+        reference: String,
+    }
+}
+
+pub mod caip19 {
+    use super::*;
+    use nom::{character::complete::alphanumeric1, character::is_alphanumeric};
+    use std::{fmt::Display, str::FromStr};
+
+    pub struct AssetType {
+        chain_id: caip2::ChainId,
+        asset_namespace: String,
+        asset_reference: String,
+    }
+
+    impl FromStr for AssetType {
+        type Err = anyhow::Error;
+        fn from_str(s: &str) -> Result<Self, Self::Error> {}
+    }
+
+    pub struct AssetId {
+        asset_type: AssetType,
+        token_id: String,
+    }
+}
 
 #[rocket::async_trait]
 pub trait TokenInterface {
@@ -38,7 +70,7 @@ impl TokenInterface for erc721::Contract {
     }
 }
 
-pub struct ERC1155(pub erc1155::Contract, pub U256);
+pub struct ERC1155(erc1155::Contract, pub U256);
 
 #[rocket::async_trait]
 impl TokenInterface for ERC1155 {
