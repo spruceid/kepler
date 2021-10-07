@@ -38,7 +38,7 @@ impl TokenInterface for erc721::Contract {
     }
 }
 
-pub struct ERC1155(erc1155::Contract, U256);
+pub struct ERC1155(pub erc1155::Contract, pub U256);
 
 #[rocket::async_trait]
 impl TokenInterface for ERC1155 {
