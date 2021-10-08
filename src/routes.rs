@@ -1,10 +1,10 @@
 use anyhow::{Error, Result};
-use rocket::response::Debug;
+use ipfs_embed::{Keypair, ToLibp2p};
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
     http::Status,
-    serde::json::Json,
+    serde::{json::Json, Serialize},
     State,
 };
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTypes, Orbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, Orbit, PID};
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
 async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)> {
@@ -56,8 +56,9 @@ pub async fn list_content(
 pub async fn list_content_no_auth(
     orbit_id: CidWrap,
     config: &State<config::Config>,
+    kp: &State<Keypair>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
-    let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
+    let orbit = match load_orbit(orbit_id.0, config.database.path.clone(), kp).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -70,7 +71,7 @@ pub async fn get_content(
     _orbit_id: CidWrap,
     hash: CidWrap,
     orbit: GetAuthWrapper,
-) -> Result<Option<Vec<u8>>, Debug<Error>> {
+) -> Result<Option<Vec<u8>>, (Status, String)> {
     match orbit.0.get(&hash.0).await {
         Ok(Some(content)) => Ok(Some(content.to_vec())),
         Ok(None) => Ok(None),
@@ -83,8 +84,9 @@ pub async fn get_content_no_auth(
     orbit_id: CidWrap,
     hash: CidWrap,
     config: &State<config::Config>,
+    kp: &State<Keypair>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
-    let orbit = match load_orbit(orbit_id.0, config.database.path.clone()).await {
+    let orbit = match load_orbit(orbit_id.0, config.database.path.clone(), kp).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -187,6 +189,7 @@ pub async fn open_orbit_allowlist(
     orbit_id: CidWrap,
     params_str: &str,
     config: &State<config::Config>,
+    kp: &State<Keypair>,
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
@@ -201,7 +204,9 @@ pub async fn open_orbit_allowlist(
                     config.database.path.clone(),
                     controllers,
                     &[],
-                    AuthTypes::ZCAP,
+                    params_str,
+                    &kp,
+                    &config.tzkt.api,
                 )
                 .await
                 .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
@@ -216,4 +221,16 @@ pub async fn open_orbit_allowlist(
 #[options("/<_s..>")]
 pub async fn cors(_s: PathBuf) -> () {
     ()
+}
+
+#[derive(Serialize)]
+pub struct HostInfo {
+    pub id: PID,
+}
+
+#[get("/host")]
+pub async fn get_host_info(kp: &State<Keypair>) -> Result<Json<HostInfo>, (Status, &'static str)> {
+    Ok(Json(HostInfo {
+        id: PID(kp.to_peer_id()),
+    }))
 }

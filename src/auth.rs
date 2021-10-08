@@ -1,8 +1,9 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, AuthTypes, Orbit};
+use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
+use ipfs_embed::Keypair;
 use libipld::cid::Cid;
 use rocket::{
     http::Status,
@@ -93,9 +94,8 @@ pub trait AuthorizationToken {
 }
 
 #[rocket::async_trait]
-pub trait AuthorizationPolicy {
-    type Token: AuthorizationToken;
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()>;
+pub trait AuthorizationPolicy<T> {
+    async fn authorize(&self, auth_token: &T) -> Result<()>;
 }
 
 pub struct PutAuthWrapper(pub Orbit);
@@ -104,15 +104,14 @@ pub struct DelAuthWrapper(pub Orbit);
 pub struct CreateAuthWrapper(pub Orbit);
 pub struct ListAuthWrapper(pub Orbit);
 
-async fn extract_info<T>(
-    req: &Request<'_>,
-) -> Result<(Vec<u8>, AuthTokens, config::Config, Cid), Outcome<T, anyhow::Error>> {
+async fn extract_info<'a, T>(
+    req: &'a Request<'_>,
+) -> Result<(Vec<u8>, AuthTokens, config::Config, &'a Keypair, Cid), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
         None => "",
     };
-    info_!("Headers: {}", auth_data);
     let config = match req.rocket().state::<config::Config>() {
         Some(c) => c,
         None => {
@@ -122,17 +121,32 @@ async fn extract_info<T>(
             )));
         }
     };
+    let kp = match req.rocket().state::<Keypair>() {
+        Some(kp) => kp,
+        None => {
+            return Err(Outcome::Failure((
+                Status::InternalServerError,
+                anyhow!("Could not retrieve key pair"),
+            )))
+        }
+    };
     let oid: Cid = match req.param::<CidWrap>(0) {
         Some(Ok(o)) => o.0,
         _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
-                anyhow!("Could not retrieve Orbit ID"),
+                anyhow!("Could not retrieve config"),
             )));
         }
     };
     match AuthTokens::from_request(req).await {
-        Outcome::Success(token) => Ok((auth_data.as_bytes().to_vec(), token, config.clone(), oid)),
+        Outcome::Success(token) => Ok((
+            auth_data.as_bytes().to_vec(),
+            token,
+            config.clone(),
+            kp,
+            oid,
+        )),
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
@@ -150,7 +164,7 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config, oid) = match extract_info(req).await {
+                let (_, token, config, kp, oid) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
@@ -160,22 +174,23 @@ macro_rules! impl_fromreq {
                         anyhow!("Token target orbit not matching endpoint"),
                     )),
                     (Action::$method { .. }, true) => {
-                        let orbit =
-                            match load_orbit(*token.target_orbit(), config.database.path.clone())
-                                .await
-                            {
-                                Ok(Some(o)) => o,
-                                Ok(None) => {
-                                    return Outcome::Failure((
-                                        Status::NotFound,
-                                        anyhow!("No Orbit found"),
-                                    ))
-                                }
-                                Err(e) => {
-                                    return Outcome::Failure((Status::InternalServerError, e))
-                                }
-                            };
-                        match orbit.auth().authorize(token).await {
+                        let orbit = match load_orbit(
+                            *token.target_orbit(),
+                            config.database.path.clone(),
+                            kp,
+                        )
+                        .await
+                        {
+                            Ok(Some(o)) => o,
+                            Ok(None) => {
+                                return Outcome::Failure((
+                                    Status::NotFound,
+                                    anyhow!("No Orbit found"),
+                                ))
+                            }
+                            Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+                        };
+                        match orbit.authorize(&token).await {
                             Ok(_) => Outcome::Success(Self(orbit)),
                             Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                         }
@@ -200,7 +215,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config, oid) = match extract_info(req).await {
+        let (auth_data, token, config, kp, oid) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
@@ -293,7 +308,9 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     config.database.path.clone(),
                     controllers,
                     &auth_data,
-                    AuthTypes::ZCAP,
+                    &parameters,
+                    kp,
+                    &config.tzkt.api,
                 )
                 .await
                 {
