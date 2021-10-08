@@ -11,7 +11,7 @@ import crypto = require('crypto');
 
 const secrets = ['edsk3QoqBuvdamxouPhin7swCvkQNgq4jP5KZPbwWNnwdZpSpJiEbq', 'edsk3RFfvaFaxbHx8BMtEW1rKQcPtDML3LXjNqMNLCzC3wLC1bWbAt'];
 
-const buildContext = path.resolve(__dirname, '..');
+const buildContext = path.resolve(__dirname, '.');
 const composeFile = 'sandbox.yml';
 const kepler1Port = 8000;
 const kepler2Port = 9000;

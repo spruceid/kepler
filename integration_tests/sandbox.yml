@@ -43,7 +43,7 @@ services:
       - 8732:20000
 
   kepler1:
-    build: .
+    build: ..
     image: kepler-sandbox-build
     environment:
       - KEPLER_DATABASE_PATH=/data
