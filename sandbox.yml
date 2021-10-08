@@ -43,9 +43,8 @@ services:
       - 8732:20000
 
   kepler1:
-    container_name: kepler-1
-    restart: always
-    image: kepler:latest
+    build: .
+    image: kepler-sandbox-build
     environment:
       - KEPLER_DATABASE_PATH=/data
       - KEPLER_TZKT_API=http://api:5000/
@@ -57,9 +56,9 @@ services:
       - 8000:8000
 
   kepler2:
-    container_name: kepler-2
-    restart: always
-    image: kepler:latest
+    image: kepler-sandbox-build
+    depends_on:
+      - kepler1
     environment:
       - KEPLER_DATABASE_PATH=/data
       - KEPLER_TZKT_API=http://api:5000/
