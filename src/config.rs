@@ -5,6 +5,7 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Config {
     pub database: Database,
+    pub tzkt: Tzkt,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
 }
@@ -26,6 +27,19 @@ impl Default for Database {
     fn default() -> Database {
         Database {
             path: PathBuf::from(r"/tmp/kepler"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Tzkt {
+    pub api: String,
+}
+
+impl Default for Tzkt {
+    fn default() -> Self {
+        Self {
+            api: "http://localhost:5000".into(),
         }
     }
 }

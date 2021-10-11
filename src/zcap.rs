@@ -1,4 +1,7 @@
-use crate::auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken};
+use crate::{
+    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
+    orbit::OrbitMetadata,
+};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use didkit::DID_METHODS;
@@ -39,8 +42,6 @@ pub struct InvProps {
 
 pub type KeplerInvocation = Invocation<InvProps>;
 pub type KeplerDelegation = Delegation<(), DelProps>;
-
-pub type ZCAPAuthorization = Vec<DIDURL>;
 
 #[derive(Clone)]
 pub struct ZCAPTokens {
@@ -89,10 +90,8 @@ impl AuthorizationToken for ZCAPTokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy for ZCAPAuthorization {
-    type Token = ZCAPTokens;
-
-    async fn authorize<'a>(&self, auth_token: &'a Self::Token) -> Result<()> {
+impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
+    async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
         let invoker_vm = auth_token
             .invocation
             .proof
@@ -108,8 +107,23 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                     .and_then(|proof| proof.verification_method.as_ref())
                     .ok_or_else(|| anyhow!("Missing delegation verification method"))
                     .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
-                if !self.contains(&delegator_vm) {
-                    return Err(anyhow!("Delegator not authorized"));
+                match auth_token.invocation.property_set.capability_action {
+                    Action::List | Action::Get(_) => {
+                        if !self.read_delegators.contains(&delegator_vm)
+                            && !self.write_delegators.contains(&delegator_vm)
+                            && !self.controllers.contains(&delegator_vm)
+                        {
+                            return Err(anyhow!("Delegator not authorized"));
+                        }
+                    }
+                    Action::Put(_) | Action::Del(_) => {
+                        if !self.write_delegators.contains(&delegator_vm)
+                            && !self.controllers.contains(&delegator_vm)
+                        {
+                            return Err(anyhow!("Delegator not write-authorized"));
+                        }
+                    }
+                    _ => return Err(anyhow!("Invalid Action")),
                 };
                 if let Some(ref authorized_invoker) = d.invoker {
                     if authorized_invoker != &URI::String(invoker_vm.to_string()) {
@@ -145,8 +159,23 @@ impl AuthorizationPolicy for ZCAPAuthorization {
                 res
             }
             None => {
-                if !self.contains(&invoker_vm) {
-                    return Err(anyhow!("Invoker not authorized"));
+                match auth_token.invocation.property_set.capability_action {
+                    Action::List | Action::Get(_) => {
+                        if !self.read_delegators.contains(&invoker_vm)
+                            && !self.write_delegators.contains(&invoker_vm)
+                            && !self.controllers.contains(&invoker_vm)
+                        {
+                            return Err(anyhow!("Invoker not authorized"));
+                        }
+                    }
+                    Action::Put(_) | Action::Del(_) => {
+                        if !self.write_delegators.contains(&invoker_vm)
+                            && !self.controllers.contains(&invoker_vm)
+                        {
+                            return Err(anyhow!("Invoker not authorized"));
+                        }
+                    }
+                    _ => return Err(anyhow!("Invalid Action")),
                 };
                 auth_token
                     .invocation

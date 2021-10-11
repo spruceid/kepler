@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket, tokio::fs};
+use rocket::{fairing::AdHoc, figment::Figment, http::Header, tokio::fs, Build, Rocket};
 
 pub mod allow_list;
 pub mod auth;
@@ -15,18 +15,19 @@ pub mod codec;
 pub mod config;
 pub mod ipfs;
 pub mod orbit;
+pub mod relay;
 pub mod routes;
 pub mod s3;
 pub mod tz;
+pub mod tz_orbit;
 pub mod zcap;
-pub mod relay;
 
+use ipfs_embed::{generate_keypair, Keypair, ToLibp2p};
+use relay::RelayNode;
 use routes::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
-    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content, relay_addr
+    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content, relay_addr,
 };
-use relay::RelayNode;
-use ipfs_embed::{generate_keypair, ToLibp2p, Keypair};
 
 pub fn tracing_try_init() {
     tracing_subscriber::fmt()
@@ -88,8 +89,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
         }))
-       .manage(relay_node)
-    )
+        .manage(relay_node))
 }
 
 #[test]
