@@ -123,14 +123,8 @@ mod test {
     use super::*;
     use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
-    use std::collections::BTreeMap;
-
-    fn tracing_try_init() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .try_init()
-            .ok();
-    }
+    use std::{collections::BTreeMap, time::Duration};
+    use crate::tracing_try_init;
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
@@ -166,7 +160,7 @@ mod test {
 
         let alice_service = alice.start_service()?;
         let bob_service = bob.start_service()?;
-        std::thread::sleep_ms(2000);
+        std::thread::sleep(Duration::from_millis(500));
 
         let json = r#"{"hello":"there"}"#;
         let key1 = "my_json.json";
@@ -200,7 +194,7 @@ mod test {
             assert_eq!(alice_service.get(key2)?, None);
         };
 
-        std::thread::sleep_ms(500);
+        std::thread::sleep(Duration::from_millis(500));
         assert_eq!(
             bob_service.get(key1)?.expect("object 1 not found for bob"),
             alice_service
@@ -219,7 +213,7 @@ mod test {
 
         assert_eq!(alice_service.get(key1)?, None);
 
-        std::thread::sleep_ms(500);
+        std::thread::sleep(Duration::from_millis(500));
 
         assert_eq!(bob_service.get(key1)?, None);
 

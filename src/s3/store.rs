@@ -22,7 +22,7 @@ impl Delta {
         Self { priority, add, rmv }
     }
 
-    pub fn merge(self, other: Self) -> Self {
+    pub fn _merge(self, other: Self) -> Self {
         let mut add = self.add;
         let mut other_add = other.add;
         add.append(&mut other_add);
@@ -125,7 +125,7 @@ impl Store {
             .into_iter()
             .map(|(s, v)| {
                 let data_block = to_block_raw(&v)?;
-                let s3_obj = s.add_content(*data_block.cid(), height)?;
+                let s3_obj = s.add_content(*data_block.cid())?;
                 let s3_block = s3_obj.to_block()?;
                 Ok((s3_obj, s3_block, data_block))
             })

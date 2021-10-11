@@ -1,9 +1,10 @@
 use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
+use crate::relay::RelayNode;
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
-use ipfs_embed::Keypair;
+use ipfs_embed::{Multiaddr, PeerId};
 use libipld::cid::Cid;
 use rocket::{
     http::Status,
@@ -104,9 +105,18 @@ pub struct DelAuthWrapper(pub Orbit);
 pub struct CreateAuthWrapper(pub Orbit);
 pub struct ListAuthWrapper(pub Orbit);
 
-async fn extract_info<'a, T>(
-    req: &'a Request<'_>,
-) -> Result<(Vec<u8>, AuthTokens, config::Config, &'a Keypair, Cid), Outcome<T, anyhow::Error>> {
+async fn extract_info<T>(
+    req: &Request<'_>,
+) -> Result<
+    (
+        Vec<u8>,
+        AuthTokens,
+        config::Config,
+        Cid,
+        (PeerId, Multiaddr),
+    ),
+    Outcome<T, anyhow::Error>,
+> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -121,15 +131,6 @@ async fn extract_info<'a, T>(
             )));
         }
     };
-    let kp = match req.rocket().state::<Keypair>() {
-        Some(kp) => kp,
-        None => {
-            return Err(Outcome::Failure((
-                Status::InternalServerError,
-                anyhow!("Could not retrieve key pair"),
-            )))
-        }
-    };
     let oid: Cid = match req.param::<CidWrap>(0) {
         Some(Ok(o)) => o.0,
         _ => {
@@ -139,13 +140,22 @@ async fn extract_info<'a, T>(
             )));
         }
     };
+    let relay = match req.rocket().state::<RelayNode>() {
+        Some(r) => (r.id.clone(), r.internal()),
+        _ => {
+            return Err(Outcome::Failure((
+                Status::InternalServerError,
+                anyhow!("Could not retrieve Relay Node information"),
+            )));
+        }
+    };
     match AuthTokens::from_request(req).await {
         Outcome::Success(token) => Ok((
             auth_data.as_bytes().to_vec(),
             token,
             config.clone(),
-            kp,
             oid,
+            relay,
         )),
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
@@ -164,7 +174,7 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config, kp, oid) = match extract_info(req).await {
+                let (_, token, config, oid, relay) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
                 };
@@ -177,7 +187,7 @@ macro_rules! impl_fromreq {
                         let orbit = match load_orbit(
                             *token.target_orbit(),
                             config.database.path.clone(),
-                            kp,
+                            relay,
                         )
                         .await
                         {
@@ -215,7 +225,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config, kp, oid) = match extract_info(req).await {
+        let (auth_data, token, config, oid, relay) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
@@ -296,12 +306,6 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                         }
                         vec![vm]
                     }
-                    _ => {
-                        return Outcome::Failure((
-                            Status::Unauthorized,
-                            anyhow!("Missing Authorization"),
-                        ))
-                    }
                 };
                 match create_orbit(
                     *token.target_orbit(),
@@ -309,8 +313,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     controllers,
                     &auth_data,
                     &parameters,
-                    kp,
                     &config.tzkt.api,
+                    relay,
                 )
                 .await
                 {

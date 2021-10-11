@@ -1,4 +1,4 @@
-use super::{to_block, to_block_raw};
+use super::to_block;
 use anyhow::Result;
 use libipld::{cid::Cid, Block, DagCbor, DefaultParams};
 use std::collections::BTreeMap;
@@ -41,7 +41,7 @@ impl ObjectBuilder {
         }
     }
 
-    pub fn add_content(self, value: Cid, priority: u64) -> Result<Object> {
+    pub fn add_content(self, value: Cid) -> Result<Object> {
         Ok(Object::new(self.key, value, self.metadata))
     }
 }

@@ -1,6 +1,6 @@
 ![kepler header](/docs/keplerheader.png)
 
-[![](https://img.shields.io/badge/License-Apache--2.0-green)](https://github.com/spruceid/kepler/blob/main/LICENSE) [![](https://img.shields.io/twitter/follow/spruceid?label=Follow&style=social)](https://twitter.com/spruceid)
+[![](https://img.shields.io/badge/License-Apache--2.0-green)](https://github.com/spruceid/kepler/blob/main/LICENSE) [![](https://img.shields.io/twitter/follow/sprucesystems?label=Follow&style=social)](https://twitter.com/sprucesystems)
 
 # Kepler
 
