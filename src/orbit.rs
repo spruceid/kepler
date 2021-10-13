@@ -184,7 +184,8 @@ pub async fn load_orbit(
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
 async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let cfg = Config::new(&dir.join("block_store"), generate_keypair());
+    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
+    let cfg = Config::new(&dir.join("block_store"), kp);
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
