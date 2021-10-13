@@ -11,79 +11,20 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
 use std::str::FromStr;
 
-pub mod cid_serde {
-    use libipld::cid::{multibase::Base, Cid};
-    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        ser.serialize_str(
-            &cid.to_string_of_base(Base::Base58Btc)
-                .map_err(S::Error::custom)?,
-        )
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deser)?;
-        s.parse().map_err(D::Error::custom)
-    }
-}
-pub mod vec_cid_serde {
-    use libipld::cid::{
-        multibase::{decode, Base},
-        Cid,
-    };
-    use serde::{
-        de::Error as SError, ser::Error as DError, ser::SerializeSeq, Deserialize, Deserializer,
-        Serializer,
-    };
-
-    pub fn serialize<S>(vec: &Vec<Cid>, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = ser.serialize_seq(Some(vec.len()))?;
-        for cid in vec {
-            seq.serialize_element(
-                &cid.to_string_of_base(Base::Base58Btc)
-                    .map_err(S::Error::custom)?,
-            )?;
-        }
-        seq.end()
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Vec<Cid>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Vec<&str> = Deserialize::deserialize(deser)?;
-        s.iter()
-            .map(|sc| {
-                decode(sc).map_err(D::Error::custom).and_then(|(_, bytes)| {
-                    Cid::read_bytes(bytes.as_slice()).map_err(D::Error::custom)
-                })
-            })
-            .collect()
-    }
-}
-
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
-    Put(#[serde(with = "vec_cid_serde")] Vec<Cid>),
-    Get(#[serde(with = "vec_cid_serde")] Vec<Cid>),
-    Del(#[serde(with = "vec_cid_serde")] Vec<Cid>),
+    Put(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Get(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Del(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
     Create {
         parameters: String,
-        #[serde(with = "vec_cid_serde")]
+        #[serde_as(as = "Vec<DisplayFromStr>")]
         content: Vec<Cid>,
     },
     List,

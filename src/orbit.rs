@@ -1,5 +1,5 @@
 use crate::{
-    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     tz::TezosAuthorizationString,
@@ -27,52 +27,24 @@ use rocket::{
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use std::{
-    collections::HashMap as Map,
-    convert::TryFrom,
-    hash::{Hash, Hasher},
-    ops::Deref,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{collections::HashMap as Map, convert::TryFrom, hash::Hash, path::PathBuf};
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
-    #[serde(with = "cid_serde")]
+    #[serde_as(as = "DisplayFromStr")]
     pub id: Cid,
     pub controllers: Vec<DIDURL>,
     pub read_delegators: Vec<DIDURL>,
     pub write_delegators: Vec<DIDURL>,
     #[serde(default)]
-    pub hosts: Map<PID, Vec<Multiaddr>>,
+    #[serde_as(as = "Map<DisplayFromStr, _>")]
+    pub hosts: Map<PeerId, Vec<Multiaddr>>,
     // TODO placeholder type
     pub revocations: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Hash, Debug)]
-#[serde(try_from = "&str", into = "String")]
-pub struct PID(pub PeerId);
-
-impl Deref for PID {
-    type Target = PeerId;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TryFrom<&str> for PID {
-    type Error = <PeerId as FromStr>::Err;
-    fn try_from(v: &str) -> Result<Self, Self::Error> {
-        Ok(Self(PeerId::from_str(v)?))
-    }
-}
-
-impl From<PID> for String {
-    fn from(pid: PID) -> Self {
-        pid.to_base58()
-    }
 }
 
 #[derive(Clone)]
@@ -264,8 +236,8 @@ impl Orbit {
         &self.metadata.id
     }
 
-    pub fn hosts<'a>(&'a self) -> Vec<&PeerId> {
-        self.metadata.hosts.iter().map(|(id, _)| &id.0).collect()
+    pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
+        self.metadata.hosts.keys()
     }
 
     pub fn controllers(&self) -> &[DIDURL] {
