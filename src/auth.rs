@@ -263,7 +263,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     controllers,
                     &auth_data,
                     &parameters,
-                    &config.tzkt.api,
+                    &config.chains,
                     relay,
                     keys,
                 )

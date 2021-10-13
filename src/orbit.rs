@@ -2,6 +2,8 @@ use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
+    config::ExternalApis,
+    s3::{Service, Store},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -123,7 +125,7 @@ pub async fn create_orbit(
     controllers: Vec<DIDURL>,
     auth: &[u8],
     uri: &str,
-    tzkt_api: &str,
+    chains: &ExternalApis,
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Keypair>>,
 ) -> Result<Option<Orbit>> {
@@ -139,8 +141,13 @@ pub async fn create_orbit(
 
     let (method, params) = verify_oid(&oid, uri)?;
 
-    let md = match method.as_str() {
-        "tz" => params_to_tz_orbit(oid, &params, tzkt_api).await?,
+    let md = match (method.as_str(), &chains) {
+        (
+            "tz",
+            ExternalApis {
+                tzkt: Some(api), ..
+            },
+        ) => params_to_tz_orbit(oid, &params, &api).await?,
         _ => OrbitMetadata {
             id: oid.clone(),
             controllers: controllers,

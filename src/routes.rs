@@ -220,7 +220,7 @@ pub async fn open_orbit_allowlist(
                     controllers,
                     &[],
                     params_str,
-                    &config.tzkt.api,
+                    &config.chains,
                     (relay.id, relay.internal()),
                     keys,
                 )
