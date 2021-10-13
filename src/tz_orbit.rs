@@ -87,7 +87,7 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
 
 pub async fn params_to_tz_orbit(
     oid: Cid,
-    params: &Map<&str, &str>,
+    params: &Map<String, String>,
     tzkt_api: &str,
 ) -> Result<OrbitMetadata> {
     match (params.get("address"), params.get("contract")) {

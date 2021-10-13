@@ -4,7 +4,7 @@ use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
 use crate::relay::RelayNode;
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
-use ipfs_embed::{Multiaddr, PeerId};
+use ipfs_embed::{Keypair, Multiaddr, PeerId};
 use libipld::cid::Cid;
 use rocket::{
     http::Status,
@@ -13,7 +13,7 @@ use rocket::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr, sync::RwLock};
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -170,7 +170,16 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             Ok(i) => i,
             Err(o) => return o,
         };
-        // TODO remove clone, or refactor the order of validations/actions
+        let keys = match req.rocket().state::<RwLock<HashMap<PeerId, Keypair>>>() {
+            Some(k) => k,
+            _ => {
+                return Outcome::Failure((
+                    Status::InternalServerError,
+                    anyhow!("Could not retrieve open key set"),
+                ));
+            }
+        };
+
         match (&token.action(), &oid == token.target_orbit()) {
             (_, false) => Outcome::Failure((
                 Status::BadRequest,
@@ -190,7 +199,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 };
                 let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
-                        match method {
+                        match method.as_str() {
                             "tz" => {}
                             _ => {
                                 return Outcome::Failure((
@@ -199,7 +208,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        if params.get("address") != Some(&token_tz.pkh.as_str()) {
+                        if params.get("address") != Some(&token_tz.pkh) {
                             return Outcome::Failure((
                                 Status::Unauthorized,
                                 anyhow!("Incorrect PKH param"),
@@ -224,8 +233,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        match (method, params.get("did"), params.get("vm")) {
-                            ("did", Some(&did), Some(&vm_id)) => {
+                        match (method.as_str(), params.get("did"), params.get("vm")) {
+                            ("did", Some(did), Some(vm_id)) => {
                                 let d = DIDURL {
                                     did: did.into(),
                                     fragment: Some(vm_id.into()),
@@ -256,6 +265,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     &parameters,
                     &config.tzkt.api,
                     relay,
+                    keys,
                 )
                 .await
                 {

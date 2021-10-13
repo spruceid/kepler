@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use ipfs_embed::{Keypair, ToLibp2p};
+use ipfs_embed::{Keypair, PeerId, ToLibp2p};
 use libp2p::multiaddr::Protocol;
 use rocket::{
     data::{Data, ToByteUnit},
@@ -8,7 +8,7 @@ use rocket::{
     serde::{json::Json, Serialize},
     State,
 };
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, sync::RwLock};
 
 use crate::allow_list::OrbitAllowList;
 use crate::auth::{
@@ -204,6 +204,7 @@ pub async fn open_orbit_allowlist(
     params_str: &str,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
+    keys: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
@@ -221,6 +222,7 @@ pub async fn open_orbit_allowlist(
                     params_str,
                     &config.tzkt.api,
                     (relay.id, relay.internal()),
+                    keys,
                 )
                 .await
                 .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
