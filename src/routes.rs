@@ -1,11 +1,11 @@
-use anyhow::{Error, Result};
-use ipfs_embed::{Keypair, PeerId, ToLibp2p};
+use anyhow::Result;
+use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
 use libp2p::multiaddr::Protocol;
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
     http::Status,
-    serde::{json::Json, Serialize},
+    serde::json::Json,
     State,
 };
 use std::{collections::HashMap, path::PathBuf, sync::RwLock};
@@ -212,7 +212,7 @@ pub async fn open_orbit_allowlist(
         config.orbits.allowlist.as_ref(),
     ) {
         (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
-        (Ok(_), Some(list)) => match list.is_allowed(&orbit_id.0).await {
+        (Ok((_, _params)), Some(list)) => match list.is_allowed(&orbit_id.0).await {
             Ok(controllers) => {
                 create_orbit(
                     orbit_id.0,
@@ -246,4 +246,16 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
         .with(Protocol::P2p(relay.id.into()))
         .with(Protocol::P2pCircuit)
         .to_string()
+}
+
+#[get("/key", rank = 1)]
+pub fn open_host_key(
+    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
+) -> Result<String, (Status, &'static str)> {
+    let keypair = generate_keypair();
+    let id = keypair.to_peer_id();
+    s.write()
+        .map_err(|_| (Status::InternalServerError, "cant read keys"))?
+        .insert(id, keypair);
+    Ok(id.to_base58())
 }

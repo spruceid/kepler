@@ -3,7 +3,6 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
-    s3::{Service, Store},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -31,15 +30,7 @@ use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use std::{
-    collections::HashMap as Map,
-    convert::TryFrom,
-    hash::Hash,
-    ops::Deref,
-    path::PathBuf,
-    str::FromStr,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap as Map, convert::TryFrom, path::PathBuf, sync::RwLock};
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone)]
@@ -107,7 +98,6 @@ impl AuthorizationPolicy<AuthTokens> for Orbit {
         match auth_token {
             AuthTokens::Tezos(token) => self.metadata.authorize(token).await,
             AuthTokens::ZCAP(token) => self.metadata.authorize(token).await,
-            _ => return Err(anyhow!("Bad token")),
         }
     }
 }

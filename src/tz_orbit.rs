@@ -25,8 +25,6 @@ struct BigmapKey<K, V> {
 #[derive(Debug, Deserialize)]
 struct UnitObject {}
 
-const DEFAULT_TZKT_API: &str = "http://localhost:5000";
-
 async fn get_bigmap<K, V>(tzkt_api: &str, bigmap_id: u64) -> Result<impl Iterator<Item = (K, V)>>
 where
     K: DeserializeOwned,
