@@ -1,6 +1,6 @@
-use crate::orbit::{OrbitMetadata, PID};
+use crate::orbit::OrbitMetadata;
 use anyhow::Result;
-use ipfs_embed::Multiaddr;
+use ipfs_embed::{Multiaddr, PeerId};
 use libipld::cid::Cid;
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
@@ -24,8 +24,6 @@ struct BigmapKey<K, V> {
 
 #[derive(Debug, Deserialize)]
 struct UnitObject {}
-
-const DEFAULT_TZKT_API: &str = "http://localhost:5000";
 
 async fn get_bigmap<K, V>(tzkt_api: &str, bigmap_id: u64) -> Result<impl Iterator<Item = (K, V)>>
 where
@@ -69,12 +67,10 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
             .await?
             .map(|(k, _)| pkh_to_did_vm(&k))
             .collect(),
-        hosts: get_bigmap::<PID, Vec<Multiaddr>>(tzkt_api, storage.hosts)
+        hosts: get_bigmap::<String, Vec<Multiaddr>>(tzkt_api, storage.hosts)
             .await?
-            .fold(Map::new(), |mut acc, (k, v)| {
-                acc.insert(k, v);
-                acc
-            }),
+            .map(|(k, v)| Ok((PeerId::from_str(&k)?, v)))
+            .collect::<Result<Map<PeerId, Vec<Multiaddr>>>>()?,
         read_delegators: get_bigmap::<String, UnitObject>(tzkt_api, storage.readers)
             .await?
             .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
@@ -89,7 +85,7 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
 
 pub async fn params_to_tz_orbit(
     oid: Cid,
-    params: &Map<&str, &str>,
+    params: &Map<String, String>,
     tzkt_api: &str,
 ) -> Result<OrbitMetadata> {
     match (params.get("address"), params.get("contract")) {

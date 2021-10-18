@@ -4,86 +4,27 @@ use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
 use crate::relay::RelayNode;
 use crate::zcap::ZCAPTokens;
 use anyhow::Result;
-use ipfs_embed::{Multiaddr, PeerId};
+use ipfs_embed::{Keypair, Multiaddr, PeerId};
 use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr, sync::RwLock};
 
-pub mod cid_serde {
-    use libipld::cid::{multibase::Base, Cid};
-    use serde::{de::Error as SError, ser::Error as DError, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(cid: &Cid, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        ser.serialize_str(
-            &cid.to_string_of_base(Base::Base58Btc)
-                .map_err(S::Error::custom)?,
-        )
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Cid, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deser)?;
-        s.parse().map_err(D::Error::custom)
-    }
-}
-pub mod vec_cid_serde {
-    use libipld::cid::{
-        multibase::{decode, Base},
-        Cid,
-    };
-    use serde::{
-        de::Error as SError, ser::Error as DError, ser::SerializeSeq, Deserialize, Deserializer,
-        Serializer,
-    };
-
-    pub fn serialize<S>(vec: &Vec<Cid>, ser: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = ser.serialize_seq(Some(vec.len()))?;
-        for cid in vec {
-            seq.serialize_element(
-                &cid.to_string_of_base(Base::Base58Btc)
-                    .map_err(S::Error::custom)?,
-            )?;
-        }
-        seq.end()
-    }
-
-    pub fn deserialize<'de, D>(deser: D) -> Result<Vec<Cid>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s: Vec<&str> = Deserialize::deserialize(deser)?;
-        s.iter()
-            .map(|sc| {
-                decode(sc).map_err(D::Error::custom).and_then(|(_, bytes)| {
-                    Cid::read_bytes(bytes.as_slice()).map_err(D::Error::custom)
-                })
-            })
-            .collect()
-    }
-}
-
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
-    Put(#[serde(with = "vec_cid_serde")] Vec<Cid>),
-    Get(#[serde(with = "vec_cid_serde")] Vec<Cid>),
-    Del(#[serde(with = "vec_cid_serde")] Vec<Cid>),
+    Put(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Get(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Del(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
     Create {
         parameters: String,
-        #[serde(with = "vec_cid_serde")]
+        #[serde_as(as = "Vec<DisplayFromStr>")]
         content: Vec<Cid>,
     },
     List,
@@ -229,7 +170,16 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             Ok(i) => i,
             Err(o) => return o,
         };
-        // TODO remove clone, or refactor the order of validations/actions
+        let keys = match req.rocket().state::<RwLock<HashMap<PeerId, Keypair>>>() {
+            Some(k) => k,
+            _ => {
+                return Outcome::Failure((
+                    Status::InternalServerError,
+                    anyhow!("Could not retrieve open key set"),
+                ));
+            }
+        };
+
         match (&token.action(), &oid == token.target_orbit()) {
             (_, false) => Outcome::Failure((
                 Status::BadRequest,
@@ -249,7 +199,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 };
                 let controllers = match &token {
                     AuthTokens::Tezos(token_tz) => {
-                        match method {
+                        match method.as_str() {
                             "tz" => {}
                             _ => {
                                 return Outcome::Failure((
@@ -258,7 +208,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        if params.get("address") != Some(&token_tz.pkh.as_str()) {
+                        if params.get("address") != Some(&token_tz.pkh) {
                             return Outcome::Failure((
                                 Status::Unauthorized,
                                 anyhow!("Incorrect PKH param"),
@@ -283,8 +233,8 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                                 ))
                             }
                         };
-                        match (method, params.get("did"), params.get("vm")) {
-                            ("did", Some(&did), Some(&vm_id)) => {
+                        match (method.as_str(), params.get("did"), params.get("vm")) {
+                            ("did", Some(did), Some(vm_id)) => {
                                 let d = DIDURL {
                                     did: did.into(),
                                     fragment: Some(vm_id.into()),
@@ -313,8 +263,9 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     controllers,
                     &auth_data,
                     &parameters,
-                    &config.tzkt.api,
+                    &config.chains,
                     relay,
+                    keys,
                 )
                 .await
                 {

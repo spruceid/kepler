@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Config {
     pub database: Database,
-    pub tzkt: Tzkt,
+    pub chains: ExternalApis,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
 }
@@ -31,17 +31,9 @@ impl Default for Database {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Tzkt {
-    pub api: String,
-}
-
-impl Default for Tzkt {
-    fn default() -> Self {
-        Self {
-            api: "http://localhost:5000".into(),
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ExternalApis {
+    pub tzkt: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

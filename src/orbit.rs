@@ -1,7 +1,8 @@
 use crate::{
-    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
+    config::ExternalApis,
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -27,51 +28,29 @@ use rocket::{
 
 use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use std::{
-    collections::HashMap as Map,
-    convert::TryFrom,
-    hash::{Hash, Hasher},
-    ops::Deref,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{collections::HashMap as Map, convert::TryFrom, path::PathBuf, sync::RwLock};
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
-    #[serde(with = "cid_serde")]
+    #[serde_as(as = "DisplayFromStr")]
     pub id: Cid,
     pub controllers: Vec<DIDURL>,
     pub read_delegators: Vec<DIDURL>,
     pub write_delegators: Vec<DIDURL>,
     #[serde(default)]
-    pub hosts: Map<PID, Vec<Multiaddr>>,
+    #[serde_as(as = "Map<DisplayFromStr, _>")]
+    pub hosts: Map<PeerId, Vec<Multiaddr>>,
     // TODO placeholder type
     pub revocations: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Hash, Debug)]
-#[serde(try_from = "&str", into = "String")]
-pub struct PID(pub PeerId);
-
-impl Deref for PID {
-    type Target = PeerId;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TryFrom<&str> for PID {
-    type Error = <PeerId as FromStr>::Err;
-    fn try_from(v: &str) -> Result<Self, Self::Error> {
-        Ok(Self(PeerId::from_str(v)?))
-    }
-}
-
-impl From<PID> for String {
-    fn from(pid: PID) -> Self {
-        pid.to_base58()
+impl OrbitMetadata {
+    pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
+        self.hosts.keys()
     }
 }
 
@@ -119,7 +98,6 @@ impl AuthorizationPolicy<AuthTokens> for Orbit {
         match auth_token {
             AuthTokens::Tezos(token) => self.metadata.authorize(token).await,
             AuthTokens::ZCAP(token) => self.metadata.authorize(token).await,
-            _ => return Err(anyhow!("Bad token")),
         }
     }
 }
@@ -137,8 +115,9 @@ pub async fn create_orbit(
     controllers: Vec<DIDURL>,
     auth: &[u8],
     uri: &str,
-    tzkt_api: &str,
+    chains: &ExternalApis,
     relay: (PeerId, Multiaddr),
+    keys_lock: &RwLock<Map<PeerId, Keypair>>,
 ) -> Result<Option<Orbit>> {
     let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
 
@@ -152,20 +131,36 @@ pub async fn create_orbit(
 
     let (method, params) = verify_oid(&oid, uri)?;
 
-    let md = match method {
-        "tz" => params_to_tz_orbit(oid, &params, tzkt_api).await?,
+    let md = match (method.as_str(), &chains) {
+        (
+            "tz",
+            ExternalApis {
+                tzkt: Some(api), ..
+            },
+        ) => params_to_tz_orbit(oid, &params, &api).await?,
         _ => OrbitMetadata {
             id: oid.clone(),
             controllers: controllers,
             read_delegators: vec![],
             write_delegators: vec![],
             revocations: vec![],
-            hosts: Map::default(),
+            hosts: params
+                .get("hosts")
+                .map(|hs| parse_hosts_str(hs))
+                .unwrap_or(Ok(Default::default()))?,
         },
+    };
+
+    let kp = {
+        let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
+        md.hosts()
+            .find_map(|h| keys.remove(h))
+            .unwrap_or(generate_keypair())
     };
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
+    fs::write(dir.join("kp"), kp.to_bytes()).await?;
 
     Ok(Some(load_orbit(oid, path, relay).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
@@ -189,7 +184,8 @@ pub async fn load_orbit(
 // 1min timeout to evict orbits that might have been deleted
 #[cached(size = 100, time = 60, result = true)]
 async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let cfg = Config::new(&dir.join("block_store"), generate_keypair());
+    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
+    let cfg = Config::new(&dir.join("block_store"), kp);
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
 
@@ -203,32 +199,50 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
     Ok(Orbit { ipfs, metadata: md })
 }
 
-pub fn get_params<'a>(matrix_params: &'a str) -> Map<&'a str, &'a str> {
+pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
+    s.split("|")
+        .map(|hs| {
+            hs.split_once(":")
+                .ok_or(anyhow!("missing host:addrs map"))
+                .and_then(|(id, s)| {
+                    Ok((
+                        id.parse()?,
+                        s.split(",")
+                            .map(|a| Ok(a.parse()?))
+                            .collect::<Result<Vec<Multiaddr>>>()?,
+                    ))
+                })
+        })
+        .collect()
+}
+
+pub fn get_params(matrix_params: &str) -> Map<String, String> {
     matrix_params
         .split(";")
         .fold(Map::new(), |mut acc, pair_str| {
-            let mut ps = pair_str.split("=");
-            match (ps.next(), ps.next(), ps.next()) {
-                (Some(key), Some(value), None) => acc.insert(key, value),
+            match pair_str.split_once("=") {
+                Some((key, value)) => acc.insert(key.into(), value.into()),
                 _ => None,
             };
             acc
         })
 }
 
-pub fn verify_oid<'a>(oid: &Cid, uri_str: &'a str) -> Result<(&'a str, Map<&'a str, &'a str>)> {
+pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
     // try to parse as a URI with matrix params
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
     {
-        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
+        let decoded = urlencoding::decode(uri_str)?;
+        let first_sc = decoded.find(";").unwrap_or(uri_str.len());
         Ok((
             // method name
-            uri_str
+            decoded
                 .get(..first_sc)
-                .ok_or(anyhow!("Missing Orbit Method"))?,
+                .ok_or(anyhow!("Missing Orbit Method"))?
+                .into(),
             // matrix parameters
-            get_params(uri_str.get(first_sc..).unwrap_or("")),
+            get_params(decoded.get(first_sc..).unwrap_or("")),
         ))
     } else {
         Err(anyhow!("Failed to verify Orbit ID"))
@@ -264,8 +278,8 @@ impl Orbit {
         &self.metadata.id
     }
 
-    pub fn hosts<'a>(&'a self) -> Vec<&PeerId> {
-        self.metadata.hosts.iter().map(|(id, _)| &id.0).collect()
+    pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
+        self.metadata.hosts()
     }
 
     pub fn controllers(&self) -> &[DIDURL] {
@@ -304,7 +318,7 @@ async fn oid_verification() {
     let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
     let (method, params) = verify_oid(&oid, &uri).unwrap();
     assert_eq!(method, "tz");
-    assert_eq!(params.get("address"), Some(&pkh));
-    assert_eq!(params.get("domain"), Some(&domain));
-    assert_eq!(params.get("index"), Some(&"0"));
+    assert_eq!(params.get("address").unwrap(), pkh);
+    assert_eq!(params.get("domain").unwrap(), domain);
+    assert_eq!(params.get("index").unwrap(), "0");
 }

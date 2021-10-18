@@ -83,7 +83,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
                 resp.set_header(Header::new(
                     "Access-Control-Allow-Methods",
-                    "POST, GET, OPTIONS, DELETE",
+                    "POST, PUT, GET, OPTIONS, DELETE",
                 ));
                 resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));

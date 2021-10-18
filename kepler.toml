@@ -12,3 +12,7 @@
 # public = true
 ## Orbit allow list api endpoint
 # allowlist = "http://localhost:10000"
+
+[global.apis]
+## API for tzkt
+# tzkt = "http://localhost:5000"

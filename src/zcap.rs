@@ -1,5 +1,5 @@
 use crate::{
-    auth::{cid_serde, Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
     orbit::OrbitMetadata,
 };
 use anyhow::Result;
@@ -12,6 +12,7 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::{
     did::DIDURL,
     vc::URI,
@@ -29,10 +30,11 @@ pub struct DelProps {
     pub extra_fields: Option<Map<String, Value>>,
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
-    #[serde(with = "cid_serde")]
+    #[serde_as(as = "DisplayFromStr")]
     pub invocation_target: Cid,
     pub capability_action: Action,
     #[serde(flatten)]
