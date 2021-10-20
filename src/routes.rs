@@ -1,6 +1,5 @@
 use anyhow::Result;
-use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
-use libp2p::multiaddr::Protocol;
+use ipfs_embed::{generate_keypair, multiaddr::Protocol, Keypair, PeerId, ToLibp2p};
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,

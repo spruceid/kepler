@@ -18,6 +18,7 @@ pub mod orbit;
 pub mod relay;
 pub mod routes;
 pub mod s3;
+pub mod s3_routes;
 pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
@@ -64,6 +65,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         open_orbit_allowlist,
         open_orbit_authz,
         cors,
+        s3_routes::get,
+        s3_routes::put,
         relay_addr
     ];
 
