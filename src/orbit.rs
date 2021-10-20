@@ -86,7 +86,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
 }
 
 impl AuthorizationToken for AuthTokens {
-    fn action(&self) -> Action {
+    fn action(&self) -> &Action {
         match self {
             Self::Tezos(token) => token.action(),
             Self::ZCAP(token) => token.action(),

@@ -83,8 +83,8 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 }
 
 impl AuthorizationToken for ZCAPTokens {
-    fn action(&self) -> Action {
-        self.invocation.property_set.capability_action.clone()
+    fn action(&self) -> &Action {
+        &self.invocation.property_set.capability_action
     }
     fn target_orbit(&self) -> &Cid {
         &self.invocation.property_set.invocation_target

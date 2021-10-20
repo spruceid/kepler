@@ -28,7 +28,7 @@ pub enum Action {
 }
 
 pub trait AuthorizationToken {
-    fn action(&self) -> Action;
+    fn action(&self) -> &Action;
     fn target_orbit(&self) -> &Cid;
 }
 

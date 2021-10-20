@@ -192,8 +192,8 @@ impl<'r> FromRequest<'r> for TezosAuthorizationString {
 }
 
 impl AuthorizationToken for TezosAuthorizationString {
-    fn action(&self) -> Action {
-        self.action.clone()
+    fn action(&self) -> &Action {
+        &self.action
     }
     fn target_orbit(&self) -> &Cid {
         &self.orbit
