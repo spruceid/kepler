@@ -3,6 +3,7 @@ use ipfs_embed::{GossipEvent, PeerId};
 use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 mod entries;
 mod store;
@@ -14,14 +15,18 @@ type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
 type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
 type TaskHandle = tokio::task::JoinHandle<()>;
 
+#[derive(Clone)]
 pub struct Service {
     store: Store,
-    task: TaskHandle,
+    task: Arc<TaskHandle>,
 }
 
 impl Service {
     pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
-        Self { store, task }
+        Self {
+            store,
+            task: Arc::new(task),
+        }
     }
 
     pub fn start(config: Store) -> Result<Self> {
