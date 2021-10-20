@@ -23,12 +23,14 @@ pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
 
-use ipfs_embed::{generate_keypair, Keypair, ToLibp2p};
+use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
 use relay::RelayNode;
 use routes::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
-    list_content_no_auth, open_orbit_allowlist, open_orbit_authz, put_content, relay_addr,
+    list_content_no_auth, open_host_key, open_orbit_allowlist, open_orbit_authz, put_content,
+    relay_addr,
 };
+use std::{collections::HashMap, sync::RwLock};
 
 pub fn tracing_try_init() {
     tracing_subscriber::fmt()
@@ -67,7 +69,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         cors,
         s3_routes::put_content,
         s3_routes::delete_content,
-        relay_addr
+        relay_addr,
+        open_host_key
     ];
 
     if kepler_config.orbits.public {
@@ -102,7 +105,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
         }))
-        .manage(relay_node))
+        .manage(relay_node)
+        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new())))
 }
 
 #[test]
