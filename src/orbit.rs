@@ -22,7 +22,7 @@ use libipld::{
 };
 use rocket::{
     futures::StreamExt,
-    http::Status,
+    http::{Method, Status},
     request::{FromRequest, Outcome, Request},
     tokio::{fs, task::JoinHandle},
 };
@@ -72,16 +72,46 @@ impl<'r> FromRequest<'r> for AuthTokens {
     type Error = anyhow::Error;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
-            Outcome::Success(Self::Tezos(tz))
-        } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
-            Outcome::Success(Self::ZCAP(zcap))
-        } else {
-            Outcome::Failure((
-                Status::Unauthorized,
-                anyhow!("No valid authorization headers"),
-            ))
+        let ats =
+            if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
+                Self::Tezos(tz)
+            } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
+                Self::ZCAP(zcap)
+            } else {
+                return Outcome::Failure((
+                    Status::Unauthorized,
+                    anyhow!("No valid authorization headers"),
+                ));
+            };
+        // get resource key if there is one
+        let res = match (request.param(1), request.param::<&str>(2)) {
+            (Some(Ok("s3")), Some(Ok(k))) => Some(k.to_string()),
+            (Some(Ok("s3")), None) => None,
+            (Some(Ok(c)), None) => Some(c.to_string()),
+            _ => None,
+        };
+        match match_action_to_request(ats.action(), request.method(), &res) {
+            Ok(_) => Outcome::Success(ats),
+            Err(e) => Outcome::Failure((Status::Unauthorized, e)),
         }
+    }
+}
+
+fn match_action_to_request(action: &Action, method: Method, res: &Option<String>) -> Result<()> {
+    match (action, method, res) {
+        (Action::Get(content), Method::Get, Some(r))
+        | (Action::Put(content), Method::Put, Some(r))
+        | (Action::Del(content), Method::Delete, Some(r)) => {
+            if content.contains(r) {
+                Ok(())
+            } else {
+                Err(anyhow!("Method doesnt match authorized action"))
+            }
+        }
+        (Action::List, Method::Get, None) | (Action::Create { .. }, Method::Post, Some(_)) => {
+            Ok(())
+        }
+        _ => Err(anyhow!("Method and action do not match")),
     }
 }
 
