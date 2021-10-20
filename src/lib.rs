@@ -11,6 +11,7 @@ use rocket::{fairing::AdHoc, figment::Figment, http::Header, tokio::fs, Build, R
 pub mod allow_list;
 pub mod auth;
 pub mod cas;
+pub mod ceramic_orbit;
 pub mod codec;
 pub mod config;
 pub mod ipfs;

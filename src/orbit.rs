@@ -33,7 +33,7 @@ use ssi::did::DIDURL;
 use std::{collections::HashMap as Map, convert::TryFrom, path::PathBuf, sync::RwLock};
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
     #[serde_as(as = "DisplayFromStr")]
