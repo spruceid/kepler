@@ -34,6 +34,7 @@ impl Default for Database {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ExternalApis {
     pub tzkt: Option<String>,
+    pub ceramic: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

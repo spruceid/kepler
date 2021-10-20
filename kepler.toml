@@ -16,3 +16,5 @@
 [global.apis]
 ## API for tzkt
 # tzkt = "http://localhost:5000"
+## API for ceramic
+# ceramic = "http://localhost:7007"

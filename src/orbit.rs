@@ -1,6 +1,7 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
     cas::ContentAddressedStorage,
+    ceramic_orbit::params_to_ceramic_orbit,
     codec::SupportedCodecs,
     config::ExternalApis,
     tz::TezosAuthorizationString,
@@ -138,6 +139,12 @@ pub async fn create_orbit(
                 tzkt: Some(api), ..
             },
         ) => params_to_tz_orbit(oid, &params, &api).await?,
+        (
+            "ceramic",
+            ExternalApis {
+                ceramic: Some(api), ..
+            },
+        ) => params_to_ceramic_orbit(oid, &params, &api).await?,
         _ => OrbitMetadata {
             id: oid.clone(),
             controllers: controllers,
