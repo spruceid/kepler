@@ -3,7 +3,7 @@ use anyhow::Result;
 use async_recursion::async_recursion;
 use libipld::{cid::Cid, DagCbor};
 use rocket::futures::future::try_join_all;
-use sled::{Batch, Db, Tree};
+use sled::{Batch, Db, IVec, Tree};
 use std::convert::{TryFrom, TryInto};
 use tracing::{debug, error};
 
@@ -84,6 +84,12 @@ impl Store {
             priorities,
             heads,
         })
+    }
+    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync {
+        self.elements
+            .iter()
+            .keys()
+            .map(|r| r.map_err(|e| anyhow!(e)))
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;

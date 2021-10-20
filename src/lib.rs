@@ -65,16 +65,26 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         open_orbit_allowlist,
         open_orbit_authz,
         cors,
-        s3_routes::get,
-        s3_routes::put,
+        s3_routes::put_content,
+        s3_routes::delete_content,
         relay_addr
     ];
 
     if kepler_config.orbits.public {
-        let mut no_auth = routes![get_content_no_auth, list_content_no_auth];
+        let mut no_auth = routes![
+            get_content_no_auth,
+            list_content_no_auth,
+            s3_routes::get_content_no_auth,
+            s3_routes::list_content_no_auth,
+        ];
         routes.append(&mut no_auth);
     } else {
-        let mut auth = routes![get_content, list_content];
+        let mut auth = routes![
+            get_content,
+            list_content,
+            s3_routes::get_content,
+            s3_routes::list_content,
+        ];
         routes.append(&mut auth);
     }
 

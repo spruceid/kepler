@@ -1,11 +1,14 @@
 use anyhow::Result;
 use rocket::{
     data::{Data, ToByteUnit},
-    http::Status,
+    http::{Header, Status},
     request::{FromRequest, Outcome, Request},
+    response::{self, Responder, Response},
+    serde::json::Json,
     State,
 };
 
+use crate::auth::{DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper};
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::config;
 use crate::orbit::load_orbit;
@@ -28,13 +31,105 @@ impl<'r> FromRequest<'r> for Metadata {
     }
 }
 
-#[get("/s3/<orbit_id>/<key>")]
-pub async fn get(
+impl<'r> Responder<'r, 'static> for Metadata {
+    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
+        let mut r = Response::build();
+        for (k, v) in self.0 {
+            r.header(Header::new(k, v));
+        }
+        Ok(r.finalize())
+    }
+}
+
+struct S3Response(pub Vec<u8>, pub Metadata);
+
+impl<'r> Responder<'r, 'static> for S3Response {
+    fn respond_to(self, r: &'r Request<'_>) -> response::Result<'static> {
+        Ok(Response::build_from(self.0.respond_to(r)?)
+            // must ensure that Metadata::respond_to does not set the body of the response
+            .merge(self.1.respond_to(r)?)
+            .finalize())
+    }
+}
+
+#[get("/<orbit_id>/s3")]
+pub async fn list_content_no_auth(
+    orbit_id: CidWrap,
+    config: &State<config::Config>,
+    relay: &State<RelayNode>,
+) -> Result<Json<Vec<String>>, (Status, String)> {
+    let orbit = match load_orbit(
+        orbit_id.0,
+        config.database.path.clone(),
+        (relay.id, relay.internal()),
+    )
+    .await
+    {
+        Ok(Some(o)) => o,
+        Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
+        Err(e) => return Err((Status::InternalServerError, e.to_string())),
+    };
+    Ok(Json(
+        orbit
+            .service
+            .list()
+            .filter_map(|r| {
+                // filter out any non-utf8 keys
+                r.map(|v| std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()))
+                    .transpose()
+            })
+            .collect::<Result<Vec<String>>>()
+            .map_err(|e| (Status::InternalServerError, e.to_string()))?,
+    ))
+}
+
+#[get("/<_orbit_id>/s3")]
+pub async fn list_content(
+    _orbit_id: CidWrap,
+    orbit: ListAuthWrapper,
+) -> Result<Json<Vec<String>>, (Status, String)> {
+    Ok(Json(
+        orbit
+            .0
+            .service
+            .list()
+            .filter_map(|r| {
+                // filter out any non-utf8 keys
+                r.map(|v| std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()))
+                    .transpose()
+            })
+            .collect::<Result<Vec<String>>>()
+            .map_err(|e| (Status::InternalServerError, e.to_string()))?,
+    ))
+}
+
+#[get("/<_orbit_id>/s3/<key>")]
+pub async fn get_content(
+    _orbit_id: CidWrap,
+    orbit: GetAuthWrapper,
+    key: String,
+) -> Result<Option<S3Response>, (Status, String)> {
+    let s3_obj = match orbit.0.service.get(key) {
+        Ok(Some(content)) => content,
+        _ => return Ok(None),
+    };
+    match orbit.0.get(&s3_obj.value).await {
+        Ok(Some(content)) => Ok(Some(S3Response(
+            content.to_vec(),
+            Metadata(s3_obj.metadata),
+        ))),
+        Ok(None) => Ok(None),
+        Err(_) => Ok(None),
+    }
+}
+
+#[get("/<orbit_id>/s3/<key>")]
+pub async fn get_content_no_auth(
     orbit_id: CidWrap,
     key: String,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
-) -> Result<Option<Vec<u8>>, (Status, String)> {
+) -> Result<Option<S3Response>, (Status, String)> {
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
@@ -51,33 +146,25 @@ pub async fn get(
         _ => return Ok(None),
     };
     match orbit.get(&s3_obj.value).await {
-        Ok(Some(content)) => Ok(Some(content.to_vec())),
+        Ok(Some(content)) => Ok(Some(S3Response(
+            content.to_vec(),
+            Metadata(s3_obj.metadata),
+        ))),
         Ok(None) => Ok(None),
         Err(_) => Ok(None),
     }
 }
 
-#[put("/s3/<orbit_id>/<key>", data = "<data>")]
-pub async fn put(
-    orbit_id: CidWrap,
+#[put("/<_orbit_id>/s3/<key>", data = "<data>")]
+pub async fn put_content(
+    _orbit_id: CidWrap,
+    orbit: PutAuthWrapper,
     key: String,
     md: Metadata,
     data: Data<'_>,
-    config: &State<config::Config>,
-    relay: &State<RelayNode>,
 ) -> Result<(), (Status, String)> {
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
-        Ok(Some(o)) => o,
-        Ok(None) => return Err((Status::NotFound, "Orbit not found".to_string())),
-        Err(e) => return Err((Status::InternalServerError, e.to_string())),
-    };
     orbit
+        .0
         .service
         .write(
             vec![(
@@ -92,4 +179,17 @@ pub async fn put(
         )
         .map_err(|e| (Status::InternalServerError, e.to_string()))?;
     Ok(())
+}
+
+#[delete("/<_orbit_id>/s3/<key>")]
+pub async fn delete_content(
+    _orbit_id: CidWrap,
+    orbit: DelAuthWrapper,
+    key: String,
+) -> Result<(), (Status, &'static str)> {
+    Ok(orbit
+        .0
+        .service
+        .write(vec![], vec![(key.into(), None)])
+        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }

@@ -3,6 +3,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
+    s3::{Service, Store},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
