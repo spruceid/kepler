@@ -236,11 +236,10 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
     relay
         .external()
         .with(Protocol::P2p(relay.id.into()))
-        .with(Protocol::P2pCircuit)
         .to_string()
 }
 
-#[get("/new_id", rank = 1)]
+#[get("/new_id")]
 pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {

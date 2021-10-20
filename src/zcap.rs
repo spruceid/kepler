@@ -177,7 +177,7 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                             return Err(anyhow!("Invoker not authorized"));
                         }
                     }
-                    _ => return Err(anyhow!("Invalid Action")),
+                    Action::Create { .. } => {}
                 };
                 auth_token
                     .invocation

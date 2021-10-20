@@ -40,7 +40,7 @@ use std::{
 };
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OrbitMetadata {
     // NOTE This will always serialize in b58check
     #[serde_as(as = "DisplayFromStr")]
@@ -99,17 +99,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
                     anyhow!("No valid authorization headers"),
                 ));
             };
-        // get resource key if there is one
-        let res = match (request.param(1), request.param::<&str>(2)) {
-            (Some(Ok("s3")), Some(Ok(k))) => Some(k.to_string()),
-            (Some(Ok("s3")), None) => None,
-            (Some(Ok(c)), None) => Some(c.to_string()),
-            _ => None,
-        };
-        match match_action_to_request(ats.action(), request.method(), &res) {
-            Ok(_) => Outcome::Success(ats),
-            Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-        }
+        Outcome::Success(ats)
     }
 }
 
@@ -365,7 +355,7 @@ pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, Strin
                 .ok_or(anyhow!("Missing Orbit Method"))?
                 .into(),
             // matrix parameters
-            get_params(uri_str.get(first_sc..).unwrap_or(""))?,
+            get_params(uri_str.get(first_sc + 1..).unwrap_or(""))?,
         ))
     } else {
         Err(anyhow!("Failed to verify Orbit ID"))
@@ -431,4 +421,15 @@ async fn oid_verification() {
     assert_eq!(params.get("address").unwrap(), pkh);
     assert_eq!(params.get("domain").unwrap(), domain);
     assert_eq!(params.get("index").unwrap(), "0");
+}
+
+#[test]
+async fn parameters() -> Result<()> {
+    let params = r#"did;did=did%3Apkh%3Atz%3Atz1PFhMtfUCvRDVcdhnLyy3cw89h3H9mv1Kz;hosts=12D3KooWDdtQQ7pQcfwC2g2UaZTdQmXEkQD3CgHwpaGgrGpmKApu%3A%2Fip4%2F127.0.0.1%2Ftcp%2F8081%2Fp2p%2F12D3KooWNmeoHEUjxe2iasyGa6Py2bJtHoEeucsuktjeJKpZRtL3%2Fp2p-circuit%2F12D3KooWDdtQQ7pQcfwC2g2UaZTdQmXEkQD3CgHwpaGgrGpmKApu;vm=TezosMethod2021"#;
+    let oid: Cid = "zCT5htkdy9t7L9UFtAddDVCtxMpMghApp6wnX8s6t7CrHcvVLnax".parse()?;
+    let processed_params = verify_oid(&oid, params)?;
+    let md = get_metadata(&oid, params, &Default::default()).await?;
+    println!("{:#?}", md);
+    assert!(false);
+    Ok(())
 }
