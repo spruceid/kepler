@@ -16,7 +16,7 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, Orbit};
+use crate::orbit::{create_orbit, get_metadata, load_orbit, Orbit};
 use crate::relay::RelayNode;
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
@@ -203,19 +203,16 @@ pub async fn open_orbit_allowlist(
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
-        verify_oid(&orbit_id.0, params_str),
+        get_metadata(&orbit_id.0, params_str, &config.chains).await,
         config.orbits.allowlist.as_ref(),
     ) {
         (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
-        (Ok((_, _params)), Some(list)) => match list.is_allowed(&orbit_id.0).await {
-            Ok(controllers) => {
+        (Ok(md), Some(list)) => match list.is_allowed(&orbit_id.0).await {
+            Ok(_controllers) => {
                 create_orbit(
-                    orbit_id.0,
+                    &md,
                     config.database.path.clone(),
-                    controllers,
                     &[],
-                    params_str,
-                    &config.chains,
                     (relay.id, relay.internal()),
                     keys,
                 )

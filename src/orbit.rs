@@ -230,16 +230,13 @@ pub async fn get_metadata(
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
-    oid: Cid,
+    md: &OrbitMetadata,
     path: PathBuf,
-    controllers: Vec<DIDURL>,
     auth: &[u8],
-    uri: &str,
-    chains: &ExternalApis,
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Keypair>>,
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    let dir = path.join(md.id.to_string_of_base(Base::Base58Btc)?);
 
     // fails if DIR exists, this is Create, not Open
     if dir.exists() {
@@ -249,28 +246,6 @@ pub async fn create_orbit(
         .await
         .map_err(|e| anyhow!("Couldn't create dir: {}", e))?;
 
-    let (method, params) = verify_oid(&oid, uri)?;
-
-    let md = match (method.as_str(), &chains) {
-        (
-            "tz",
-            ExternalApis {
-                tzkt: Some(api), ..
-            },
-        ) => params_to_tz_orbit(oid, &params, &api).await?,
-        _ => OrbitMetadata {
-            id: oid.clone(),
-            controllers: controllers,
-            read_delegators: vec![],
-            write_delegators: vec![],
-            revocations: vec![],
-            hosts: params
-                .get("hosts")
-                .map(|hs| parse_hosts_str(hs))
-                .unwrap_or(Ok(Default::default()))?,
-        },
-    };
-
     let kp = {
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
         md.hosts()
@@ -278,11 +253,11 @@ pub async fn create_orbit(
             .unwrap_or(generate_keypair())
     };
 
-    fs::write(dir.join("metadata"), serde_json::to_vec_pretty(&md)?).await?;
+    fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.to_bytes()).await?;
 
-    Ok(Some(load_orbit(oid, path, relay).await.map(|o| {
+    Ok(Some(load_orbit(md.id, path, relay).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
     })??))
 }

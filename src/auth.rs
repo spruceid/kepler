@@ -1,8 +1,7 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
+use crate::orbit::{create_orbit, get_metadata, load_orbit, AuthTokens, Orbit};
 use crate::relay::RelayNode;
-use crate::zcap::ZCAPTokens;
 use anyhow::Result;
 use ipfs_embed::{Keypair, Multiaddr, PeerId};
 use libipld::cid::Cid;
@@ -11,8 +10,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use ssi::did::DIDURL;
-use std::{collections::HashMap, str::FromStr, sync::RwLock};
+use std::{collections::HashMap, sync::RwLock};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,94 +162,22 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             }
         };
 
-        match (&token.action(), &oid == token.target_orbit()) {
-            (_, false) => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token target orbit not matching endpoint"),
-            )),
+        match &token.action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            (Action::Create { parameters, .. }, true) => {
-                let (method, params) = match verify_oid(&token.target_orbit(), &parameters) {
-                    Ok(r) => r,
-                    _ => {
-                        return Outcome::Failure((
-                            Status::BadRequest,
-                            anyhow!("Incorrect Orbit ID"),
-                        ))
-                    }
+            Action::Create { parameters, .. } => {
+                let md = match get_metadata(token.target_orbit(), parameters, &config.chains).await
+                {
+                    Ok(md) => md,
+                    Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
-                let controllers = match &token {
-                    AuthTokens::Tezos(token_tz) => {
-                        match method.as_str() {
-                            "tz" => {}
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::BadRequest,
-                                    anyhow!("Incorrect Orbit ID"),
-                                ))
-                            }
-                        };
-                        if params.get("address") != Some(&token_tz.pkh) {
-                            return Outcome::Failure((
-                                Status::Unauthorized,
-                                anyhow!("Incorrect PKH param"),
-                            ));
-                        };
-                        let vm = DIDURL {
-                            did: format!("did:pkh:tz:{}", &token_tz.pkh),
-                            fragment: Some("TezosMethod2021".to_string()),
-                            ..Default::default()
-                        };
-                        vec![vm]
-                    }
-                    AuthTokens::ZCAP(ZCAPTokens { invocation, .. }) => {
-                        let vm = match invocation.proof.as_ref().and_then(|p| {
-                            p.verification_method.as_ref().map(|v| DIDURL::from_str(&v))
-                        }) {
-                            Some(Ok(v)) => v,
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::Unauthorized,
-                                    anyhow!("Invalid Delegation Verification Method"),
-                                ))
-                            }
-                        };
-                        match (method.as_str(), params.get("did"), params.get("vm")) {
-                            ("did", Some(did), Some(vm_id)) => {
-                                let d = DIDURL {
-                                    did: did.into(),
-                                    fragment: Some(vm_id.into()),
-                                    ..Default::default()
-                                };
-                                if d != vm {
-                                    return Outcome::Failure((
-                                        Status::Unauthorized,
-                                        anyhow!("Invoker is not Controller"),
-                                    ));
-                                }
-                            }
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::BadRequest,
-                                    anyhow!("Incorrect Orbit ID"),
-                                ))
-                            }
-                        }
-                        vec![vm]
-                    }
+
+                match md.authorize(&token).await {
+                    Ok(()) => (),
+                    Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
-                match create_orbit(
-                    *token.target_orbit(),
-                    config.database.path.clone(),
-                    controllers,
-                    &auth_data,
-                    &parameters,
-                    &config.chains,
-                    relay,
-                    keys,
-                )
-                .await
+
+                match create_orbit(&md, config.database.path.clone(), &auth_data, relay, keys).await
                 {
                     Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
                     Ok(None) => {
