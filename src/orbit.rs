@@ -304,16 +304,17 @@ pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
         .collect()
 }
 
-pub fn get_params(matrix_params: &str) -> Map<String, String> {
+pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
     matrix_params
         .split(";")
-        .fold(Map::new(), |mut acc, pair_str| {
-            match pair_str.split_once("=") {
-                Some((key, value)) => acc.insert(key.into(), value.into()),
-                _ => None,
-            };
-            acc
+        .map(|pair_str| match pair_str.split_once("=") {
+            Some((key, value)) => Ok((
+                urlencoding::decode(key)?.into_owned(),
+                urlencoding::decode(value)?.into_owned(),
+            )),
+            _ => Err(anyhow!("Invalid matrix param")),
         })
+        .collect::<Result<Map<String, String>>>()
 }
 
 pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
@@ -321,16 +322,15 @@ pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, Strin
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
     {
-        let decoded = urlencoding::decode(uri_str)?;
-        let first_sc = decoded.find(";").unwrap_or(uri_str.len());
+        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
         Ok((
             // method name
-            decoded
+            uri_str
                 .get(..first_sc)
                 .ok_or(anyhow!("Missing Orbit Method"))?
                 .into(),
             // matrix parameters
-            get_params(decoded.get(first_sc..).unwrap_or("")),
+            get_params(uri_str.get(first_sc..).unwrap_or(""))?,
         ))
     } else {
         Err(anyhow!("Failed to verify Orbit ID"))

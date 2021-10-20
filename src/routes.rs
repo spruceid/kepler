@@ -186,10 +186,10 @@ pub async fn delete_content(
 pub async fn open_orbit_authz(
     _orbit_id: CidWrap,
     _params_str: &str,
-    _authz: CreateAuthWrapper,
-) -> Result<(), (Status, &'static str)> {
+    authz: CreateAuthWrapper,
+) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    Ok(())
+    Ok(authz.0.id().to_string())
 }
 
 #[post(
@@ -247,7 +247,7 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
         .to_string()
 }
 
-#[get("/key", rank = 1)]
+#[get("/new_id", rank = 1)]
 pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
