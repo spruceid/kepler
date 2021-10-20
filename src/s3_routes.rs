@@ -103,6 +103,44 @@ pub async fn list_content(
     ))
 }
 
+#[head("/<_orbit_id>/s3/<key>")]
+pub async fn get_metadata(
+    _orbit_id: CidWrap,
+    orbit: GetAuthWrapper,
+    key: String,
+) -> Result<Option<Metadata>, (Status, String)> {
+    match orbit.0.service.get(key) {
+        Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
+        Err(e) => Err((Status::InternalServerError, e.to_string())),
+        Ok(None) => Ok(None),
+    }
+}
+
+#[head("/<orbit_id>/s3/<key>")]
+pub async fn get_metadata_no_auth(
+    orbit_id: CidWrap,
+    key: String,
+    config: &State<config::Config>,
+    relay: &State<RelayNode>,
+) -> Result<Option<Metadata>, (Status, String)> {
+    let orbit = match load_orbit(
+        orbit_id.0,
+        config.database.path.clone(),
+        (relay.id, relay.internal()),
+    )
+    .await
+    {
+        Ok(Some(o)) => o,
+        Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
+        Err(e) => return Err((Status::InternalServerError, e.to_string())),
+    };
+    match orbit.service.get(key) {
+        Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
+        Err(e) => Err((Status::InternalServerError, e.to_string())),
+        Ok(None) => Ok(None),
+    }
+}
+
 #[get("/<_orbit_id>/s3/<key>")]
 pub async fn get_content(
     _orbit_id: CidWrap,
