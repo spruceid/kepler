@@ -82,31 +82,43 @@ fn parse_list(s: &str) -> IResult<&str, Action> {
 }
 
 fn parse_get(s: &str) -> IResult<&str, Action> {
-    tuple((tag("GET"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Get(content)))
+    tuple((tag("GET"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
+        (
+            rest,
+            Action::Get(content.iter().map(|s| String::from(*s)).collect()),
+        )
+    })
 }
 
 fn parse_put(s: &str) -> IResult<&str, Action> {
-    tuple((tag("PUT"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Put(content)))
+    tuple((tag("PUT"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
+        (
+            rest,
+            Action::Put(content.iter().map(|s| String::from(*s)).collect()),
+        )
+    })
 }
 
 fn parse_del(s: &str) -> IResult<&str, Action> {
-    tuple((tag("DEL"), many1(map_parser(space_delimit, parse_cid))))(s)
-        .map(|(rest, (_, content))| (rest, Action::Del(content)))
+    tuple((tag("DEL"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
+        (
+            rest,
+            Action::Del(content.iter().map(|s| String::from(*s)).collect()),
+        )
+    })
 }
 
 fn parse_create(s: &str) -> IResult<&str, Action> {
     tuple((
         tag("CREATE"),
         space_delimit, // parameters
-        many1(map_parser(space_delimit, parse_cid)),
+        many1(space_delimit),
     ))(s)
     .map(|(rest, (_, params, content))| {
         (
             rest,
             Action::Create {
-                content,
+                content: content.iter().map(|s| String::from(*s)).collect(),
                 parameters: params.into(),
             },
         )
@@ -126,29 +138,12 @@ fn serialize_action(action: &Action) -> Result<String> {
         Action::Create {
             content,
             parameters,
-        } => Ok([
-            "CREATE",
-            &parameters,
-            &content
-                .iter()
-                .map(|c| c.to_string_of_base(Base::Base58Btc))
-                .collect::<Result<Vec<String>, libipld::cid::Error>>()?
-                .join(" "),
-        ]
-        .join(" ")),
+        } => Ok(["CREATE", &parameters, &content.join(" ")].join(" ")),
     }
 }
 
-fn serialize_content_action(action: &str, content: &[Cid]) -> Result<String> {
-    Ok([
-        action,
-        &content
-            .iter()
-            .map(|c| c.to_string_of_base(Base::Base58Btc))
-            .collect::<Result<Vec<String>, libipld::cid::Error>>()?
-            .join(" "),
-    ]
-    .join(" "))
+fn serialize_content_action(action: &str, content: &[String]) -> Result<String> {
+    Ok([action, &content.join(" ")].join(" "))
 }
 
 impl TezosAuthorizationString {
@@ -317,7 +312,7 @@ async fn round_trip() {
         pkh: pkh.into(),
         timestamp: ts.into(),
         orbit: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
-        action: Action::Put(vec![Cid::from_str(dummy_cid).expect("failed to parse CID")]),
+        action: Action::Put(vec![dummy_cid.to_string()]),
     };
     let message = tz_unsigned
         .serialize_for_verification()

@@ -41,7 +41,7 @@ impl<'r> Responder<'r, 'static> for Metadata {
     }
 }
 
-struct S3Response(pub Vec<u8>, pub Metadata);
+pub struct S3Response(pub Vec<u8>, pub Metadata);
 
 impl<'r> Responder<'r, 'static> for S3Response {
     fn respond_to(self, r: &'r Request<'_>) -> response::Result<'static> {

@@ -11,21 +11,18 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
 use std::{collections::HashMap, str::FromStr, sync::RwLock};
 
-#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
-    Put(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
-    Get(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
-    Del(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Put(Vec<String>),
+    Get(Vec<String>),
+    Del(Vec<String>),
     Create {
         parameters: String,
-        #[serde_as(as = "Vec<DisplayFromStr>")]
-        content: Vec<Cid>,
+        content: Vec<String>,
     },
     List,
 }

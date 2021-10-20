@@ -218,7 +218,6 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
     let cfg = Config::new(&dir.join("block_store"), kp);
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
-    let md2 = md.clone();
 
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
 
@@ -228,15 +227,16 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
     ipfs.dial_address(&relay.0, relay.1);
 
     let task_ipfs = ipfs.clone();
-    let controllers = md.controllers.clone();
 
     let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
         let mut events = task_ipfs.swarm_events();
         loop {
             match events.next().await {
                 Some(ipfs_embed::Event::Discovered(p)) => {
-                    tracing::debug!("dialing peer {}", p);
-                    task_ipfs.dial(&p);
+                    if task_ipfs.peers().contains(&p) {
+                        tracing::debug!("dialing peer {}", p);
+                        task_ipfs.dial(&p);
+                    };
                 }
                 None => return,
                 _ => continue,
