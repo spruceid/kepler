@@ -45,16 +45,7 @@ pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<T>(
     req: &Request<'_>,
-) -> Result<
-    (
-        Vec<u8>,
-        AuthTokens,
-        config::Config,
-        Cid,
-        (PeerId, Multiaddr),
-    ),
-    Outcome<T, anyhow::Error>,
-> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config, (PeerId, Multiaddr)), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -63,15 +54,6 @@ async fn extract_info<T>(
     let config = match req.rocket().state::<config::Config>() {
         Some(c) => c,
         None => {
-            return Err(Outcome::Failure((
-                Status::InternalServerError,
-                anyhow!("Could not retrieve config"),
-            )));
-        }
-    };
-    let oid: Cid = match req.param::<CidWrap>(0) {
-        Some(Ok(o)) => o.0,
-        _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
                 anyhow!("Could not retrieve config"),
@@ -88,13 +70,9 @@ async fn extract_info<T>(
         }
     };
     match AuthTokens::from_request(req).await {
-        Outcome::Success(token) => Ok((
-            auth_data.as_bytes().to_vec(),
-            token,
-            config.clone(),
-            oid,
-            relay,
-        )),
+        Outcome::Success(token) => {
+            Ok((auth_data.as_bytes().to_vec(), token, config.clone(), relay))
+        }
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
@@ -112,9 +90,18 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config, oid, relay) = match extract_info(req).await {
+                let (_, token, config, relay) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
+                };
+                let oid: Cid = match req.param::<CidWrap>(0) {
+                    Some(Ok(o)) => o.0,
+                    _ => {
+                        return Outcome::Failure((
+                            Status::InternalServerError,
+                            anyhow!("Could not parse orbit"),
+                        ));
+                    }
                 };
                 match (token.action(), &oid == token.target_orbit()) {
                     (_, false) => Outcome::Failure((
@@ -163,7 +150,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config, oid, relay) = match extract_info(req).await {
+        let (auth_data, token, config, relay) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };

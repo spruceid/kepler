@@ -182,12 +182,8 @@ pub async fn delete_content(
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
-#[post("/<_orbit_id>", format = "text/plain", data = "<_params_str>")]
-pub async fn open_orbit_authz(
-    _orbit_id: CidWrap,
-    _params_str: &str,
-    authz: CreateAuthWrapper,
-) -> Result<String, (Status, &'static str)> {
+#[post("/")]
+pub async fn open_orbit_authz(authz: CreateAuthWrapper) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
     Ok(authz.0.id().to_string())
 }
