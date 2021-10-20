@@ -56,8 +56,24 @@ pub struct OrbitMetadata {
 }
 
 impl OrbitMetadata {
+    pub fn id(&self) -> &Cid {
+        &self.id
+    }
+
     pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
         self.hosts.keys()
+    }
+
+    pub fn controllers(&self) -> &[DIDURL] {
+        &self.controllers
+    }
+
+    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
+        Ok(format!(
+            "kepler://{}/{}",
+            self.id().to_string_of_base(Base::Base58Btc)?,
+            cid.to_string_of_base(Base::Base58Btc)?
+        ))
     }
 }
 
@@ -108,9 +124,7 @@ fn match_action_to_request(action: &Action, method: Method, res: &Option<String>
                 Err(anyhow!("Method doesnt match authorized action"))
             }
         }
-        (Action::List, Method::Get, None) | (Action::Create { .. }, Method::Post, Some(_)) => {
-            Ok(())
-        }
+        (Action::List, Method::Get, None) | (Action::Create { .. }, Method::Post, None) => Ok(()),
         _ => Err(anyhow!("Method and action do not match")),
     }
 }
@@ -130,11 +144,11 @@ impl AuthorizationToken for AuthTokens {
     }
 }
 #[rocket::async_trait]
-impl AuthorizationPolicy<AuthTokens> for Orbit {
+impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
     async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
         match auth_token {
-            AuthTokens::Tezos(token) => self.metadata.authorize(token).await,
-            AuthTokens::ZCAP(token) => self.metadata.authorize(token).await,
+            AuthTokens::Tezos(token) => self.authorize(token).await,
+            AuthTokens::ZCAP(token) => self.authorize(token).await,
         }
     }
 }
@@ -166,6 +180,52 @@ pub struct Orbit {
     task: Arc<AbortOnDrop<()>>,
     pub service: Service,
     metadata: OrbitMetadata,
+}
+
+fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
+    match method {
+        "tz" => match (params.get("address"), params.get("contract")) {
+            (_, Some(_contract)) => None,
+            (Some(address), None) => Some(DIDURL {
+                did: format!("did:pkh:tz:{}", &address),
+                fragment: Some("TezosMethod2021".to_string()),
+                ..Default::default()
+            }),
+            _ => None,
+        },
+        "did" => match (params.get("did"), params.get("vm")) {
+            (Some(did), Some(vm_id)) => Some(DIDURL {
+                did: did.into(),
+                fragment: Some(vm_id.into()),
+                ..Default::default()
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+pub async fn get_metadata(
+    oid: &Cid,
+    param_str: &str,
+    chains: &ExternalApis,
+) -> Result<OrbitMetadata> {
+    let (method, params) = verify_oid(oid, param_str)?;
+    Ok(match (method.as_str(), &chains) {
+        ("tz", ExternalApis { tzkt, .. }) => params_to_tz_orbit(*oid, &params, &tzkt).await?,
+        _ => OrbitMetadata {
+            id: *oid,
+            controllers: vec![get_params_vm(method.as_ref(), &params)
+                .ok_or(anyhow!("Missing Implicit Controller Params"))?],
+            read_delegators: vec![],
+            write_delegators: vec![],
+            revocations: vec![],
+            hosts: params
+                .get("hosts")
+                .map(|hs| parse_hosts_str(hs))
+                .unwrap_or(Ok(Default::default()))?,
+        },
+    })
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -361,33 +421,20 @@ impl ContentAddressedStorage for Orbit {
     }
 }
 
+impl Deref for Orbit {
+    type Target = OrbitMetadata;
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
+}
+
 impl Orbit {
-    pub fn id(&self) -> &Cid {
-        &self.metadata.id
-    }
-
-    pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
-        self.metadata.hosts()
-    }
-
-    pub fn controllers(&self) -> &[DIDURL] {
-        &self.metadata.controllers
-    }
-
     pub fn read_delegators(&self) -> &[DIDURL] {
         &self.metadata.read_delegators
     }
 
     pub fn write_delegators(&self) -> &[DIDURL] {
         &self.metadata.write_delegators
-    }
-
-    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
-        Ok(format!(
-            "kepler://{}/{}",
-            self.id().to_string_of_base(Base::Base58Btc)?,
-            cid.to_string_of_base(Base::Base58Btc)?
-        ))
     }
 
     // async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
