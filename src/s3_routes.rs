@@ -61,7 +61,7 @@ pub async fn list_content_no_auth(
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
-        (relay.id, relay.internal()),
+        (relay.id(), relay.internal()),
     )
     .await
     {
@@ -126,7 +126,7 @@ pub async fn get_metadata_no_auth(
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
-        (relay.id, relay.internal()),
+        (relay.id(), relay.internal()),
     )
     .await
     {
@@ -171,7 +171,7 @@ pub async fn get_content_no_auth(
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
-        (relay.id, relay.internal()),
+        (relay.id(), relay.internal()),
     )
     .await
     {

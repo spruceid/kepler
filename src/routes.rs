@@ -62,7 +62,7 @@ pub async fn list_content_no_auth(
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
-        (relay.id, relay.internal()),
+        (relay.id(), relay.internal()),
     )
     .await
     {
@@ -96,7 +96,7 @@ pub async fn get_content_no_auth(
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
-        (relay.id, relay.internal()),
+        (relay.id(), relay.internal()),
     )
     .await
     {
@@ -213,7 +213,7 @@ pub async fn open_orbit_allowlist(
                     &md,
                     config.database.path.clone(),
                     &[],
-                    (relay.id, relay.internal()),
+                    (relay.id(), relay.internal()),
                     keys,
                 )
                 .await
@@ -235,7 +235,7 @@ pub async fn cors(_s: PathBuf) -> () {
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
     relay
         .external()
-        .with(Protocol::P2p(relay.id.into()))
+        .with(Protocol::P2p(relay.id().into()))
         .to_string()
 }
 

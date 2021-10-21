@@ -23,7 +23,7 @@ pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
 
-use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
+use ipfs_embed::{generate_keypair, Keypair, PeerId};
 use relay::RelayNode;
 use routes::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
@@ -58,7 +58,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         kp
     };
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, kp.to_keypair())?;
+    let relay_node = RelayNode::new(kepler_config.relay.port, kp).await?;
 
     let mut routes = routes![
         put_content,

@@ -59,7 +59,7 @@ async fn extract_info<T>(
         }
     };
     let relay = match req.rocket().state::<RelayNode>() {
-        Some(r) => (r.id.clone(), r.internal()),
+        Some(r) => (r.id(), r.internal()),
         _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
