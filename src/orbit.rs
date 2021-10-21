@@ -281,16 +281,35 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
     // establish a connection to the relay
     ipfs.dial_address(&relay.0, relay.1);
 
+    for (peer, addrs) in md.hosts.iter() {
+        if peer != &ipfs.local_peer_id() {
+            for addr in addrs.iter() {
+                ipfs.dial_address(peer, addr.clone());
+            }
+        }
+    }
+
     let task_ipfs = ipfs.clone();
 
+    let id = md.id.to_string_of_base(Base::Base58Btc)?;
+    let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
+
+    let service_store = Store::new(id, ipfs, db)?;
+    let service = Service::start(service_store)?;
+
+    let st = service.store.clone();
+
     let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
-        let mut events = task_ipfs.swarm_events();
+        let mut events = st.ipfs.swarm_events();
         loop {
             match events.next().await {
                 Some(ipfs_embed::Event::Discovered(p)) => {
                     if task_ipfs.peers().contains(&p) {
                         tracing::debug!("dialing peer {}", p);
                         task_ipfs.dial(&p);
+                        st.request_heads();
+                    } else {
+                        task_ipfs.ban(p)
                     };
                 }
                 None => return,
@@ -298,12 +317,6 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
             }
         }
     })));
-
-    let id = md.id.to_string_of_base(Base::Base58Btc)?;
-    let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
-
-    let service_store = Store::new(id, ipfs, db)?;
-    let service = Service::start(service_store)?;
 
     Ok(Orbit {
         service,

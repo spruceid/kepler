@@ -17,7 +17,7 @@ type TaskHandle = tokio::task::JoinHandle<()>;
 
 #[derive(Clone)]
 pub struct Service {
-    store: Store,
+    pub store: Store,
     task: Arc<TaskHandle>,
 }
 
