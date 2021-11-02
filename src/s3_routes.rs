@@ -14,7 +14,7 @@ use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
 use crate::s3::ObjectBuilder;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Metadata(pub BTreeMap<String, String>);
 
@@ -35,7 +35,9 @@ impl<'r> Responder<'r, 'static> for Metadata {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
         let mut r = Response::build();
         for (k, v) in self.0 {
-            r.header(Header::new(k, v));
+            if k != "content-length" {
+                r.header(Header::new(k, v));
+            }
         }
         Ok(r.finalize())
     }
@@ -52,7 +54,7 @@ impl<'r> Responder<'r, 'static> for S3Response {
     }
 }
 
-#[get("/<orbit_id>/s3")]
+#[get("/<orbit_id>/s3", rank = 8)]
 pub async fn list_content_no_auth(
     orbit_id: CidWrap,
     config: &State<config::Config>,
@@ -103,26 +105,34 @@ pub async fn list_content(
     ))
 }
 
-#[head("/<_orbit_id>/s3/<key>")]
+#[head("/<_orbit_id>/s3/<key..>")]
 pub async fn get_metadata(
     _orbit_id: CidWrap,
     orbit: GetAuthWrapper,
-    key: String,
+    key: PathBuf,
 ) -> Result<Option<Metadata>, (Status, String)> {
-    match orbit.0.service.get(key) {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
+    match orbit.0.service.get(k) {
         Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
         Err(e) => Err((Status::InternalServerError, e.to_string())),
         Ok(None) => Ok(None),
     }
 }
 
-#[head("/<orbit_id>/s3/<key>")]
+#[head("/<orbit_id>/s3/<key..>")]
 pub async fn get_metadata_no_auth(
     orbit_id: CidWrap,
-    key: String,
+    key: PathBuf,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<Metadata>, (Status, String)> {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
@@ -134,20 +144,24 @@ pub async fn get_metadata_no_auth(
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
-    match orbit.service.get(key) {
+    match orbit.service.get(k) {
         Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
         Err(e) => Err((Status::InternalServerError, e.to_string())),
         Ok(None) => Ok(None),
     }
 }
 
-#[get("/<_orbit_id>/s3/<key>")]
+#[get("/<_orbit_id>/s3/<key..>")]
 pub async fn get_content(
     _orbit_id: CidWrap,
     orbit: GetAuthWrapper,
-    key: String,
+    key: PathBuf,
 ) -> Result<Option<S3Response>, (Status, String)> {
-    let s3_obj = match orbit.0.service.get(key) {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
+    let s3_obj = match orbit.0.service.get(k) {
         Ok(Some(content)) => content,
         _ => return Ok(None),
     };
@@ -161,13 +175,17 @@ pub async fn get_content(
     }
 }
 
-#[get("/<orbit_id>/s3/<key>")]
+#[get("/<orbit_id>/s3/<key..>")]
 pub async fn get_content_no_auth(
     orbit_id: CidWrap,
-    key: String,
+    key: PathBuf,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<S3Response>, (Status, String)> {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
     let orbit = match load_orbit(
         orbit_id.0,
         config.database.path.clone(),
@@ -179,7 +197,7 @@ pub async fn get_content_no_auth(
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
-    let s3_obj = match orbit.service.get(key) {
+    let s3_obj = match orbit.service.get(k) {
         Ok(Some(content)) => content,
         _ => return Ok(None),
     };
@@ -193,21 +211,25 @@ pub async fn get_content_no_auth(
     }
 }
 
-#[put("/<_orbit_id>/s3/<key>", data = "<data>")]
+#[put("/<_orbit_id>/s3/<key..>", data = "<data>")]
 pub async fn put_content(
     _orbit_id: CidWrap,
     orbit: PutAuthWrapper,
-    key: String,
+    key: PathBuf,
     md: Metadata,
     data: Data<'_>,
 ) -> Result<(), (Status, String)> {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
     orbit
         .0
         .service
         .write(
             vec![(
-                ObjectBuilder::new(key.as_bytes().to_vec(), md.0),
-                data.open(1u8.megabytes())
+                ObjectBuilder::new(k.as_bytes().to_vec(), md.0),
+                data.open(1u8.gigabytes())
                     .into_bytes()
                     .await
                     .map_err(|e| (Status::BadRequest, anyhow!(e).to_string()))?
@@ -219,15 +241,19 @@ pub async fn put_content(
     Ok(())
 }
 
-#[delete("/<_orbit_id>/s3/<key>")]
+#[delete("/<_orbit_id>/s3/<key..>")]
 pub async fn delete_content(
     _orbit_id: CidWrap,
     orbit: DelAuthWrapper,
-    key: String,
+    key: PathBuf,
 ) -> Result<(), (Status, &'static str)> {
+    let k = match key.to_str() {
+        Some(k) => k,
+        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+    };
     Ok(orbit
         .0
         .service
-        .write(vec![], vec![(key.into(), None)])
+        .write(vec![], vec![(k.into(), None)])
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
