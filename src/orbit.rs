@@ -261,18 +261,21 @@ pub async fn load_orbit(
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(oid, dir, relay).await.map(|o| Some(o))
+    load_orbit_(dir, relay).await.map(|o| Some(o))
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 // 1min timeout to evict orbits that might have been deleted
-#[cached(size = 100, time = 60, result = true)]
-async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+#[cached(size = 100, time = 60, result = true, sync_writes = true)]
+async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
     let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
-    let cfg = Config::new(&dir.join("block_store"), kp);
+    let mut cfg = Config::new(&dir.join("block_store"), kp);
+    cfg.network.streams = None;
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
+    let id = md.id.to_string_of_base(Base::Base58Btc)?;
+    tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
     let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
 
@@ -291,7 +294,6 @@ async fn load_orbit_(_oid: Cid, dir: PathBuf, relay: (PeerId, Multiaddr)) -> Res
 
     let task_ipfs = ipfs.clone();
 
-    let id = md.id.to_string_of_base(Base::Base58Btc)?;
     let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
 
     let service_store = Store::new(id, ipfs, db)?;
