@@ -3,22 +3,18 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
+    ipfs::Ipfs,
     s3::{Service, Store},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{
-    generate_keypair, multiaddr::multiaddr, Config, Ipfs, Keypair, Multiaddr, PeerId,
-};
-use libipld::{
-    cid::{
-        multibase::Base,
-        multihash::{Code, MultihashDigest},
-        Cid,
-    },
-    store::DefaultParams,
+use ipfs_embed::{generate_keypair, multiaddr::multiaddr, Config, Keypair, Multiaddr, PeerId};
+use libipld::cid::{
+    multibase::Base,
+    multihash::{Code, MultihashDigest},
+    Cid,
 };
 use rocket::{
     futures::StreamExt,
@@ -277,7 +273,7 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let ipfs = Ipfs::<DefaultParams>::new(cfg).await?;
+    let ipfs = Ipfs::new(cfg).await?;
 
     // listen for any relayed messages
     ipfs.listen_on(multiaddr!(P2pCircuit))?.next().await;

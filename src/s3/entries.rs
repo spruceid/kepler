@@ -1,6 +1,7 @@
 use super::to_block;
+use crate::ipfs::Block;
 use anyhow::Result;
-use libipld::{cid::Cid, Block, DagCbor, DefaultParams};
+use libipld::{cid::Cid, DagCbor};
 use std::collections::BTreeMap;
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
@@ -23,7 +24,7 @@ impl Object {
         }
     }
 
-    pub fn to_block(&self) -> Result<Block<DefaultParams>> {
+    pub fn to_block(&self) -> Result<Block> {
         to_block(self)
     }
 }

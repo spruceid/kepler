@@ -83,12 +83,11 @@ impl Drop for RelayNode {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ipfs_embed::{generate_keypair, Config, DefaultParams, Ipfs as EIpfs, ToLibp2p};
+    use crate::ipfs::Ipfs;
+    use ipfs_embed::{generate_keypair, Config, ToLibp2p};
     use libp2p::core::multiaddr::{multiaddr, Protocol};
     use std::path::Path;
     use tempdir::TempDir;
-
-    type Ipfs = EIpfs<DefaultParams>;
 
     fn get_cfg<P: AsRef<Path>>(path: P) -> Config {
         let mut c = Config::new(path.as_ref(), generate_keypair());

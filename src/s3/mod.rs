@@ -8,11 +8,11 @@ use std::sync::Arc;
 mod entries;
 mod store;
 
+use super::ipfs::{Block, Ipfs};
+
 pub use entries::{Object, ObjectBuilder};
 pub use store::Store;
 
-type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
-type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
 type TaskHandle = tokio::task::JoinHandle<()>;
 
 #[derive(Clone)]
@@ -126,10 +126,10 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::tracing_try_init;
     use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
     use std::{collections::BTreeMap, time::Duration};
-    use crate::tracing_try_init;
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
