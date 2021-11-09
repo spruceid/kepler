@@ -10,7 +10,7 @@ mod store;
 
 use super::ipfs::{Block, Ipfs};
 
-pub use entries::{Object, ObjectBuilder};
+pub use entries::{Object, ObjectBuilder, IpfsWriteStream};
 pub use store::Store;
 
 type TaskHandle = tokio::task::JoinHandle<()>;
