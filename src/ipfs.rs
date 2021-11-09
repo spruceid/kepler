@@ -1,6 +1,6 @@
 use super::cas::ContentAddressedStorage;
 use super::codec::SupportedCodecs;
-use ipfs_embed::Ipfs as OIpfs;
+use ipfs_embed::{Ipfs as OIpfs, DefaultParams};
 use libipld::{
     block::Block as OBlock,
     cid::{multihash::Code, Cid},
@@ -9,14 +9,15 @@ use libipld::{
     IpldCodec,
 };
 
-#[derive(Clone, Debug, Default)]
-pub struct KeplerParams;
+pub type KeplerParams = DefaultParams;
+// #[derive(Clone, Debug, Default)]
+// pub struct KeplerParams;
 
-impl StoreParams for KeplerParams {
-    const MAX_BLOCK_SIZE: usize = 10_485_760;
-    type Codecs = IpldCodec;
-    type Hashes = Code;
-}
+// impl StoreParams for KeplerParams {
+//     const MAX_BLOCK_SIZE: usize = 10_485_760;
+//     type Codecs = IpldCodec;
+//     type Hashes = Code;
+// }
 
 pub type Ipfs = OIpfs<KeplerParams>;
 pub type Block = OBlock<KeplerParams>;

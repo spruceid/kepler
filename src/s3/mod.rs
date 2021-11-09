@@ -179,8 +179,9 @@ mod test {
         let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
         let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
-        alice_service.write(vec![(s3_obj_1, json.as_bytes().to_vec())], vec![])?;
-        bob_service.write(vec![(s3_obj_2, json.as_bytes().to_vec())], vec![])?;
+        let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+        alice_service.write(vec![(s3_obj_1, json.as_bytes())], rm.clone()).await?;
+        bob_service.write(vec![(s3_obj_2, json.as_bytes())], rm).await?;
 
         {
             // ensure only alice has s3_obj_1
@@ -214,7 +215,8 @@ mod test {
         );
 
         // remove key1
-        alice_service.write(vec![], vec![(key1.as_bytes().to_vec(), None)])?;
+        let add: Vec<(&[u8], Cid)> = vec![];
+        alice_service.index(add, vec![(key1.as_bytes().to_vec(), None)])?;
 
         assert_eq!(alice_service.get(key1)?, None);
 

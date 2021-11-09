@@ -1,4 +1,5 @@
 use anyhow::Result;
+use libipld::Cid;
 use rocket::{
     data::{Data, ToByteUnit},
     http::{Header, Status},
@@ -223,20 +224,15 @@ pub async fn put_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
+    let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+
     orbit
         .0
         .service
         .write(
-            vec![(
-                ObjectBuilder::new(k.as_bytes().to_vec(), md.0),
-                data.open(1u8.gigabytes())
-                    .into_bytes()
-                    .await
-                    .map_err(|e| (Status::BadRequest, anyhow!(e).to_string()))?
-                    .to_vec(),
-            )],
-            vec![],
-        )
+            vec![(ObjectBuilder::new(k.as_bytes().to_vec(), md.0), data.open(1u8.gigabytes()))],
+            rm
+        ).await
         .map_err(|e| (Status::InternalServerError, e.to_string()))?;
     Ok(())
 }
@@ -251,9 +247,10 @@ pub async fn delete_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
+    let add: Vec<(&[u8], Cid)> = vec![];
     Ok(orbit
         .0
         .service
-        .write(vec![], vec![(k.into(), None)])
+        .index(add, vec![(k, None)])
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
