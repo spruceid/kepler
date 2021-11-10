@@ -5,8 +5,6 @@ use libipld::{
     block::Block as OBlock,
     cid::{multihash::Code, Cid},
     raw::RawCodec,
-    store::StoreParams,
-    IpldCodec,
 };
 
 pub type KeplerParams = DefaultParams;

@@ -108,12 +108,16 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
                 Ok((p, KVMessage::Heads(heads))) => {
                     debug!("new heads from {}", p);
                     // sync heads
-                    &store.try_merge_heads(heads.into_iter()).await;
+                    if let Err(e) = store.try_merge_heads(heads.into_iter()).await {
+                        error!("failed to merge heads {}", e);
+                    };
                 }
                 Ok((p, KVMessage::StateReq)) => {
                     debug!("{} requests state", p);
                     // send heads
-                    &store.broadcast_heads();
+                    if let Err(e) = store.broadcast_heads() {
+                        error!("failed to broadcast heads {}", e);
+                    };
                 }
                 Err(e) => {
                     error!("{}", e);
@@ -144,7 +148,7 @@ mod test {
                 match events.next().await {
                     Some(SwarmEvent::Discovered(p)) => {
                         tracing::debug!("dialing peer {}", p);
-                        &task_ipfs.dial(&p);
+                        task_ipfs.dial(&p);
                     }
                     None => return,
                     _ => continue,

@@ -18,7 +18,7 @@ use libipld::cid::{
 };
 use rocket::{
     futures::StreamExt,
-    http::{Method, Status},
+    http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::{fs, task::JoinHandle},
 };
@@ -96,22 +96,6 @@ impl<'r> FromRequest<'r> for AuthTokens {
                 ));
             };
         Outcome::Success(ats)
-    }
-}
-
-fn match_action_to_request(action: &Action, method: Method, res: &Option<String>) -> Result<()> {
-    match (action, method, res) {
-        (Action::Get(content), Method::Get, Some(r))
-        | (Action::Put(content), Method::Put, Some(r))
-        | (Action::Del(content), Method::Delete, Some(r)) => {
-            if content.contains(r) {
-                Ok(())
-            } else {
-                Err(anyhow!("Method doesnt match authorized action"))
-            }
-        }
-        (Action::List, Method::Get, None) | (Action::Create { .. }, Method::Post, None) => Ok(()),
-        _ => Err(anyhow!("Method and action do not match")),
     }
 }
 
@@ -438,6 +422,6 @@ async fn oid_verification() {
 async fn parameters() -> Result<()> {
     let params = r#"did;did=did%3Akey%3Az6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom;hosts=12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly%3A%2Fip4%2F127.0.0.1%2Ftcp%2F8081%2Fp2p%2F12D3KooWG4GKKKocGcX9pfdcdQncaLM73mY4X6TwB6tT48g1ijTY%2Fp2p-circuit%2Fp2p%2F12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly;vm=z6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom"#;
     let oid: Cid = "zCT5htkeCSu7WefuBKYUidQJkRgEvEGZQrFVqYS6ZJVM6zwLCRcF".parse()?;
-    let md = get_metadata(&oid, params, &Default::default()).await?;
+    let _md = get_metadata(&oid, params, &Default::default()).await?;
     Ok(())
 }

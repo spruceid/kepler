@@ -10,7 +10,7 @@ use rocket::{
 };
 
 use crate::auth::{DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper};
-use crate::cas::{CidWrap, ContentAddressedStorage};
+use crate::cas::{CidWrap};
 use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
