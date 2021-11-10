@@ -63,6 +63,8 @@ pub struct IpfsWriteStream<'a> {
     store: &'a Ipfs,
     pub content: Vec<(Cid, u32)>,
     pub pin: TempPin,
+    buffer: [u8; KeplerParams::MAX_BLOCK_SIZE],
+    offset: usize
 }
 
 impl<'a> IpfsWriteStream<'a> {
@@ -71,6 +73,8 @@ impl<'a> IpfsWriteStream<'a> {
             store,
             content: Default::default(),
             pin: store.create_temp_pin()?,
+            buffer: [0u8; KeplerParams::MAX_BLOCK_SIZE],
+            offset: 0
         })
     }
 
@@ -95,30 +99,54 @@ impl<'a> AsyncWrite for IpfsWriteStream<'a> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        let t: &[u8] = &buf[..KeplerParams::MAX_BLOCK_SIZE.min(buf.len())];
-        if t.len() == 0 {
+        if buf.len() == 0 {
             return Poll::Ready(Ok(0));
         };
-        tracing::debug!("writing bytes: {}", t.len());
-        let block = to_block_raw(&t.to_vec()).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-        self.store
-            .insert(&block)
-            .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-        self.store
-            .temp_pin(&self.pin, block.cid())
-            .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
 
-        let c: &mut Vec<(Cid, u32)> = &mut self.get_mut().content;
-        c.push((*block.cid(), t.len() as u32));
+        let mut s = self.get_mut();
+        let mut remaining = &mut s.buffer[s.offset..];
 
-        Poll::Ready(Ok(t.len()))
+        let to_write = buf.len().min(remaining.len());
+        tracing::debug!("writing {} bytes at {} to block {}", to_write, s.offset, s.content.len());
+
+        remaining.write_all(&buf[..to_write])?;
+        s.offset = KeplerParams::MAX_BLOCK_SIZE - remaining.len();
+
+        if s.offset == KeplerParams::MAX_BLOCK_SIZE {
+            let block = to_block_raw(&s.buffer.to_vec()).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+            s.store
+                .insert(&block)
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+            s.store
+                .temp_pin(&s.pin, block.cid())
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+
+            s.content.push((*block.cid(), s.offset as u32));
+            s.offset = 0;
+            Pin::new(&mut s).poll_write(cx, &buf[to_write..])
+        } else {
+            Poll::Ready(Ok(to_write))
+        }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        if self.offset > 0 {
+            let block = to_block_raw(&self.buffer[..self.offset].to_vec()).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+            self.store
+                .insert(&block)
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+            self.store
+                .temp_pin(&self.pin, block.cid())
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+
+            let mut s = self.get_mut();
+            s.content.push((*block.cid(), s.offset as u32));
+            s.offset = 0;
+        }
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Poll::Ready(Ok(()))
     }
 }
@@ -164,4 +192,18 @@ impl ObjectBuilder {
     pub fn add_content(self, value: Cid) -> Object {
         Object::new(self.key, value, self.metadata)
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn write() -> Result<(), anyhow::Error> {
+    crate::tracing_try_init();
+    let tmp = tempdir::TempDir::new("test_streams")?;
+    
+    let config = ipfs_embed::Config::new(&tmp.path(), ipfs_embed::generate_keypair());
+    let ipfs = Ipfs::new(config).await?;
+
+    let streamwrite = IpfsWriteStream::new(&ipfs)?;
+    tracing::debug!("write");
+    streamwrite.write(Cursor::new([255u8; 1111111111])).await?;
+    Ok(())
 }
