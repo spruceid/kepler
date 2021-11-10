@@ -14,7 +14,7 @@ use crate::cas::{CidWrap};
 use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
-use crate::s3::ObjectBuilder;
+use crate::s3::{ObjectBuilder, IpfsReadStream};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -44,13 +44,19 @@ impl<'r> Responder<'r, 'static> for Metadata {
     }
 }
 
-pub struct S3Response(pub Vec<u8>, pub Metadata);
+pub struct S3Response(IpfsReadStream, pub Metadata);
+
+impl S3Response {
+    pub fn new(md: Metadata, reader: IpfsReadStream) -> Self {
+        Self(reader, md)
+    }
+}
 
 impl<'r> Responder<'r, 'static> for S3Response {
     fn respond_to(self, r: &'r Request<'_>) -> response::Result<'static> {
-        Ok(Response::build_from(self.0.respond_to(r)?)
+        Ok(Response::build_from(self.1.respond_to(r)?)
             // must ensure that Metadata::respond_to does not set the body of the response
-            .merge(self.1.respond_to(r)?)
+           .streamed_body(self.0)
             .finalize())
     }
 }
@@ -162,17 +168,9 @@ pub async fn get_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let s3_obj = match orbit.0.service.get(k) {
-        Ok(Some(content)) => content,
-        _ => return Ok(None),
-    };
-    match orbit.0.get(&s3_obj.value).await {
-        Ok(Some(content)) => Ok(Some(S3Response(
-            content.to_vec(),
-            Metadata(s3_obj.metadata),
-        ))),
-        Ok(None) => Ok(None),
-        Err(_) => Ok(None),
+    match orbit.0.service.read(k) {
+        Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
+        _ => Ok(None),
     }
 }
 
@@ -198,17 +196,10 @@ pub async fn get_content_no_auth(
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
-    let s3_obj = match orbit.service.get(k) {
-        Ok(Some(content)) => content,
+
+    match orbit.service.read(k) {
+        Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
         _ => return Ok(None),
-    };
-    match orbit.get(&s3_obj.value).await {
-        Ok(Some(content)) => Ok(Some(S3Response(
-            content.to_vec(),
-            Metadata(s3_obj.metadata),
-        ))),
-        Ok(None) => Ok(None),
-        Err(_) => Ok(None),
     }
 }
 

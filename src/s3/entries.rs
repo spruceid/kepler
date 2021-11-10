@@ -5,12 +5,59 @@ use ipfs_embed::TempPin;
 use libipld::{cid::Cid, store::StoreParams, DagCbor};
 use std::{
     collections::BTreeMap,
-    io::{self, ErrorKind},
+    io::{self, ErrorKind, Cursor, Write},
     pin::Pin,
     task::{Context, Poll},
 };
 
-use rocket::tokio::io::{AsyncWrite, AsyncRead, copy, BufWriter, AsyncWriteExt};
+
+use rocket::{
+    tokio::io::{AsyncWrite, AsyncRead, copy, BufWriter, AsyncWriteExt, BufReader, ReadBuf},
+};
+
+pub struct IpfsReadStream {
+    store: Ipfs,
+    block: Cursor<Block>,
+    index: usize,
+    pub content: Vec<(Cid, u32)>,
+}
+
+impl IpfsReadStream {
+    pub fn new(store: Ipfs, mut content: Vec<(Cid, u32)>) -> Result<Self> {
+        let (cid0, _) = content.pop().ok_or(anyhow!("Enpty Content"))?;
+        let block = Cursor::new(store.get(&cid0)?);
+        Ok(Self { store, content, block, index: 0 })
+    }
+}
+
+impl AsyncRead for IpfsReadStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>
+    ) -> Poll<Result<(), io::Error>> {
+        let mut s = self.get_mut();
+        let p = s.block.position();
+        match Pin::new(&mut s.block).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => if p == s.block.position() {
+                match s.content.get(s.index + 1).and_then(|(cid, _)| 
+                    s.store.get(&cid).ok()
+                ) {
+                    Some(block) => {
+                        s.index += 1;
+                        s.block = Cursor::new(block);
+                        tracing::debug!("loading block {}", s.index);
+                        Pin::new(&mut s).poll_read(cx, buf)
+                    },
+                    None => Poll::Ready(Ok(()))
+                }
+            } else {
+                Poll::Ready(Ok(()))
+            },
+            e => e
+        }
+    }
+}
 
 pub struct IpfsWriteStream<'a> {
     store: &'a Ipfs,

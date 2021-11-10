@@ -1,14 +1,14 @@
-use crate::s3::{Object, ObjectBuilder, Service, IpfsWriteStream};
+use crate::s3::{Object, ObjectBuilder, Service, IpfsWriteStream, IpfsReadStream};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use libipld::{cid::Cid, DagCbor};
+use libipld::{cid::Cid, DagCbor, cbor::DagCborCodec};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use sled::{Batch, Db, IVec, Tree};
-use std::convert::{TryFrom, TryInto};
+use std::{convert::{TryFrom, TryInto}, collections::BTreeMap};
 use tracing::{debug, error};
 use ipfs_embed::TempPin;
 
-use super::{to_block, to_block_raw, Block, Ipfs, KVMessage};
+use super::{to_block, Block, Ipfs, KVMessage};
 
 #[derive(DagCbor)]
 struct Delta {
@@ -111,6 +111,23 @@ impl Store {
                 }
             }
             None => Ok(None),
+        }
+    }
+
+    pub fn read<N>(
+        &self,
+        key: N
+    ) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>> where N: AsRef<[u8]> {
+        let s3_obj = match self.get(key) {
+            Ok(Some(content)) => content,
+            _ => return Ok(None),
+        };
+        match self.ipfs.get(&s3_obj.value)?.decode::<DagCborCodec, Vec<(Cid, u32)>>() {
+            Ok(content) => Ok(Some((
+                s3_obj.metadata,
+                IpfsReadStream::new(self.ipfs.clone(), content)?,
+            ))),
+            Err(_) => Ok(None),
         }
     }
 
