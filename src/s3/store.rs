@@ -136,8 +136,10 @@ impl Store {
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
         remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>)>,
     ) -> Result<()> where N: AsRef<[u8]>, R: AsyncRead + Unpin {
-        let (indexes, pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) = try_join_all(
+        tracing::debug!("writing tx");
+        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) = try_join_all(
             add.into_iter().map(|(o, r)| async {
+                // tracing::debug!("adding {:#?}", &o.key);
                 let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?
                     .write(r)
                     .await?;

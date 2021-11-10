@@ -2,7 +2,7 @@ use super::{to_block, to_block_raw};
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
 use ipfs_embed::TempPin;
-use libipld::{cid::Cid, store::StoreParams, DagCbor};
+use libipld::{cid::Cid, store::StoreParams, DagCbor, cbor::DagCborCodec};
 use std::{
     collections::BTreeMap,
     io::{self, ErrorKind, Cursor, Write},
@@ -10,9 +10,8 @@ use std::{
     task::{Context, Poll},
 };
 
-
 use rocket::{
-    tokio::io::{AsyncWrite, AsyncRead, copy, BufWriter, AsyncWriteExt, BufReader, ReadBuf},
+    tokio::io::{AsyncWrite, AsyncRead, copy, AsyncWriteExt, ReadBuf},
 };
 
 pub struct IpfsReadStream {
@@ -23,8 +22,8 @@ pub struct IpfsReadStream {
 }
 
 impl IpfsReadStream {
-    pub fn new(store: Ipfs, mut content: Vec<(Cid, u32)>) -> Result<Self> {
-        let (cid0, _) = content.pop().ok_or(anyhow!("Enpty Content"))?;
+    pub fn new(store: Ipfs, content: Vec<(Cid, u32)>) -> Result<Self> {
+        let (cid0, _) = content.first().ok_or(anyhow!("Empty Content"))?;
         let block = Cursor::new(store.get(&cid0)?);
         Ok(Self { store, content, block, index: 0 })
     }
@@ -39,19 +38,17 @@ impl AsyncRead for IpfsReadStream {
         let mut s = self.get_mut();
         let p = s.block.position();
         match Pin::new(&mut s.block).poll_read(cx, buf) {
-            Poll::Ready(Ok(())) => if p == s.block.position() {
-                match s.content.get(s.index + 1).and_then(|(cid, _)| 
+            Poll::Ready(Ok(())) if p == s.block.position() => {
+                tracing::debug!("read {} bytes from block {}", p, s.index);
+                s.index += 1;
+                // TODO probably not good to block here
+                if let Some(block) = s.content.get(s.index).and_then(|(cid, _)|
                     s.store.get(&cid).ok()
                 ) {
-                    Some(block) => {
-                        s.index += 1;
+                        tracing::debug!("loading block {} of {}", s.index + 1, s.content.len());
                         s.block = Cursor::new(block);
-                        tracing::debug!("loading block {}", s.index);
-                        Pin::new(&mut s).poll_read(cx, buf)
-                    },
-                    None => Poll::Ready(Ok(()))
+                        return Pin::new(&mut s).poll_read(cx, buf);
                 }
-            } else {
                 Poll::Ready(Ok(()))
             },
             e => e
@@ -63,8 +60,7 @@ pub struct IpfsWriteStream<'a> {
     store: &'a Ipfs,
     pub content: Vec<(Cid, u32)>,
     pub pin: TempPin,
-    buffer: [u8; KeplerParams::MAX_BLOCK_SIZE],
-    offset: usize
+    buffer: Vec<u8>,
 }
 
 impl<'a> IpfsWriteStream<'a> {
@@ -73,23 +69,43 @@ impl<'a> IpfsWriteStream<'a> {
             store,
             content: Default::default(),
             pin: store.create_temp_pin()?,
-            buffer: [0u8; KeplerParams::MAX_BLOCK_SIZE],
-            offset: 0
+            buffer: Vec::new(),
         })
     }
 
-    pub fn seal(self) -> anyhow::Result<(Cid, TempPin)> {
+    pub fn seal(mut self) -> anyhow::Result<(Cid, TempPin)> {
+        self.flush_buffer_to_block()?;
         let block = to_block(&self.content)?;
         self.store.insert(&block)?;
         self.store.temp_pin(&self.pin, block.cid())?;
         Ok((*block.cid(), self.pin))
     }
 
-    pub async fn write<R>(self, mut reader: R) -> anyhow::Result<(Cid, TempPin)> where R: AsyncRead + Unpin {
-        let mut bw = BufWriter::with_capacity(KeplerParams::MAX_BLOCK_SIZE, self);
-        copy(&mut reader, &mut bw).await?;
-        bw.flush().await?;
-        bw.into_inner().seal()
+    pub async fn write<R>(mut self, mut reader: R) -> anyhow::Result<(Cid, TempPin)> where R: AsyncRead + Unpin {
+        copy(&mut reader, &mut self).await?;
+        self.flush().await?;
+        self.seal()
+    }
+
+    fn flush_buffer_to_block(&mut self) -> Result<(), io::Error> {
+        let len = KeplerParams::MAX_BLOCK_SIZE.min(self.buffer.len());
+
+        if len > 0 {
+            let (block_data, overflow) = self.buffer.split_at(len);
+            let block = to_block_raw(&block_data)
+                .map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+            self.buffer = overflow.to_vec();
+            tracing::debug!("flushing {} bytes to block {}", len, block.cid());
+            self.store
+                .insert(&block)
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+            self.store
+                .temp_pin(&self.pin, block.cid())
+                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+            self.content.push((*block.cid(), len as u32));
+            tracing::debug!("block {} flushed {} bytes with {}", self.content.len(), len, block.cid());
+        }
+        Ok(())
     }
 }
 
@@ -99,50 +115,17 @@ impl<'a> AsyncWrite for IpfsWriteStream<'a> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if buf.len() == 0 {
-            return Poll::Ready(Ok(0));
-        };
+        let s = self.get_mut();
 
-        let mut s = self.get_mut();
-        let mut remaining = &mut s.buffer[s.offset..];
+        let written = Write::write(&mut s.buffer, buf)?;
 
-        let to_write = buf.len().min(remaining.len());
-        tracing::debug!("writing {} bytes at {} to block {}", to_write, s.offset, s.content.len());
-
-        remaining.write_all(&buf[..to_write])?;
-        s.offset = KeplerParams::MAX_BLOCK_SIZE - remaining.len();
-
-        if s.offset == KeplerParams::MAX_BLOCK_SIZE {
-            let block = to_block_raw(&s.buffer.to_vec()).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-            s.store
-                .insert(&block)
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-            s.store
-                .temp_pin(&s.pin, block.cid())
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-
-            s.content.push((*block.cid(), s.offset as u32));
-            s.offset = 0;
-            Pin::new(&mut s).poll_write(cx, &buf[to_write..])
-        } else {
-            Poll::Ready(Ok(to_write))
+        if s.buffer.len() >= KeplerParams::MAX_BLOCK_SIZE {
+            s.flush_buffer_to_block()?;
         }
+        Poll::Ready(Ok(written))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        if self.offset > 0 {
-            let block = to_block_raw(&self.buffer[..self.offset].to_vec()).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-            self.store
-                .insert(&block)
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-            self.store
-                .temp_pin(&self.pin, block.cid())
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-
-            let mut s = self.get_mut();
-            s.content.push((*block.cid(), s.offset as u32));
-            s.offset = 0;
-        }
         Poll::Ready(Ok(()))
     }
 
@@ -198,12 +181,22 @@ impl ObjectBuilder {
 async fn write() -> Result<(), anyhow::Error> {
     crate::tracing_try_init();
     let tmp = tempdir::TempDir::new("test_streams")?;
+    let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
     
     let config = ipfs_embed::Config::new(&tmp.path(), ipfs_embed::generate_keypair());
     let ipfs = Ipfs::new(config).await?;
 
-    let streamwrite = IpfsWriteStream::new(&ipfs)?;
+    let write = IpfsWriteStream::new(&ipfs)?;
     tracing::debug!("write");
-    streamwrite.write(Cursor::new([255u8; 1111111111])).await?;
+    let (o, pins) = write.write(Cursor::new(data.clone())).await?;
+
+    let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
+
+    let mut read = IpfsReadStream::new(ipfs, content)?;
+
+    let mut out = Vec::new();
+    copy(&mut read, &mut out).await?;
+
+    assert_eq!(out.len(), data.len());
     Ok(())
 }

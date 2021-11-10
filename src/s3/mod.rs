@@ -90,8 +90,8 @@ fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
     Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
 }
 
-fn to_block_raw<T: Encode<RawCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(RawCodec, Code::Blake3_256, data)?)
+fn to_block_raw<T: AsRef<[u8]>>(data: &T) -> Result<Block> {
+    Ok(Block::encode(RawCodec, Code::Blake3_256, data.as_ref())?)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
