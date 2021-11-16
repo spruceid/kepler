@@ -182,10 +182,14 @@ pub async fn delete_content(
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
-#[post("/")]
-pub async fn open_orbit_authz(authz: CreateAuthWrapper) -> Result<String, (Status, &'static str)> {
+#[post("/<orbit_id>")]
+pub async fn open_orbit_authz(orbit_id: CidWrap, authz: CreateAuthWrapper) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    Ok(authz.0.id().to_string())
+    if &orbit_id.0 == authz.0.id() {
+        Ok(authz.0.id().to_string())
+    } else {
+        Err((Status::BadRequest, "Path does not match authorization"))
+    }
 }
 
 #[post(
@@ -231,7 +235,7 @@ pub async fn cors(_s: PathBuf) -> () {
     ()
 }
 
-#[get("/relay")]
+#[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
     relay
         .external()
@@ -239,7 +243,7 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
         .to_string()
 }
 
-#[get("/new_id")]
+#[get("/peer/generate")]
 pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
