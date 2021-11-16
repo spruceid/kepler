@@ -1,8 +1,7 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, AuthTokens, Orbit};
+use crate::orbit::{create_orbit, get_metadata, load_orbit, AuthTokens, Orbit};
 use crate::relay::RelayNode;
-use crate::zcap::ZCAPTokens;
 use anyhow::Result;
 use ipfs_embed::{Keypair, Multiaddr, PeerId};
 use libipld::cid::Cid;
@@ -11,27 +10,23 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
-use ssi::did::DIDURL;
-use std::{collections::HashMap, str::FromStr, sync::RwLock};
+use std::{collections::HashMap, sync::RwLock};
 
-#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
-    Put(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
-    Get(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
-    Del(#[serde_as(as = "Vec<DisplayFromStr>")] Vec<Cid>),
+    Put(Vec<String>),
+    Get(Vec<String>),
+    Del(Vec<String>),
     Create {
         parameters: String,
-        #[serde_as(as = "Vec<DisplayFromStr>")]
-        content: Vec<Cid>,
+        content: Vec<String>,
     },
     List,
 }
 
 pub trait AuthorizationToken {
-    fn action(&self) -> Action;
+    fn action(&self) -> &Action;
     fn target_orbit(&self) -> &Cid;
 }
 
@@ -48,16 +43,7 @@ pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<T>(
     req: &Request<'_>,
-) -> Result<
-    (
-        Vec<u8>,
-        AuthTokens,
-        config::Config,
-        Cid,
-        (PeerId, Multiaddr),
-    ),
-    Outcome<T, anyhow::Error>,
-> {
+) -> Result<(Vec<u8>, AuthTokens, config::Config, (PeerId, Multiaddr)), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
     let auth_data = match req.headers().get_one("Authorization") {
         Some(a) => a,
@@ -66,15 +52,6 @@ async fn extract_info<T>(
     let config = match req.rocket().state::<config::Config>() {
         Some(c) => c,
         None => {
-            return Err(Outcome::Failure((
-                Status::InternalServerError,
-                anyhow!("Could not retrieve config"),
-            )));
-        }
-    };
-    let oid: Cid = match req.param::<CidWrap>(0) {
-        Some(Ok(o)) => o.0,
-        _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,
                 anyhow!("Could not retrieve config"),
@@ -91,13 +68,9 @@ async fn extract_info<T>(
         }
     };
     match AuthTokens::from_request(req).await {
-        Outcome::Success(token) => Ok((
-            auth_data.as_bytes().to_vec(),
-            token,
-            config.clone(),
-            oid,
-            relay,
-        )),
+        Outcome::Success(token) => {
+            Ok((auth_data.as_bytes().to_vec(), token, config.clone(), relay))
+        }
         Outcome::Failure(e) => Err(Outcome::Failure(e)),
         Outcome::Forward(_) => Err(Outcome::Failure((
             Status::Unauthorized,
@@ -115,9 +88,18 @@ macro_rules! impl_fromreq {
             type Error = anyhow::Error;
 
             async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                let (_, token, config, oid, relay) = match extract_info(req).await {
+                let (_, token, config, relay) = match extract_info(req).await {
                     Ok(i) => i,
                     Err(o) => return o,
+                };
+                let oid: Cid = match req.param::<CidWrap>(0) {
+                    Some(Ok(o)) => o.0,
+                    _ => {
+                        return Outcome::Failure((
+                            Status::InternalServerError,
+                            anyhow!("Could not parse orbit"),
+                        ));
+                    }
                 };
                 match (token.action(), &oid == token.target_orbit()) {
                     (_, false) => Outcome::Failure((
@@ -166,7 +148,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (auth_data, token, config, oid, relay) = match extract_info(req).await {
+        let (auth_data, token, config, relay) = match extract_info(req).await {
             Ok(i) => i,
             Err(o) => return o,
         };
@@ -180,94 +162,22 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             }
         };
 
-        match (&token.action(), &oid == token.target_orbit()) {
-            (_, false) => Outcome::Failure((
-                Status::BadRequest,
-                anyhow!("Token target orbit not matching endpoint"),
-            )),
+        match &token.action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            (Action::Create { parameters, .. }, true) => {
-                let (method, params) = match verify_oid(&token.target_orbit(), &parameters) {
-                    Ok(r) => r,
-                    _ => {
-                        return Outcome::Failure((
-                            Status::BadRequest,
-                            anyhow!("Incorrect Orbit ID"),
-                        ))
-                    }
+            Action::Create { parameters, .. } => {
+                let md = match get_metadata(token.target_orbit(), parameters, &config.chains).await
+                {
+                    Ok(md) => md,
+                    Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
-                let controllers = match &token {
-                    AuthTokens::Tezos(token_tz) => {
-                        match method.as_str() {
-                            "tz" => {}
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::BadRequest,
-                                    anyhow!("Incorrect Orbit ID"),
-                                ))
-                            }
-                        };
-                        if params.get("address") != Some(&token_tz.pkh) {
-                            return Outcome::Failure((
-                                Status::Unauthorized,
-                                anyhow!("Incorrect PKH param"),
-                            ));
-                        };
-                        let vm = DIDURL {
-                            did: format!("did:pkh:tz:{}", &token_tz.pkh),
-                            fragment: Some("TezosMethod2021".to_string()),
-                            ..Default::default()
-                        };
-                        vec![vm]
-                    }
-                    AuthTokens::ZCAP(ZCAPTokens { invocation, .. }) => {
-                        let vm = match invocation.proof.as_ref().and_then(|p| {
-                            p.verification_method.as_ref().map(|v| DIDURL::from_str(&v))
-                        }) {
-                            Some(Ok(v)) => v,
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::Unauthorized,
-                                    anyhow!("Invalid Delegation Verification Method"),
-                                ))
-                            }
-                        };
-                        match (method.as_str(), params.get("did"), params.get("vm")) {
-                            ("did", Some(did), Some(vm_id)) => {
-                                let d = DIDURL {
-                                    did: did.into(),
-                                    fragment: Some(vm_id.into()),
-                                    ..Default::default()
-                                };
-                                if d != vm {
-                                    return Outcome::Failure((
-                                        Status::Unauthorized,
-                                        anyhow!("Invoker is not Controller"),
-                                    ));
-                                }
-                            }
-                            _ => {
-                                return Outcome::Failure((
-                                    Status::BadRequest,
-                                    anyhow!("Incorrect Orbit ID"),
-                                ))
-                            }
-                        }
-                        vec![vm]
-                    }
+
+                match md.authorize(&token).await {
+                    Ok(()) => (),
+                    Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
-                match create_orbit(
-                    *token.target_orbit(),
-                    config.database.path.clone(),
-                    controllers,
-                    &auth_data,
-                    &parameters,
-                    &config.chains,
-                    relay,
-                    keys,
-                )
-                .await
+
+                match create_orbit(&md, config.database.path.clone(), &auth_data, relay, keys).await
                 {
                     Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
                     Ok(None) => {

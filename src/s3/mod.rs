@@ -3,25 +3,30 @@ use ipfs_embed::{GossipEvent, PeerId};
 use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 mod entries;
 mod store;
 
-pub use entries::{Object, ObjectBuilder};
+use super::ipfs::{Block, Ipfs};
+
+pub use entries::{Object, ObjectBuilder, IpfsWriteStream, IpfsReadStream};
 pub use store::Store;
 
-type Ipfs = ipfs_embed::Ipfs<ipfs_embed::DefaultParams>;
-type Block = ipfs_embed::Block<ipfs_embed::DefaultParams>;
 type TaskHandle = tokio::task::JoinHandle<()>;
 
+#[derive(Clone)]
 pub struct Service {
-    store: Store,
-    task: TaskHandle,
+    pub store: Store,
+    task: Arc<TaskHandle>,
 }
 
 impl Service {
     pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
-        Self { store, task }
+        Self {
+            store,
+            task: Arc::new(task),
+        }
     }
 
     pub fn start(config: Store) -> Result<Self> {
@@ -85,8 +90,8 @@ fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
     Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
 }
 
-fn to_block_raw<T: Encode<RawCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(RawCodec, Code::Blake3_256, data)?)
+fn to_block_raw<T: AsRef<[u8]>>(data: &T) -> Result<Block> {
+    Ok(Block::encode(RawCodec, Code::Blake3_256, data.as_ref())?)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -103,12 +108,16 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
                 Ok((p, KVMessage::Heads(heads))) => {
                     debug!("new heads from {}", p);
                     // sync heads
-                    &store.try_merge_heads(heads.into_iter()).await;
+                    if let Err(e) = store.try_merge_heads(heads.into_iter()).await {
+                        error!("failed to merge heads {}", e);
+                    };
                 }
                 Ok((p, KVMessage::StateReq)) => {
                     debug!("{} requests state", p);
                     // send heads
-                    &store.broadcast_heads();
+                    if let Err(e) = store.broadcast_heads() {
+                        error!("failed to broadcast heads {}", e);
+                    };
                 }
                 Err(e) => {
                     error!("{}", e);
@@ -121,10 +130,10 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::tracing_try_init;
     use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
     use std::{collections::BTreeMap, time::Duration};
-    use crate::tracing_try_init;
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
@@ -139,7 +148,7 @@ mod test {
                 match events.next().await {
                     Some(SwarmEvent::Discovered(p)) => {
                         tracing::debug!("dialing peer {}", p);
-                        &task_ipfs.dial(&p);
+                        task_ipfs.dial(&p);
                     }
                     None => return,
                     _ => continue,
@@ -174,8 +183,9 @@ mod test {
         let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
         let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
-        alice_service.write(vec![(s3_obj_1, json.as_bytes().to_vec())], vec![])?;
-        bob_service.write(vec![(s3_obj_2, json.as_bytes().to_vec())], vec![])?;
+        let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+        alice_service.write(vec![(s3_obj_1, json.as_bytes())], rm.clone()).await?;
+        bob_service.write(vec![(s3_obj_2, json.as_bytes())], rm).await?;
 
         {
             // ensure only alice has s3_obj_1
@@ -209,7 +219,8 @@ mod test {
         );
 
         // remove key1
-        alice_service.write(vec![], vec![(key1.as_bytes().to_vec(), None)])?;
+        let add: Vec<(&[u8], Cid)> = vec![];
+        alice_service.index(add, vec![(key1.as_bytes().to_vec(), None)])?;
 
         assert_eq!(alice_service.get(key1)?, None);
 

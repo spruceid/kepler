@@ -1,6 +1,5 @@
 use anyhow::Result;
-use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
-use libp2p::multiaddr::Protocol;
+use ipfs_embed::{generate_keypair, multiaddr::Protocol, Keypair, PeerId, ToLibp2p};
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
@@ -17,7 +16,7 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, load_orbit, verify_oid, Orbit};
+use crate::orbit::{create_orbit, get_metadata, load_orbit, Orbit};
 use crate::relay::RelayNode;
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
@@ -183,14 +182,14 @@ pub async fn delete_content(
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }
 
-#[post("/<_orbit_id>", format = "text/plain", data = "<_params_str>")]
-pub async fn open_orbit_authz(
-    _orbit_id: CidWrap,
-    _params_str: &str,
-    _authz: CreateAuthWrapper,
-) -> Result<(), (Status, &'static str)> {
+#[post("/<orbit_id>")]
+pub async fn open_orbit_authz(orbit_id: CidWrap, authz: CreateAuthWrapper) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    Ok(())
+    if &orbit_id.0 == authz.0.id() {
+        Ok(authz.0.id().to_string())
+    } else {
+        Err((Status::BadRequest, "Path does not match authorization"))
+    }
 }
 
 #[post(
@@ -208,19 +207,16 @@ pub async fn open_orbit_allowlist(
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
-        verify_oid(&orbit_id.0, params_str),
+        get_metadata(&orbit_id.0, params_str, &config.chains).await,
         config.orbits.allowlist.as_ref(),
     ) {
         (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
-        (Ok((_, _params)), Some(list)) => match list.is_allowed(&orbit_id.0).await {
-            Ok(controllers) => {
+        (Ok(md), Some(list)) => match list.is_allowed(&orbit_id.0).await {
+            Ok(_controllers) => {
                 create_orbit(
-                    orbit_id.0,
+                    &md,
                     config.database.path.clone(),
-                    controllers,
                     &[],
-                    params_str,
-                    &config.chains,
                     (relay.id, relay.internal()),
                     keys,
                 )
@@ -239,16 +235,15 @@ pub async fn cors(_s: PathBuf) -> () {
     ()
 }
 
-#[get("/relay")]
+#[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
     relay
         .external()
         .with(Protocol::P2p(relay.id.into()))
-        .with(Protocol::P2pCircuit)
         .to_string()
 }
 
-#[get("/key", rank = 1)]
+#[get("/peer/generate")]
 pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {

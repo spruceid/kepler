@@ -86,13 +86,13 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
 pub async fn params_to_tz_orbit(
     oid: Cid,
     params: &Map<String, String>,
-    tzkt_api: &str,
+    tzkt_api: &Option<String>,
 ) -> Result<OrbitMetadata> {
-    match (params.get("address"), params.get("contract")) {
+    match (params.get("address"), params.get("contract"), tzkt_api) {
         // try read orbit state from chain
-        (_, Some(v)) => Ok(get_orbit_state(tzkt_api, v, oid).await?),
+        (_, Some(v), Some(a)) => Ok(get_orbit_state(a, v, oid).await?),
         // try use implicit address key as controller
-        (Some(v), None) => Ok(OrbitMetadata {
+        (Some(v), None, _) => Ok(OrbitMetadata {
             id: oid,
             controllers: vec![pkh_to_did_vm(v)],
             read_delegators: vec![],
