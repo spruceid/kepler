@@ -86,11 +86,23 @@ impl Store {
             heads,
         })
     }
-    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync {
+    pub fn list<'a>(&'a self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + 'a {
         self.elements
             .iter()
-            .keys()
-            .map(|r| r.map_err(|e| anyhow!(e)))
+            .map(|r| match r {
+                Ok((key, value)) => Ok((key, Cid::try_from(value.as_ref())?)),
+                Err(e) => Err(anyhow!(e))
+            })
+            .filter_map(move |r| match r {
+                Err(e) => Some(Err(e)),
+                Ok((key, cid)) => {
+                    match self.is_tombstoned(key.as_ref(), &cid) {
+                        Ok(false) => Some(Ok(key)),
+                        Ok(true) => None,
+                        Err(e) => Some(Err(e))
+                    }
+                }
+            })
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
@@ -101,9 +113,7 @@ impl Store {
             .transpose()?
         {
             Some(cid) => {
-                if !self
-                    .tombs
-                    .contains_key([key.as_ref(), &cid.to_bytes()].concat())?
+                if !self.is_tombstoned(key.as_ref(), &cid)?
                 {
                     Ok(Some(self.ipfs.get(&cid)?.decode()?))
                 } else {
@@ -346,6 +356,10 @@ impl Store {
 
     pub fn start_service(self) -> Result<Service> {
         Service::start(self)
+    }
+
+    fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
+        Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
     }
 }
 
