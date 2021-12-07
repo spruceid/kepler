@@ -19,6 +19,7 @@ pub mod relay;
 pub mod routes;
 pub mod s3;
 pub mod s3_routes;
+pub mod siwe;
 pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
