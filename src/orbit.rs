@@ -5,6 +5,7 @@ use crate::{
     config::ExternalApis,
     ipfs::Ipfs,
     s3::{Service, Store},
+    siwe::SIWETokens,
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -73,10 +74,10 @@ impl OrbitMetadata {
     }
 }
 
-#[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
     ZCAP(ZCAPTokens),
+    SIWE(SIWETokens),
 }
 
 #[rocket::async_trait]
@@ -89,6 +90,8 @@ impl<'r> FromRequest<'r> for AuthTokens {
                 Self::Tezos(tz)
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
                 Self::ZCAP(zcap)
+            } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
+                Self::SIWE(siwe)
             } else {
                 return Outcome::Failure((
                     Status::Unauthorized,
@@ -104,12 +107,14 @@ impl AuthorizationToken for AuthTokens {
         match self {
             Self::Tezos(token) => token.action(),
             Self::ZCAP(token) => token.action(),
+            Self::SIWE(token) => token.action(),
         }
     }
     fn target_orbit(&self) -> &Cid {
         match self {
             Self::Tezos(token) => token.target_orbit(),
             Self::ZCAP(token) => token.target_orbit(),
+            Self::SIWE(token) => token.target_orbit(),
         }
     }
 }
@@ -119,6 +124,7 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
         match auth_token {
             AuthTokens::Tezos(token) => self.authorize(token).await,
             AuthTokens::ZCAP(token) => self.authorize(token).await,
+            AuthTokens::SIWE(token) => self.authorize(token).await,
         }
     }
 }
