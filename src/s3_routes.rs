@@ -61,7 +61,7 @@ impl<'r> Responder<'r, 'static> for S3Response {
     }
 }
 
-#[get("/<orbit_id>/s3", rank = 8)]
+#[get("/<orbit_id>/s3")]
 pub async fn list_content_no_auth(
     orbit_id: CidWrap,
     config: &State<config::Config>,
@@ -158,7 +158,7 @@ pub async fn get_metadata_no_auth(
     }
 }
 
-#[get("/<_orbit_id>/s3/<key..>")]
+#[get("/<_orbit_id>/s3/<key..>", rank = 8)]
 pub async fn get_content(
     _orbit_id: CidWrap,
     orbit: GetAuthWrapper,
@@ -174,7 +174,7 @@ pub async fn get_content(
     }
 }
 
-#[get("/<orbit_id>/s3/<key..>")]
+#[get("/<orbit_id>/s3/<key..>", rank = 8)]
 pub async fn get_content_no_auth(
     orbit_id: CidWrap,
     key: PathBuf,
