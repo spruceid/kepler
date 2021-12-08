@@ -1,6 +1,6 @@
 use super::cas::ContentAddressedStorage;
 use super::codec::SupportedCodecs;
-use ipfs_embed::{Ipfs as OIpfs, DefaultParams};
+use ipfs_embed::{DefaultParams, Ipfs as OIpfs};
 use libipld::{
     block::Block as OBlock,
     cid::{multihash::Code, Cid},

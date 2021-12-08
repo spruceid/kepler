@@ -1,12 +1,15 @@
-use crate::s3::{Object, ObjectBuilder, Service, IpfsWriteStream, IpfsReadStream};
+use crate::s3::{IpfsReadStream, IpfsWriteStream, Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use libipld::{cid::Cid, DagCbor, cbor::DagCborCodec};
+use ipfs_embed::TempPin;
+use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use sled::{Batch, Db, IVec, Tree};
-use std::{convert::{TryFrom, TryInto}, collections::BTreeMap};
+use std::{
+    collections::BTreeMap,
+    convert::{TryFrom, TryInto},
+};
 use tracing::{debug, error};
-use ipfs_embed::TempPin;
 
 use super::{to_block, Block, Ipfs, KVMessage};
 
@@ -91,17 +94,15 @@ impl Store {
             .iter()
             .map(|r| match r {
                 Ok((key, value)) => Ok((key, Cid::try_from(value.as_ref())?)),
-                Err(e) => Err(anyhow!(e))
+                Err(e) => Err(anyhow!(e)),
             })
             .filter_map(move |r| match r {
                 Err(e) => Some(Err(e)),
-                Ok((key, cid)) => {
-                    match self.is_tombstoned(key.as_ref(), &cid) {
-                        Ok(false) => Some(Ok(key)),
-                        Ok(true) => None,
-                        Err(e) => Some(Err(e))
-                    }
-                }
+                Ok((key, cid)) => match self.is_tombstoned(key.as_ref(), &cid) {
+                    Ok(false) => Some(Ok(key)),
+                    Ok(true) => None,
+                    Err(e) => Some(Err(e)),
+                },
             })
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
@@ -113,8 +114,7 @@ impl Store {
             .transpose()?
         {
             Some(cid) => {
-                if !self.is_tombstoned(key.as_ref(), &cid)?
-                {
+                if !self.is_tombstoned(key.as_ref(), &cid)? {
                     Ok(Some(self.ipfs.get(&cid)?.decode()?))
                 } else {
                     Ok(None)
@@ -124,15 +124,19 @@ impl Store {
         }
     }
 
-    pub fn read<N>(
-        &self,
-        key: N
-    ) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>> where N: AsRef<[u8]> {
+    pub fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>>
+    where
+        N: AsRef<[u8]>,
+    {
         let s3_obj = match self.get(key) {
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
-        match self.ipfs.get(&s3_obj.value)?.decode::<DagCborCodec, Vec<(Cid, u32)>>() {
+        match self
+            .ipfs
+            .get(&s3_obj.value)?
+            .decode::<DagCborCodec, Vec<(Cid, u32)>>()
+        {
             Ok(content) => Ok(Some((
                 s3_obj.metadata,
                 IpfsReadStream::new(self.ipfs.clone(), content)?,
@@ -145,20 +149,25 @@ impl Store {
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
         remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>)>,
-    ) -> Result<()> where N: AsRef<[u8]>, R: AsyncRead + Unpin {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        R: AsyncRead + Unpin,
+    {
         tracing::debug!("writing tx");
-        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) = try_join_all(
-            add.into_iter().map(|(o, r)| async {
+        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) =
+            try_join_all(add.into_iter().map(|(o, r)| async {
                 // tracing::debug!("adding {:#?}", &o.key);
-                let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?
-                    .write(r)
-                    .await?;
+                let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?.write(r).await?;
                 let obj = o.add_content(cid);
                 let block = obj.to_block()?;
                 self.ipfs.insert(&block)?;
                 self.ipfs.temp_pin(&pin, block.cid())?;
                 Ok(((obj.key, *block.cid()), pin)) as Result<((Vec<u8>, Cid), TempPin)>
-            })).await?.into_iter().unzip();
+            }))
+            .await?
+            .into_iter()
+            .unzip();
         self.index(indexes, remove)
     }
 
@@ -168,17 +177,19 @@ impl Store {
         add: impl IntoIterator<Item = (N, Cid)>,
         // tuples of (key, opt (priority, obj-cid))
         remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>)>,
-    ) -> Result<()> where N: AsRef<[u8]>, M: AsRef<[u8]> {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        M: AsRef<[u8]>,
+    {
         let (heads, height) = self.heads.state()?;
         let height = if heads.is_empty() && height == 0 {
             0
         } else {
             height + 1
         };
-        let adds: (Vec<(N, Cid)>, Vec<Cid>) = add
-            .into_iter()
-            .map(|(key, cid)| ((key, cid), cid))
-            .unzip();
+        let adds: (Vec<(N, Cid)>, Vec<Cid>) =
+            add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
         let rmvs: Vec<(M, Cid)> = remove
             .into_iter()
             .map(|(key, version)| {
@@ -198,19 +209,11 @@ impl Store {
             .collect::<Result<Vec<(M, Cid)>>>()?;
         let delta = LinkedDelta::new(
             heads,
-            Delta::new(
-                height,
-                adds.1,
-                rmvs.iter().map(|(_, c)| *c).collect(),
-            ),
+            Delta::new(height, adds.1, rmvs.iter().map(|(_, c)| *c).collect()),
         );
         let block = delta.to_block()?;
         // apply/pin root/update heads
-        self.apply(
-            &(block, delta),
-            adds.0,
-            rmvs,
-        )?;
+        self.apply(&(block, delta), adds.0, rmvs)?;
 
         // broadcast
         self.broadcast_heads()?;
@@ -234,7 +237,11 @@ impl Store {
         adds: impl IntoIterator<Item = (N, Cid)>,
         // tuples of (key, obj-cid)
         removes: impl IntoIterator<Item = (M, Cid)>,
-    ) -> Result<()> where N: AsRef<[u8]>, M: AsRef<[u8]> {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        M: AsRef<[u8]>,
+    {
         // TODO update tables atomically with transaction
         // tombstone removed elements
         for (key, cid) in removes.into_iter() {
@@ -267,8 +274,7 @@ impl Store {
                     })
             {
                 self.elements.insert(&key, cid.to_bytes())?;
-                self.priorities
-                    .insert(&key, &u642v(delta.delta.priority))?;
+                self.priorities.insert(&key, &u642v(delta.delta.priority))?;
             }
         }
         // find redundant heads and remove them

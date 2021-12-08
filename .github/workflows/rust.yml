@@ -43,3 +43,14 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Kepler repository
+      uses: actions/checkout@v2
+      with:
+        path: kepler
+
+    - name: Fmt
+      run: cargo fmt -- --check
