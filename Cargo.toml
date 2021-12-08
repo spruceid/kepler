@@ -34,7 +34,7 @@ async-recursion = "0.3"
 libp2p = "0.39"
 tracing-subscriber = "0.2"
 urlencoding = "2.1"
-siwe = "0.1"
+siwe = { path = "../siwe-rs" }
 
 [dev-dependencies]
 tempdir = "0.3.7"

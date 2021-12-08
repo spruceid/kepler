@@ -4971,8 +4971,6 @@ dependencies = [
 [[package]]
 name = "siwe"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "524f2d6eb394f768b22b3dfd317f1bfcab159fa6ac4268026354384643680f3a"
 dependencies = [
  "chrono",
  "hex",
