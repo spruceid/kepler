@@ -14,8 +14,9 @@ use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
+use crate::routes::DotPathBuf;
 use crate::s3::{IpfsReadStream, ObjectBuilder};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 
 pub struct Metadata(pub BTreeMap<String, String>);
 
@@ -116,9 +117,9 @@ pub async fn list_content(
 pub async fn get_metadata(
     _orbit_id: CidWrap,
     orbit: GetAuthWrapper,
-    key: PathBuf,
+    key: DotPathBuf,
 ) -> Result<Option<Metadata>, (Status, String)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -132,11 +133,11 @@ pub async fn get_metadata(
 #[head("/<orbit_id>/s3/<key..>")]
 pub async fn get_metadata_no_auth(
     orbit_id: CidWrap,
-    key: PathBuf,
+    key: DotPathBuf,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<Metadata>, (Status, String)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -162,9 +163,9 @@ pub async fn get_metadata_no_auth(
 pub async fn get_content(
     _orbit_id: CidWrap,
     orbit: GetAuthWrapper,
-    key: PathBuf,
+    key: DotPathBuf,
 ) -> Result<Option<S3Response>, (Status, String)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -177,11 +178,11 @@ pub async fn get_content(
 #[get("/<orbit_id>/s3/<key..>", rank = 8)]
 pub async fn get_content_no_auth(
     orbit_id: CidWrap,
-    key: PathBuf,
+    key: DotPathBuf,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<S3Response>, (Status, String)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -207,11 +208,11 @@ pub async fn get_content_no_auth(
 pub async fn put_content(
     _orbit_id: CidWrap,
     orbit: PutAuthWrapper,
-    key: PathBuf,
+    key: DotPathBuf,
     md: Metadata,
     data: Data<'_>,
 ) -> Result<(), (Status, String)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -236,9 +237,9 @@ pub async fn put_content(
 pub async fn delete_content(
     _orbit_id: CidWrap,
     orbit: DelAuthWrapper,
-    key: PathBuf,
+    key: DotPathBuf,
 ) -> Result<(), (Status, &'static str)> {
-    let k = match key.to_str() {
+    let k = match key.0.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed")),
     };
