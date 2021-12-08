@@ -199,7 +199,7 @@ pub async fn get_content_no_auth(
 
     match orbit.service.read(k) {
         Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
-        _ => return Ok(None),
+        _ => Ok(None),
     }
 }
 
@@ -215,7 +215,7 @@ pub async fn put_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+    let rm: [(Vec<u8>, _); 0] = [];
 
     orbit
         .0
@@ -240,7 +240,7 @@ pub async fn delete_content(
 ) -> Result<(), (Status, &'static str)> {
     let k = match key.to_str() {
         Some(k) => k,
-        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+        _ => return Err((Status::BadRequest, "Key parsing failed")),
     };
     let add: Vec<(&[u8], Cid)> = vec![];
     Ok(orbit

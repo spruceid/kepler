@@ -45,10 +45,7 @@ async fn extract_info<T>(
     req: &Request<'_>,
 ) -> Result<(Vec<u8>, AuthTokens, config::Config, (PeerId, Multiaddr)), Outcome<T, anyhow::Error>> {
     // TODO need to identify auth method from the headers
-    let auth_data = match req.headers().get_one("Authorization") {
-        Some(a) => a,
-        None => "",
-    };
+    let auth_data = req.headers().get_one("Authorization").unwrap_or("");
     let config = match req.rocket().state::<config::Config>() {
         Some(c) => c,
         None => {
@@ -59,7 +56,7 @@ async fn extract_info<T>(
         }
     };
     let relay = match req.rocket().state::<RelayNode>() {
-        Some(r) => (r.id.clone(), r.internal()),
+        Some(r) => (r.id, r.internal()),
         _ => {
             return Err(Outcome::Failure((
                 Status::InternalServerError,

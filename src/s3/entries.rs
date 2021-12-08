@@ -2,7 +2,7 @@ use super::{to_block, to_block_raw};
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
 use ipfs_embed::TempPin;
-use libipld::{cbor::DagCborCodec, cid::Cid, store::StoreParams, DagCbor};
+use libipld::{cid::Cid, store::StoreParams, DagCbor};
 use std::{
     collections::BTreeMap,
     io::{self, Cursor, ErrorKind, Write},
@@ -21,8 +21,8 @@ pub struct IpfsReadStream {
 
 impl IpfsReadStream {
     pub fn new(store: Ipfs, content: Vec<(Cid, u32)>) -> Result<Self> {
-        let (cid0, _) = content.first().ok_or(anyhow!("Empty Content"))?;
-        let block = Cursor::new(store.get(&cid0)?);
+        let (cid0, _) = content.first().ok_or_else(|| anyhow!("Empty Content"))?;
+        let block = Cursor::new(store.get(cid0)?);
         Ok(Self {
             store,
             content,
@@ -48,7 +48,7 @@ impl AsyncRead for IpfsReadStream {
                 if let Some(block) = s
                     .content
                     .get(s.index)
-                    .and_then(|(cid, _)| s.store.get(&cid).ok())
+                    .and_then(|(cid, _)| s.store.get(cid).ok())
                 {
                     tracing::debug!("loading block {} of {}", s.index + 1, s.content.len());
                     s.block = Cursor::new(block);
@@ -125,7 +125,7 @@ impl<'a> IpfsWriteStream<'a> {
 impl<'a> AsyncWrite for IpfsWriteStream<'a> {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
         let s = self.get_mut();

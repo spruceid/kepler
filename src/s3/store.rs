@@ -89,7 +89,7 @@ impl Store {
             heads,
         })
     }
-    pub fn list<'a>(&'a self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + 'a {
+    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + '_ {
         self.elements
             .iter()
             .map(|r| match r {
@@ -201,7 +201,7 @@ impl Store {
                             .get(&key)?
                             .map(|b| Cid::try_from(b.as_ref()))
                             .transpose()?
-                            .ok_or(anyhow!("Failed to find Object ID for key"))?;
+                            .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
                         (key, cid)
                     }
                 })
@@ -230,7 +230,7 @@ impl Store {
         Ok(())
     }
 
-    fn apply<'a, N, M>(
+    fn apply<N, M>(
         &self,
         (block, delta): &(Block, LinkedDelta),
         // tuples of (obj-cid, obj)
@@ -256,7 +256,7 @@ impl Store {
             let prio = self
                 .priorities
                 .get(&key)?
-                .map(|v| v2u64(v))
+                .map(v2u64)
                 .transpose()?
                 .unwrap_or(0);
             // current element CID at key
@@ -282,7 +282,7 @@ impl Store {
         self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
         self.heads.new_head(block.cid(), delta.prev.clone())?;
         self.ipfs.alias(block.cid().to_bytes(), Some(block.cid()))?;
-        self.ipfs.insert(&block)?;
+        self.ipfs.insert(block)?;
 
         Ok(())
     }
@@ -318,14 +318,14 @@ impl Store {
 
             let adds: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.add.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
@@ -391,7 +391,7 @@ impl Heads {
                 let height = v2u64(
                     self.heights
                         .get(&head)?
-                        .ok_or(anyhow!("Failed to find head height"))?,
+                        .ok_or_else(|| anyhow!("Failed to find head height"))?,
                 )?;
                 heads.push(head[..].try_into()?);
                 Ok((heads, u64::max(max_height, height)))
@@ -400,10 +400,7 @@ impl Heads {
     }
 
     pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
-        self.heights
-            .get(head.to_bytes())?
-            .map(|h| v2u64(h))
-            .transpose()
+        self.heights.get(head.to_bytes())?.map(v2u64).transpose()
     }
 
     pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {

@@ -138,7 +138,7 @@ fn serialize_action(action: &Action) -> Result<String> {
         Action::Create {
             content,
             parameters,
-        } => Ok(["CREATE", &parameters, &content.join(" ")].join(" ")),
+        } => Ok(["CREATE", parameters, &content.join(" ")].join(" ")),
     }
 }
 

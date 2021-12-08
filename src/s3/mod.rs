@@ -64,7 +64,7 @@ mod vec_cid_bin {
     use libipld::cid::Cid;
     use serde::{de::Error as DeError, ser::SerializeSeq, Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(vec: &Vec<Cid>, ser: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(vec: &[Cid], ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -87,11 +87,11 @@ mod vec_cid_bin {
 }
 
 fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
+    Block::encode(DagCborCodec, Code::Blake3_256, data)
 }
 
 fn to_block_raw<T: AsRef<[u8]>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(RawCodec, Code::Blake3_256, data.as_ref())?)
+    Block::encode(RawCodec, Code::Blake3_256, data.as_ref())
 }
 
 #[derive(Serialize, Deserialize, Debug)]
