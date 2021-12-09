@@ -190,26 +190,32 @@ impl ObjectBuilder {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn write() -> Result<(), anyhow::Error> {
-    crate::tracing_try_init();
-    let tmp = tempdir::TempDir::new("test_streams")?;
-    let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::s3::DagCborCodec;
 
-    let config = ipfs_embed::Config::new(&tmp.path(), ipfs_embed::generate_keypair());
-    let ipfs = Ipfs::new(config).await?;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write() -> Result<(), anyhow::Error> {
+        crate::tracing_try_init();
+        let tmp = tempdir::TempDir::new("test_streams")?;
+        let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-    let write = IpfsWriteStream::new(&ipfs)?;
-    tracing::debug!("write");
-    let (o, pins) = write.write(Cursor::new(data.clone())).await?;
+        let config = ipfs_embed::Config::new(&tmp.path(), ipfs_embed::generate_keypair());
+        let ipfs = Ipfs::new(config).await?;
 
-    let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
+        let write = IpfsWriteStream::new(&ipfs)?;
+        tracing::debug!("write");
+        let (o, pins) = write.write(Cursor::new(data.clone())).await?;
 
-    let mut read = IpfsReadStream::new(ipfs, content)?;
+        let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
 
-    let mut out = Vec::new();
-    copy(&mut read, &mut out).await?;
+        let mut read = IpfsReadStream::new(ipfs, content)?;
 
-    assert_eq!(out.len(), data.len());
-    Ok(())
+        let mut out = Vec::new();
+        copy(&mut read, &mut out).await?;
+
+        assert_eq!(out.len(), data.len());
+        Ok(())
+    }
 }
