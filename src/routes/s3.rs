@@ -119,7 +119,7 @@ pub async fn get_metadata(
     orbit: GetAuthWrapper,
     key: DotPathBuf,
 ) -> Result<Option<Metadata>, (Status, String)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -137,7 +137,7 @@ pub async fn get_metadata_no_auth(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<Metadata>, (Status, String)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -165,7 +165,7 @@ pub async fn get_content(
     orbit: GetAuthWrapper,
     key: DotPathBuf,
 ) -> Result<Option<S3Response>, (Status, String)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -182,7 +182,7 @@ pub async fn get_content_no_auth(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<S3Response>, (Status, String)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -212,7 +212,7 @@ pub async fn put_content(
     md: Metadata,
     data: Data<'_>,
 ) -> Result<(), (Status, String)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
@@ -239,7 +239,7 @@ pub async fn delete_content(
     orbit: DelAuthWrapper,
     key: DotPathBuf,
 ) -> Result<(), (Status, &'static str)> {
-    let k = match key.0.to_str() {
+    let k = match key.to_str() {
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed")),
     };
