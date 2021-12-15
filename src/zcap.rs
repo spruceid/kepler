@@ -161,23 +161,8 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                 res
             }
             None => {
-                match auth_token.invocation.property_set.capability_action {
-                    Action::List | Action::Get(_) => {
-                        if !self.read_delegators.contains(&invoker_vm)
-                            && !self.write_delegators.contains(&invoker_vm)
-                            && !self.controllers.contains(&invoker_vm)
-                        {
-                            return Err(anyhow!("Invoker not authorized"));
-                        }
-                    }
-                    Action::Put(_) | Action::Del(_) => {
-                        if !self.write_delegators.contains(&invoker_vm)
-                            && !self.controllers.contains(&invoker_vm)
-                        {
-                            return Err(anyhow!("Invoker not authorized"));
-                        }
-                    }
-                    Action::Create { .. } => {}
+                if !self.controllers.contains(&invoker_vm) {
+                    return Err(anyhow!("Invoker not authorized as Controller"));
                 };
                 auth_token
                     .invocation

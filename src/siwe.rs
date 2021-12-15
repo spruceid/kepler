@@ -74,8 +74,14 @@ impl<'r> FromRequest<'r> for SIWETokens {
                 invocation,
                 delegation,
             }),
-            (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
-            (_, Some(Err(e))) => Outcome::Failure((Status::Unauthorized, e)),
+            (Some(Err(e)), _) => {
+                tracing::debug!("{}", e);
+                Outcome::Failure((Status::Unauthorized, e))
+            },
+            (_, Some(Err(e))) => {
+                tracing::debug!("{}", e);
+                Outcome::Failure((Status::Unauthorized, e))
+            },
             (_, _) => Outcome::Forward(()),
         }
     }
@@ -169,7 +175,6 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
 
         // check delegation to invoker
         if auth_token.delegation.0.uri.as_str() != invoker {
-            tracing::debug!("{}, {}", auth_token.delegation.0.uri.as_str(), invoker);
             return Err(anyhow!("Invoker not authorized"));
         };
 
@@ -282,5 +287,7 @@ impl AuthorizationPolicy<SIWEMessage> for OrbitMetadata {
 
 #[test]
 async fn basic() -> Result<()> {
+    let d = r#"["localhost wants you to sign in with your Ethereum account:\n0xA391f7adD776806c4dFf3886BBe6370be8F73683\n\nAllow localhost to access your orbit using their temporary session key: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\n\nURI: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\nVersion: 1\nChain ID: 1\nNonce: Ki63qhXvxk0LYfxRE\nIssued At: 2021-12-08T13:09:59.716Z\nExpiration Time: 2021-12-08T13:24:59.715Z\nResources:\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#put\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#del\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#get\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#list","0x3c79ff9c565939bc4d43ac45d92f685de61b756a1ba9c0a8a5a80d177f05f29b7b27df1dc1c331397eef837d96b95dd812ce78c1b29a05c2b0c0bdd901be72351b"]"#;
+    let message: SIWEMessage = serde_json::from_str(d)?;
     Ok(())
 }
