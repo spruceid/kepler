@@ -89,12 +89,12 @@ impl<'r> FromRequest<'r> for AuthTokens {
         let ats =
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
-            } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
-                Self::ZCAP(zcap)
             } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
                 Self::SIWEDelegated(siwe)
             } else if let Outcome::Success(siwe) = SIWECreate::from_request(request).await {
                 Self::SIWECreate(siwe)
+            } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
+                Self::ZCAP(zcap)
             } else {
                 return Outcome::Failure((
                     Status::Unauthorized,
