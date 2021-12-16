@@ -56,7 +56,7 @@ impl OrbitMetadata {
         &self.id
     }
 
-    pub fn hosts<'a>(&'a self) -> impl Iterator<Item = &'a PeerId> {
+    pub fn hosts(&self) -> impl Iterator<Item = &PeerId> {
         self.hosts.keys()
     }
 
@@ -76,7 +76,7 @@ impl OrbitMetadata {
 #[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
-    ZCAP(ZCAPTokens),
+    ZCAP(Box<ZCAPTokens>),
 }
 
 #[rocket::async_trait]
@@ -88,7 +88,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
-                Self::ZCAP(zcap)
+                Self::ZCAP(Box::new(zcap))
             } else {
                 return Outcome::Failure((
                     Status::Unauthorized,
@@ -118,7 +118,7 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
     async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
         match auth_token {
             AuthTokens::Tezos(token) => self.authorize(token).await,
-            AuthTokens::ZCAP(token) => self.authorize(token).await,
+            AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
         }
     }
 }
@@ -182,18 +182,18 @@ pub async fn get_metadata(
 ) -> Result<OrbitMetadata> {
     let (method, params) = verify_oid(oid, param_str)?;
     Ok(match (method.as_str(), &chains) {
-        ("tz", ExternalApis { tzkt, .. }) => params_to_tz_orbit(*oid, &params, &tzkt).await?,
+        ("tz", ExternalApis { tzkt, .. }) => params_to_tz_orbit(*oid, &params, tzkt).await?,
         _ => OrbitMetadata {
             id: *oid,
             controllers: vec![get_params_vm(method.as_ref(), &params)
-                .ok_or(anyhow!("Missing Implicit Controller Params"))?],
+                .ok_or_else(|| anyhow!("Missing Implicit Controller Params"))?],
             read_delegators: vec![],
             write_delegators: vec![],
             revocations: vec![],
             hosts: params
                 .get("hosts")
                 .map(|hs| parse_hosts_str(hs))
-                .unwrap_or(Ok(Default::default()))?,
+                .unwrap_or_else(|| Ok(Default::default()))?,
         },
     })
 }
@@ -220,7 +220,7 @@ pub async fn create_orbit(
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
         md.hosts()
             .find_map(|h| keys.remove(h))
-            .unwrap_or(generate_keypair())
+            .unwrap_or_else(generate_keypair)
     };
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
@@ -241,7 +241,7 @@ pub async fn load_orbit(
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(dir, relay).await.map(|o| Some(o))
+    load_orbit_(dir, relay).await.map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
@@ -289,7 +289,9 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
                     if task_ipfs.peers().contains(&p) {
                         tracing::debug!("dialing peer {}", p);
                         task_ipfs.dial(&p);
-                        st.request_heads();
+                        if let Err(e) = st.request_heads() {
+                            tracing::warn!("error when requesting heads {}", e)
+                        }
                     } else {
                         task_ipfs.ban(p)
                     };
@@ -308,14 +310,14 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
 }
 
 pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
-    s.split("|")
+    s.split('|')
         .map(|hs| {
             hs.split_once(":")
-                .ok_or(anyhow!("missing host:addrs map"))
+                .ok_or_else(|| anyhow!("missing host:addrs map"))
                 .and_then(|(id, s)| {
                     Ok((
                         id.parse()?,
-                        s.split(",")
+                        s.split(',')
                             .map(|a| Ok(a.parse()?))
                             .collect::<Result<Vec<Multiaddr>>>()?,
                     ))
@@ -326,7 +328,7 @@ pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
 
 pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
     matrix_params
-        .split(";")
+        .split(';')
         .map(|pair_str| match pair_str.split_once("=") {
             Some((key, value)) => Ok((
                 urlencoding::decode(key)?.into_owned(),
@@ -342,12 +344,12 @@ pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, Strin
     if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
         && oid.codec() == 0x55
     {
-        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
+        let first_sc = uri_str.find(';').unwrap_or_else(|| uri_str.len());
         Ok((
             // method name
             uri_str
                 .get(..first_sc)
-                .ok_or(anyhow!("Missing Orbit Method"))?
+                .ok_or_else(|| anyhow!("Missing Orbit Method"))?
                 .into(),
             // matrix parameters
             get_params(uri_str.get(first_sc + 1..).unwrap_or(""))?,

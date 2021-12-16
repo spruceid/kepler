@@ -10,11 +10,11 @@ use rocket::{
 };
 
 use crate::auth::{DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper};
-use crate::cas::{CidWrap};
+use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
-use crate::s3::{ObjectBuilder, IpfsReadStream};
+use crate::s3::{IpfsReadStream, ObjectBuilder};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -56,7 +56,7 @@ impl<'r> Responder<'r, 'static> for S3Response {
     fn respond_to(self, r: &'r Request<'_>) -> response::Result<'static> {
         Ok(Response::build_from(self.1.respond_to(r)?)
             // must ensure that Metadata::respond_to does not set the body of the response
-           .streamed_body(self.0)
+            .streamed_body(self.0)
             .finalize())
     }
 }
@@ -199,7 +199,7 @@ pub async fn get_content_no_auth(
 
     match orbit.service.read(k) {
         Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
-        _ => return Ok(None),
+        _ => Ok(None),
     }
 }
 
@@ -215,15 +215,19 @@ pub async fn put_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+    let rm: [(Vec<u8>, _); 0] = [];
 
     orbit
         .0
         .service
         .write(
-            vec![(ObjectBuilder::new(k.as_bytes().to_vec(), md.0), data.open(1u8.gigabytes()))],
-            rm
-        ).await
+            vec![(
+                ObjectBuilder::new(k.as_bytes().to_vec(), md.0),
+                data.open(1u8.gigabytes()),
+            )],
+            rm,
+        )
+        .await
         .map_err(|e| (Status::InternalServerError, e.to_string()))?;
     Ok(())
 }
@@ -236,7 +240,7 @@ pub async fn delete_content(
 ) -> Result<(), (Status, &'static str)> {
     let k = match key.to_str() {
         Some(k) => k,
-        _ => return Err((Status::BadRequest, "Key parsing failed".into())),
+        _ => return Err((Status::BadRequest, "Key parsing failed")),
     };
     let add: Vec<(&[u8], Cid)> = vec![];
     Ok(orbit

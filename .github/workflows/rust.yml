@@ -43,3 +43,25 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Kepler repository
+      uses: actions/checkout@v2
+      with:
+        path: kepler
+
+    - name: Clippy
+      run: RUSTFLAGS="-Dwarnings" cargo clippy
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Kepler repository
+      uses: actions/checkout@v2
+      with:
+        path: kepler
+
+    - name: Fmt
+      run: cargo fmt -- --check

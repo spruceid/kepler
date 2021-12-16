@@ -100,7 +100,7 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
             .as_ref()
             .and_then(|proof| proof.verification_method.as_ref())
             .ok_or_else(|| anyhow!("Missing delegation verification method"))
-            .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
+            .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
         let res = match &auth_token.delegation {
             Some(d) => {
                 let delegator_vm = d
@@ -108,7 +108,7 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                     .as_ref()
                     .and_then(|proof| proof.verification_method.as_ref())
                     .ok_or_else(|| anyhow!("Missing delegation verification method"))
-                    .and_then(|s| DIDURL::from_str(&s).map_err(|e| e.into()))?;
+                    .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
                 match auth_token.invocation.property_set.capability_action {
                     Action::List | Action::Get(_) => {
                         if !self.read_delegators.contains(&delegator_vm)
@@ -155,7 +155,7 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                     .await;
                 let mut res2 = auth_token
                     .invocation
-                    .verify(Default::default(), DID_METHODS.to_resolver(), &d)
+                    .verify(Default::default(), DID_METHODS.to_resolver(), d)
                     .await;
                 res.append(&mut res2);
                 res

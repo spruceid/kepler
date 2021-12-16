@@ -1,5 +1,5 @@
 use kepler::{app, config, tracing_try_init};
-use rocket::figment::providers::{Format, Serialized, Toml, Env};
+use rocket::figment::providers::{Env, Format, Serialized, Toml};
 
 #[rocket::main]
 async fn main() {

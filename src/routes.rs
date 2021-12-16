@@ -41,7 +41,7 @@ async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)
                     })
                 })
                 .collect::<Result<Vec<String>, (Status, String)>>()
-                .map(|v| Json(v))
+                .map(Json)
         })
 }
 
@@ -183,7 +183,10 @@ pub async fn delete_content(
 }
 
 #[post("/<orbit_id>")]
-pub async fn open_orbit_authz(orbit_id: CidWrap, authz: CreateAuthWrapper) -> Result<String, (Status, &'static str)> {
+pub async fn open_orbit_authz(
+    orbit_id: CidWrap,
+    authz: CreateAuthWrapper,
+) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
     if &orbit_id.0 == authz.0.id() {
         Ok(authz.0.id().to_string())
@@ -231,9 +234,7 @@ pub async fn open_orbit_allowlist(
 }
 
 #[options("/<_s..>")]
-pub async fn cors(_s: PathBuf) -> () {
-    ()
-}
+pub async fn cors(_s: PathBuf) {}
 
 #[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>) -> String {

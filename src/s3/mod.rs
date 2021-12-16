@@ -10,7 +10,7 @@ mod store;
 
 use super::ipfs::{Block, Ipfs};
 
-pub use entries::{Object, ObjectBuilder, IpfsWriteStream, IpfsReadStream};
+pub use entries::{IpfsReadStream, IpfsWriteStream, Object, ObjectBuilder};
 pub use store::Store;
 
 type TaskHandle = tokio::task::JoinHandle<()>;
@@ -64,7 +64,7 @@ mod vec_cid_bin {
     use libipld::cid::Cid;
     use serde::{de::Error as DeError, ser::SerializeSeq, Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(vec: &Vec<Cid>, ser: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(vec: &[Cid], ser: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -87,11 +87,11 @@ mod vec_cid_bin {
 }
 
 fn to_block<T: Encode<DagCborCodec>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(DagCborCodec, Code::Blake3_256, data)?)
+    Block::encode(DagCborCodec, Code::Blake3_256, data)
 }
 
 fn to_block_raw<T: AsRef<[u8]>>(data: &T) -> Result<Block> {
-    Ok(Block::encode(RawCodec, Code::Blake3_256, data.as_ref())?)
+    Block::encode(RawCodec, Code::Blake3_256, data.as_ref())
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -184,8 +184,12 @@ mod test {
         let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
         let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
-        alice_service.write(vec![(s3_obj_1, json.as_bytes())], rm.clone()).await?;
-        bob_service.write(vec![(s3_obj_2, json.as_bytes())], rm).await?;
+        alice_service
+            .write(vec![(s3_obj_1, json.as_bytes())], rm.clone())
+            .await?;
+        bob_service
+            .write(vec![(s3_obj_2, json.as_bytes())], rm)
+            .await?;
 
         {
             // ensure only alice has s3_obj_1

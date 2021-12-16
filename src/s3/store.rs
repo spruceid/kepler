@@ -1,12 +1,15 @@
-use crate::s3::{Object, ObjectBuilder, Service, IpfsWriteStream, IpfsReadStream};
+use crate::s3::{IpfsReadStream, IpfsWriteStream, Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use libipld::{cid::Cid, DagCbor, cbor::DagCborCodec};
+use ipfs_embed::TempPin;
+use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use sled::{Batch, Db, IVec, Tree};
-use std::{convert::{TryFrom, TryInto}, collections::BTreeMap};
+use std::{
+    collections::BTreeMap,
+    convert::{TryFrom, TryInto},
+};
 use tracing::{debug, error};
-use ipfs_embed::TempPin;
 
 use super::{to_block, Block, Ipfs, KVMessage};
 
@@ -86,22 +89,20 @@ impl Store {
             heads,
         })
     }
-    pub fn list<'a>(&'a self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + 'a {
+    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + '_ {
         self.elements
             .iter()
             .map(|r| match r {
                 Ok((key, value)) => Ok((key, Cid::try_from(value.as_ref())?)),
-                Err(e) => Err(anyhow!(e))
+                Err(e) => Err(anyhow!(e)),
             })
             .filter_map(move |r| match r {
                 Err(e) => Some(Err(e)),
-                Ok((key, cid)) => {
-                    match self.is_tombstoned(key.as_ref(), &cid) {
-                        Ok(false) => Some(Ok(key)),
-                        Ok(true) => None,
-                        Err(e) => Some(Err(e))
-                    }
-                }
+                Ok((key, cid)) => match self.is_tombstoned(key.as_ref(), &cid) {
+                    Ok(false) => Some(Ok(key)),
+                    Ok(true) => None,
+                    Err(e) => Some(Err(e)),
+                },
             })
     }
     pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
@@ -113,8 +114,7 @@ impl Store {
             .transpose()?
         {
             Some(cid) => {
-                if !self.is_tombstoned(key.as_ref(), &cid)?
-                {
+                if !self.is_tombstoned(key.as_ref(), &cid)? {
                     Ok(Some(self.ipfs.get(&cid)?.decode()?))
                 } else {
                     Ok(None)
@@ -124,15 +124,19 @@ impl Store {
         }
     }
 
-    pub fn read<N>(
-        &self,
-        key: N
-    ) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>> where N: AsRef<[u8]> {
+    pub fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>>
+    where
+        N: AsRef<[u8]>,
+    {
         let s3_obj = match self.get(key) {
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
-        match self.ipfs.get(&s3_obj.value)?.decode::<DagCborCodec, Vec<(Cid, u32)>>() {
+        match self
+            .ipfs
+            .get(&s3_obj.value)?
+            .decode::<DagCborCodec, Vec<(Cid, u32)>>()
+        {
             Ok(content) => Ok(Some((
                 s3_obj.metadata,
                 IpfsReadStream::new(self.ipfs.clone(), content)?,
@@ -145,20 +149,25 @@ impl Store {
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
         remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>)>,
-    ) -> Result<()> where N: AsRef<[u8]>, R: AsyncRead + Unpin {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        R: AsyncRead + Unpin,
+    {
         tracing::debug!("writing tx");
-        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) = try_join_all(
-            add.into_iter().map(|(o, r)| async {
+        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) =
+            try_join_all(add.into_iter().map(|(o, r)| async {
                 // tracing::debug!("adding {:#?}", &o.key);
-                let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?
-                    .write(r)
-                    .await?;
+                let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?.write(r).await?;
                 let obj = o.add_content(cid);
                 let block = obj.to_block()?;
                 self.ipfs.insert(&block)?;
                 self.ipfs.temp_pin(&pin, block.cid())?;
                 Ok(((obj.key, *block.cid()), pin)) as Result<((Vec<u8>, Cid), TempPin)>
-            })).await?.into_iter().unzip();
+            }))
+            .await?
+            .into_iter()
+            .unzip();
         self.index(indexes, remove)
     }
 
@@ -168,17 +177,19 @@ impl Store {
         add: impl IntoIterator<Item = (N, Cid)>,
         // tuples of (key, opt (priority, obj-cid))
         remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>)>,
-    ) -> Result<()> where N: AsRef<[u8]>, M: AsRef<[u8]> {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        M: AsRef<[u8]>,
+    {
         let (heads, height) = self.heads.state()?;
         let height = if heads.is_empty() && height == 0 {
             0
         } else {
             height + 1
         };
-        let adds: (Vec<(N, Cid)>, Vec<Cid>) = add
-            .into_iter()
-            .map(|(key, cid)| ((key, cid), cid))
-            .unzip();
+        let adds: (Vec<(N, Cid)>, Vec<Cid>) =
+            add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
         let rmvs: Vec<(M, Cid)> = remove
             .into_iter()
             .map(|(key, version)| {
@@ -190,7 +201,7 @@ impl Store {
                             .get(&key)?
                             .map(|b| Cid::try_from(b.as_ref()))
                             .transpose()?
-                            .ok_or(anyhow!("Failed to find Object ID for key"))?;
+                            .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
                         (key, cid)
                     }
                 })
@@ -198,19 +209,11 @@ impl Store {
             .collect::<Result<Vec<(M, Cid)>>>()?;
         let delta = LinkedDelta::new(
             heads,
-            Delta::new(
-                height,
-                adds.1,
-                rmvs.iter().map(|(_, c)| *c).collect(),
-            ),
+            Delta::new(height, adds.1, rmvs.iter().map(|(_, c)| *c).collect()),
         );
         let block = delta.to_block()?;
         // apply/pin root/update heads
-        self.apply(
-            &(block, delta),
-            adds.0,
-            rmvs,
-        )?;
+        self.apply(&(block, delta), adds.0, rmvs)?;
 
         // broadcast
         self.broadcast_heads()?;
@@ -227,14 +230,18 @@ impl Store {
         Ok(())
     }
 
-    fn apply<'a, N, M>(
+    fn apply<N, M>(
         &self,
         (block, delta): &(Block, LinkedDelta),
         // tuples of (obj-cid, obj)
         adds: impl IntoIterator<Item = (N, Cid)>,
         // tuples of (key, obj-cid)
         removes: impl IntoIterator<Item = (M, Cid)>,
-    ) -> Result<()> where N: AsRef<[u8]>, M: AsRef<[u8]> {
+    ) -> Result<()>
+    where
+        N: AsRef<[u8]>,
+        M: AsRef<[u8]>,
+    {
         // TODO update tables atomically with transaction
         // tombstone removed elements
         for (key, cid) in removes.into_iter() {
@@ -249,7 +256,7 @@ impl Store {
             let prio = self
                 .priorities
                 .get(&key)?
-                .map(|v| v2u64(v))
+                .map(v2u64)
                 .transpose()?
                 .unwrap_or(0);
             // current element CID at key
@@ -267,8 +274,7 @@ impl Store {
                     })
             {
                 self.elements.insert(&key, cid.to_bytes())?;
-                self.priorities
-                    .insert(&key, &u642v(delta.delta.priority))?;
+                self.priorities.insert(&key, &u642v(delta.delta.priority))?;
             }
         }
         // find redundant heads and remove them
@@ -276,7 +282,7 @@ impl Store {
         self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
         self.heads.new_head(block.cid(), delta.prev.clone())?;
         self.ipfs.alias(block.cid().to_bytes(), Some(block.cid()))?;
-        self.ipfs.insert(&block)?;
+        self.ipfs.insert(block)?;
 
         Ok(())
     }
@@ -312,14 +318,14 @@ impl Store {
 
             let adds: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.add.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(&c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
@@ -385,7 +391,7 @@ impl Heads {
                 let height = v2u64(
                     self.heights
                         .get(&head)?
-                        .ok_or(anyhow!("Failed to find head height"))?,
+                        .ok_or_else(|| anyhow!("Failed to find head height"))?,
                 )?;
                 heads.push(head[..].try_into()?);
                 Ok((heads, u64::max(max_height, height)))
@@ -394,10 +400,7 @@ impl Heads {
     }
 
     pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
-        self.heights
-            .get(head.to_bytes())?
-            .map(|h| v2u64(h))
-            .transpose()
+        self.heights.get(head.to_bytes())?.map(v2u64).transpose()
     }
 
     pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
