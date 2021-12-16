@@ -6,7 +6,10 @@ use crate::{
 use anyhow::Result;
 use didkit::DID_METHODS;
 use ipfs_embed::Cid;
-use libipld::cid::multihash::{Code, MultihashDigest};
+use libipld::cid::{
+    multibase::Base,
+    multihash::{Code, MultihashDigest},
+};
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -77,11 +80,11 @@ impl<'r> FromRequest<'r> for SIWETokens {
             (Some(Err(e)), _) => {
                 tracing::debug!("{}", e);
                 Outcome::Failure((Status::Unauthorized, e))
-            },
+            }
             (_, Some(Err(e))) => {
                 tracing::debug!("{}", e);
                 Outcome::Failure((Status::Unauthorized, e))
-            },
+            }
             (_, _) => Outcome::Forward(()),
         }
     }
@@ -107,13 +110,17 @@ impl<'r> FromRequest<'r> for SIWECreate {
                         })
                         .ok_or_else(|| anyhow!("Invalid URI"))?;
 
+                    let oid: Cid = match params.parse() {
+                        Ok(cid) => cid,
+                        Err(_) => Cid::new_v1(0x55, Code::Blake2b256.digest(params.as_bytes())),
+                    };
+                    let host_permission =
+                        format!("kepler://{}#host", oid.to_string_of_base(Base::Base58Btc)?);
+
                     Ok(SIWECreate {
-                        orbit: match params.parse() {
-                            Ok(cid) => cid,
-                            Err(_) => Cid::new_v1(0x55, Code::Blake2b256.digest(params.as_bytes())),
-                        },
+                        orbit: oid,
                         action: match &message.0.resources.first().map(|u| u.as_str()) {
-                            Some("#host") => Ok(Action::Create {
+                            Some(uri) if *uri == host_permission => Ok(Action::Create {
                                 parameters: params.to_string(),
                                 content: vec![],
                             }),
@@ -231,7 +238,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
         auth_token
             .delegation
             .0
-            .verify_eip191(&auth_token.delegation.1 .0)?;
+            .verify_eip191(auth_token.delegation.1 .0)?;
 
         match auth_token
             .invocation
@@ -280,7 +287,7 @@ impl AuthorizationPolicy<SIWEMessage> for OrbitMetadata {
             return Err(anyhow!("Message has Expired"));
         };
 
-        auth_token.0.verify_eip191(&auth_token.1 .0)?;
+        auth_token.0.verify_eip191(auth_token.1 .0)?;
         Ok(())
     }
 }
