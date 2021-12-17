@@ -2585,6 +2585,7 @@ dependencies = [
  "cached 0.26.2",
  "chrono",
  "didkit",
+ "ethers-core",
  "hex",
  "ipfs-embed",
  "libipld",

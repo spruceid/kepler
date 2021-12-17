@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use siwe::eip4361::Message;
 use std::{ops::Deref, str::FromStr};
+use ethers_core::{types::H160, utils::to_checksum};
 
 pub struct SIWESignature([u8; 65]);
 
@@ -194,7 +195,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
             &format!(
                 "did:pkh:eip155:{}:0x{}#blockchainAccountId",
                 &auth_token.delegation.0.chain_id,
-                &hex::encode(auth_token.delegation.0.address)
+                &to_checksum(&H160(auth_token.delegation.0.address), None)
             )
             .parse()?,
         ) {
