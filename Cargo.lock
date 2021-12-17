@@ -1570,9 +1570,9 @@ dependencies = [
 
 [[package]]
 name = "ethers-core"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1067cbcfc0ac6019b51bb292cb51558d8eca1c7c5e3517e5cd192a6c64fec32"
+checksum = "f15e1a2a54bc6bc3f8ea94afafbb374264f8322fcacdae06fefda80a206739ac"
 dependencies = [
  "arrayvec 0.7.2",
  "bytes 1.1.0",
@@ -5195,6 +5195,8 @@ dependencies = [
 [[package]]
 name = "siwe"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "602d26b7ba20da7425998ff55f7c66f3a747142c3c588dd36bbbe8e06107978d"
 dependencies = [
  "chrono",
  "ethers-core",
