@@ -89,10 +89,10 @@ impl<'r> FromRequest<'r> for AuthTokens {
         let ats =
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
-            } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
-                Self::SIWEZcapTokens(siwe)
             } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
                 Self::SIWEDelegated(siwe)
+            } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
+                Self::SIWEZcapDelegated(siwe)
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
                 Self::ZCAP(Box::new(zcap))
             } else {
@@ -130,7 +130,7 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
             AuthTokens::Tezos(token) => self.authorize(token).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEDelegated(token) => self.authorize(token).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.authorize(&token.message).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token).await,
         }
     }
 }
