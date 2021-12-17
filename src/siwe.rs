@@ -6,10 +6,6 @@ use crate::{
 use anyhow::Result;
 use didkit::DID_METHODS;
 use ipfs_embed::Cid;
-use libipld::cid::{
-    multibase::Base,
-    multihash::{Code, MultihashDigest},
-};
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -19,7 +15,7 @@ use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use siwe::eip4361::Message;
-use std::str::FromStr;
+use std::{ops::Deref, str::FromStr};
 
 pub struct SIWESignature([u8; 65]);
 
@@ -45,6 +41,13 @@ pub struct SIWEMessage(
     #[serde_as(as = "DisplayFromStr")] Message,
     #[serde_as(as = "DisplayFromStr")] SIWESignature,
 );
+
+impl Deref for SIWEMessage {
+    type Target = Message;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub struct SIWEZcapTokens {
     pub invocation: KeplerInvocation,
@@ -96,7 +99,7 @@ impl<'r> FromRequest<'r> for SIWEZcapTokens {
 impl<'r> FromRequest<'r> for SIWETokens {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let (invocation, delegation) = match (
+        let (invocation, delegation): (SIWEMessage, Option<SIWEMessage>) = match (
             request.headers().get_one("x-siwe-invocation").map(|b64| {
                 base64::decode_config(b64, base64::URL_SAFE)
                     .map_err(|e| anyhow!(e))
@@ -128,8 +131,8 @@ impl<'r> FromRequest<'r> for SIWETokens {
             .first()
             .and_then(|u| u.as_str().strip_prefix("kepler://"))
             .and_then(|p| p.split_once("/"))
-            .and_then(|(o, p)| match p.rsplit_once("#") {
-                Some((k, a)) => Ok((Cid::from_str(o)?, k.string_prefix("s3/").unwrap_or(k), a)),
+            .map(|(o, p)| match p.rsplit_once("#") {
+                Some((k, a)) => Ok((Cid::from_str(o)?, k.strip_prefix("s3/").unwrap_or(k), a)),
                 _ => Err(anyhow!("Missing Action")),
             }) {
             Some(Ok((o, p, a))) => (
@@ -142,11 +145,15 @@ impl<'r> FromRequest<'r> for SIWETokens {
                     "host" => Action::Create {
                         parameters: invocation
                             .uri
+                            .as_str()
                             .strip_prefix("kepler://")
                             .unwrap_or("")
                             .into(),
                         content: vec![],
                     },
+                    _ => {
+                        return Outcome::Failure((Status::Unauthorized, anyhow!("Invalid Action")))
+                    }
                 },
             ),
             Some(Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
@@ -202,12 +209,12 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
             .ok_or_else(|| anyhow!("Missing invoker verification method"))?;
 
         // check delegation to invoker
-        if auth_token.delegation.0.uri.as_str() != invoker {
+        if auth_token.delegation.uri.as_str() != invoker {
             return Err(anyhow!("Invoker not authorized"));
         };
 
         // check invoker invokes delegation
-        if &format!("urn:siwe:kepler:{}", auth_token.delegation.0.nonce)
+        if &format!("urn:siwe:kepler:{}", auth_token.delegation.nonce)
             != &auth_token
                 .invocation
                 .proof
@@ -221,12 +228,12 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
         };
 
         // check delegation time validity
-        if !auth_token.delegation.0.valid_now() {
+        if !auth_token.delegation.valid_now() {
             return Err(anyhow!("Delegation has Expired"));
         };
 
         // check action is authorized by blanket root ("." as relative path against "kepler://<orbit-id>/") auth
-        if !auth_token.delegation.0.resources.contains(&match auth_token
+        if !auth_token.delegation.resources.contains(&match auth_token
             .invocation
             .property_set
             .capability_action
@@ -258,7 +265,6 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
 
         auth_token
             .delegation
-            .0
             .verify_eip191(auth_token.delegation.1 .0)?;
 
         match auth_token
@@ -283,8 +289,8 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
 
         let invoker = format!(
             "did:pkh:eip155:{}:0x{}#blockchainAccountId",
-            &t.invocation.0.chain_id,
-            &hex::encode(&t.invocation.0.address)
+            &t.invocation.chain_id,
+            &hex::encode(&t.invocation.address)
         );
 
         match &t.delegation {
@@ -293,18 +299,18 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 if !self.controllers().contains(
                     &format!(
                         "did:pkh:eip155:{}:0x{}#blockchainAccountId",
-                        &d.0.chain_id,
-                        &hex::encode(&d.0.address)
+                        &d.chain_id,
+                        &hex::encode(&d.address)
                     )
                     .parse()?,
                 ) {
                     return Err(anyhow!("Delegator not authorized"));
                 };
-                d.0.verify_eip191(d.1 .0)?;
+                d.verify_eip191(d.1 .0)?;
 
-                if &d.0.uri != &invoker
-                    && !(d.0.uri.as_str().ends_with("*")
-                        && invoker.starts_with(&d.0.uri.as_str()[..&d.0.uri.as_str().len() - 1]))
+                if &d.uri != &invoker
+                    && !(d.uri.as_str().ends_with("*")
+                        && invoker.starts_with(&d.uri.as_str()[..&d.uri.as_str().len() - 1]))
                 {
                     return Err(anyhow!("Invoker not authorized"));
                 };
@@ -314,8 +320,8 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 if !self.controllers().contains(
                     &format!(
                         "did:pkh:eip155:{}:0x{}#blockchainAccountId",
-                        &t.invocation.0.chain_id,
-                        &hex::encode(&t.invocation.0.address)
+                        &t.invocation.chain_id,
+                        &hex::encode(&t.invocation.address)
                     )
                     .parse()?,
                 ) {
@@ -324,17 +330,13 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
             }
         };
         // check time validity
-        if !t.invocation.0.valid_now()
-            || !t
-                .delegation
-                .as_ref()
-                .map(|s| s.0.valid_now())
-                .unwrap_or(true)
+        if !t.invocation.valid_now()
+            || !t.delegation.as_ref().map(|s| s.valid_now()).unwrap_or(true)
         {
             return Err(anyhow!("Message has Expired"));
         };
 
-        t.invocation.0.verify_eip191(t.invocation.1 .0)?;
+        t.invocation.verify_eip191(t.invocation.1 .0)?;
 
         Ok(())
     }
