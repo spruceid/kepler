@@ -5,7 +5,7 @@ use crate::{
     config::ExternalApis,
     ipfs::Ipfs,
     s3::{Service, Store},
-    siwe::{SIWECreate, SIWETokens},
+    siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -77,8 +77,8 @@ impl OrbitMetadata {
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
     ZCAP(Box<ZCAPTokens>),
+    SIWEZcapDelegated(SIWEZcapTokens),
     SIWEDelegated(SIWETokens),
-    SIWECreate(SIWECreate),
 }
 
 #[rocket::async_trait]
@@ -89,10 +89,10 @@ impl<'r> FromRequest<'r> for AuthTokens {
         let ats =
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
+            } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
+                Self::SIWEZcapTokens(siwe)
             } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
                 Self::SIWEDelegated(siwe)
-            } else if let Outcome::Success(siwe) = SIWECreate::from_request(request).await {
-                Self::SIWECreate(siwe)
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
                 Self::ZCAP(Box::new(zcap))
             } else {
@@ -111,7 +111,7 @@ impl AuthorizationToken for AuthTokens {
             Self::Tezos(token) => token.action(),
             Self::ZCAP(token) => token.action(),
             Self::SIWEDelegated(token) => token.action(),
-            Self::SIWECreate(token) => token.action(),
+            Self::SIWEZcapDelegated(token) => token.action(),
         }
     }
     fn target_orbit(&self) -> &Cid {
@@ -119,7 +119,7 @@ impl AuthorizationToken for AuthTokens {
             Self::Tezos(token) => token.target_orbit(),
             Self::ZCAP(token) => token.target_orbit(),
             Self::SIWEDelegated(token) => token.target_orbit(),
-            Self::SIWECreate(token) => token.target_orbit(),
+            Self::SIWEZcapDelegated(token) => token.target_orbit(),
         }
     }
 }
@@ -130,7 +130,7 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
             AuthTokens::Tezos(token) => self.authorize(token).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEDelegated(token) => self.authorize(token).await,
-            AuthTokens::SIWECreate(token) => self.authorize(&token.message).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.authorize(&token.message).await,
         }
     }
 }
