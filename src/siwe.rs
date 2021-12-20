@@ -195,7 +195,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
             &format!(
                 "did:pkh:eip155:{}:0x{}#blockchainAccountId",
                 &auth_token.delegation.0.chain_id,
-                &to_checksum(&H160(auth_token.delegation.0.address), None)
+                &hex::encode(&auth_token.delegation.0.address)
             )
             .parse()?,
         ) {
@@ -266,7 +266,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
 
         auth_token
             .delegation
-            .verify_eip191(auth_token.delegation.1 .0)?;
+            .verify_eip191(&auth_token.delegation.1 .0)?;
 
         match auth_token
             .invocation
@@ -307,7 +307,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 ) {
                     return Err(anyhow!("Delegator not authorized"));
                 };
-                d.verify_eip191(d.1 .0)?;
+                d.verify_eip191(&d.1 .0)?;
 
                 if &d.uri != &invoker
                     && !(d.uri.as_str().ends_with("*")
@@ -326,7 +326,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                     )
                     .parse()?,
                 ) {
-                    return Err(anyhow!("Delegator not authorized"));
+                    return Err(anyhow!("Invoker not authorized as Controller"));
                 };
             }
         };
@@ -337,7 +337,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
             return Err(anyhow!("Message has Expired"));
         };
 
-        t.invocation.verify_eip191(t.invocation.1 .0)?;
+        t.invocation.verify_eip191(&t.invocation.1 .0)?;
 
         Ok(())
     }

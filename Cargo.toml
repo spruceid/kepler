@@ -34,7 +34,7 @@ async-recursion = "0.3"
 libp2p = "0.39"
 tracing-subscriber = "0.2"
 urlencoding = "2.1"
-siwe = "0.1.1"
+siwe = { git = "https://github.com/spruceid/siwe-rs", branch = "fix/uri" }
 ethers-core = "0.6"
 
 [dev-dependencies]
