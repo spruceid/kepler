@@ -5196,8 +5196,7 @@ dependencies = [
 [[package]]
 name = "siwe"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "602d26b7ba20da7425998ff55f7c66f3a747142c3c588dd36bbbe8e06107978d"
+source = "git+https://github.com/spruceid/siwe-rs?branch=fix/uri#66ae90372720471435b4d924564ee2cf8a2fc550"
 dependencies = [
  "chrono",
  "ethers-core",

@@ -11,12 +11,12 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
+use ethers_core::{types::H160, utils::to_checksum};
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use siwe::eip4361::Message;
 use std::{ops::Deref, str::FromStr};
-use ethers_core::{types::H160, utils::to_checksum};
 
 pub struct SIWESignature([u8; 65]);
 
@@ -131,34 +131,47 @@ impl<'r> FromRequest<'r> for SIWETokens {
             .resources
             .first()
             .and_then(|u| u.as_str().strip_prefix("kepler://"))
-            .and_then(|p| p.split_once("/"))
-            .map(|(o, p)| match p.rsplit_once("#") {
-                Some((k, a)) => Ok((Cid::from_str(o)?, k.strip_prefix("s3/").unwrap_or(k), a)),
-                _ => Err(anyhow!("Missing Action")),
+            .and_then(|p| p.split_once("#"))
+            .map(|(op, a)| match op.rsplit_once("/") {
+                Some((o, p)) => Ok((
+                    Cid::from_str(o)?,
+                    Some(p.strip_prefix("s3/").unwrap_or(p)),
+                    a,
+                )),
+                _ => Ok((Cid::from_str(op)?, None, a)),
             }) {
-            Some(Ok((o, p, a))) => (
+            Some(Ok((o, _, "host"))) => (
+                o,
+                Action::Create {
+                    parameters: invocation
+                        .uri
+                        .as_str()
+                        .strip_prefix("kepler://")
+                        .unwrap_or("")
+                        .into(),
+                    content: vec![],
+                },
+            ),
+            Some(Ok((o, _, "list"))) => (o, Action::List),
+            Some(Ok((o, Some(p), a))) => (
                 o,
                 match a {
                     "get" => Action::Get(vec![p.into()]),
                     "put" => Action::Put(vec![p.into()]),
                     "del" => Action::Del(vec![p.into()]),
-                    "list" => Action::List,
-                    "host" => Action::Create {
-                        parameters: invocation
-                            .uri
-                            .as_str()
-                            .strip_prefix("kepler://")
-                            .unwrap_or("")
-                            .into(),
-                        content: vec![],
-                    },
-                    _ => {
-                        return Outcome::Failure((Status::Unauthorized, anyhow!("Invalid Action")))
+                    x => {
+                        return Outcome::Failure((
+                            Status::Unauthorized,
+                            anyhow!("Invalid Action: {}", x),
+                        ))
                     }
                 },
             ),
+            Some(Ok(_)) => {
+                return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Path")))
+            }
             Some(Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
-            _ => return Outcome::Failure((Status::Unauthorized, anyhow!("Invalid Action"))),
+            _ => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Action"))),
         };
         Outcome::Success(Self {
             invocation,
@@ -193,9 +206,9 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
         // check delegator is controller
         if !self.controllers().contains(
             &format!(
-                "did:pkh:eip155:{}:0x{}#blockchainAccountId",
+                "did:pkh:eip155:{}:{}#blockchainAccountId",
                 &auth_token.delegation.0.chain_id,
-                &hex::encode(&auth_token.delegation.0.address)
+                &to_checksum(&H160(auth_token.delegation.0.address), None)
             )
             .parse()?,
         ) {
@@ -289,9 +302,9 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
         };
 
         let invoker = format!(
-            "did:pkh:eip155:{}:0x{}#blockchainAccountId",
+            "did:pkh:eip155:{}:{}#blockchainAccountId",
             &t.invocation.chain_id,
-            &hex::encode(&t.invocation.address)
+            &to_checksum(&H160(t.invocation.address), None)
         );
 
         match &t.delegation {
@@ -299,9 +312,9 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 // check delegator is controller
                 if !self.controllers().contains(
                     &format!(
-                        "did:pkh:eip155:{}:0x{}#blockchainAccountId",
+                        "did:pkh:eip155:{}:{}#blockchainAccountId",
                         &d.chain_id,
-                        &hex::encode(&d.address)
+                        &to_checksum(&H160(d.address), None)
                     )
                     .parse()?,
                 ) {
@@ -318,14 +331,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
             }
             None => {
                 // check invoker is controller
-                if !self.controllers().contains(
-                    &format!(
-                        "did:pkh:eip155:{}:0x{}#blockchainAccountId",
-                        &t.invocation.chain_id,
-                        &hex::encode(&t.invocation.address)
-                    )
-                    .parse()?,
-                ) {
+                if !self.controllers().contains(&invoker.parse()?) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
             }
