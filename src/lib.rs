@@ -18,18 +18,18 @@ pub mod orbit;
 pub mod relay;
 pub mod routes;
 pub mod s3;
-pub mod s3_routes;
 pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
 
 use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
 use relay::RelayNode;
-use routes::{
+use routes::core::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
     list_content_no_auth, open_host_key, open_orbit_allowlist, open_orbit_authz, put_content,
     relay_addr,
 };
+use routes::s3 as s3_routes;
 use std::{collections::HashMap, sync::RwLock};
 
 pub fn tracing_try_init() {
@@ -78,6 +78,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             get_content_no_auth,
             list_content_no_auth,
             s3_routes::get_content_no_auth,
+            s3_routes::get_metadata_no_auth,
             s3_routes::list_content_no_auth,
         ];
         routes.append(&mut no_auth);
@@ -86,6 +87,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             get_content,
             list_content,
             s3_routes::get_content,
+            s3_routes::get_metadata,
             s3_routes::list_content,
         ];
         routes.append(&mut auth);
