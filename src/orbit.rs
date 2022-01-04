@@ -258,8 +258,7 @@ pub async fn load_orbit(
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
-// 1min timeout to evict orbits that might have been deleted
-#[cached(size = 100, time = 60, result = true, sync_writes = true)]
+#[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
     let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
     let mut cfg = Config::new(&dir.join("block_store"), kp);

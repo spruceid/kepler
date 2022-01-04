@@ -7,7 +7,7 @@ use rocket::{
     serde::json::Json,
     State,
 };
-use std::{collections::HashMap, path::PathBuf, sync::RwLock};
+use std::{collections::HashMap, sync::RwLock};
 
 use crate::allow_list::OrbitAllowList;
 use crate::auth::{
@@ -18,6 +18,7 @@ use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
 use crate::orbit::{create_orbit, get_metadata, load_orbit, Orbit};
 use crate::relay::RelayNode;
+use crate::routes::DotPathBuf;
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
 async fn uri_listing(orbit: Orbit) -> Result<Json<Vec<String>>, (Status, String)> {
@@ -234,7 +235,7 @@ pub async fn open_orbit_allowlist(
 }
 
 #[options("/<_s..>")]
-pub async fn cors(_s: PathBuf) {}
+pub async fn cors(_s: DotPathBuf) {}
 
 #[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
