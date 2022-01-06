@@ -77,8 +77,8 @@ impl OrbitMetadata {
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
     ZCAP(Box<ZCAPTokens>),
-    SIWEZcapDelegated(SIWEZcapTokens),
-    SIWEDelegated(SIWETokens),
+    SIWEZcapDelegated(Box<SIWEZcapTokens>),
+    SIWEDelegated(Box<SIWETokens>),
 }
 
 #[rocket::async_trait]
@@ -90,9 +90,9 @@ impl<'r> FromRequest<'r> for AuthTokens {
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
             } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
-                Self::SIWEDelegated(siwe)
+                Self::SIWEDelegated(Box::new(siwe))
             } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
-                Self::SIWEZcapDelegated(siwe)
+                Self::SIWEZcapDelegated(Box::new(siwe))
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
                 Self::ZCAP(Box::new(zcap))
             } else {
@@ -129,8 +129,8 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
         match auth_token {
             AuthTokens::Tezos(token) => self.authorize(token).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEDelegated(token) => self.authorize(token).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token).await,
+            AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
         }
     }
 }
@@ -360,7 +360,7 @@ pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
 pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
     // try to parse as a URI with matrix params
     if &hash_same(oid, uri_str)? == oid && oid.codec() == 0x55 {
-        let first_sc = uri_str.find(";").unwrap_or(uri_str.len());
+        let first_sc = uri_str.find(';').unwrap_or(uri_str.len());
         Ok((
             // method name
             uri_str

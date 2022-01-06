@@ -1,6 +1,6 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::{hash_same, OrbitMetadata},
+    orbit::OrbitMetadata,
     zcap::KeplerInvocation,
 };
 use anyhow::Result;
@@ -28,7 +28,7 @@ impl core::fmt::Display for SIWESignature {
 
 impl FromStr for SIWESignature {
     type Err = anyhow::Error;
-    fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split_once("0x") {
             Some(("", h)) => Ok(Self(<[u8; 65]>::from_hex(h)?)),
             _ => Err(anyhow!("Invalid hex string, no leading 0x")),
@@ -228,8 +228,8 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
         };
 
         // check invoker invokes delegation
-        if &format!("urn:siwe:kepler:{}", auth_token.delegation.nonce)
-            != &auth_token
+        if format!("urn:siwe:kepler:{}", auth_token.delegation.nonce)
+            != auth_token
                 .invocation
                 .proof
                 .as_ref()
@@ -322,8 +322,8 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 };
                 d.verify_eip191(&d.1 .0)?;
 
-                if &d.uri != &invoker
-                    && !(d.uri.as_str().ends_with("*")
+                if d.uri != invoker
+                    && !(d.uri.as_str().ends_with('*')
                         && invoker.starts_with(&d.uri.as_str()[..&d.uri.as_str().len() - 1]))
                 {
                     return Err(anyhow!("Invoker not authorized"));
@@ -352,6 +352,6 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
 #[test]
 async fn basic() -> Result<()> {
     let d = r#"["localhost wants you to sign in with your Ethereum account:\n0xA391f7adD776806c4dFf3886BBe6370be8F73683\n\nAllow localhost to access your orbit using their temporary session key: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\n\nURI: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\nVersion: 1\nChain ID: 1\nNonce: Ki63qhXvxk0LYfxRE\nIssued At: 2021-12-08T13:09:59.716Z\nExpiration Time: 2021-12-08T13:24:59.715Z\nResources:\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#put\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#del\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#get\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#list","0x3c79ff9c565939bc4d43ac45d92f685de61b756a1ba9c0a8a5a80d177f05f29b7b27df1dc1c331397eef837d96b95dd812ce78c1b29a05c2b0c0bdd901be72351b"]"#;
-    let message: SIWEMessage = serde_json::from_str(d)?;
+    let _message: SIWEMessage = serde_json::from_str(d)?;
     Ok(())
 }

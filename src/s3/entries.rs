@@ -206,7 +206,7 @@ mod test {
 
         let write = IpfsWriteStream::new(&ipfs)?;
         tracing::debug!("write");
-        let (o, pins) = write.write(Cursor::new(data.clone())).await?;
+        let (o, _pins) = write.write(Cursor::new(data.clone())).await?;
 
         let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
 
