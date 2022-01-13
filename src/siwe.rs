@@ -60,7 +60,7 @@ pub struct SIWETokens {
     pub delegation: Option<SIWEMessage>,
     // kinda weird
     pub orbit: Cid,
-    pub action: Action,
+    pub invoked_action: Action,
 }
 
 #[rocket::async_trait]
@@ -177,7 +177,7 @@ impl<'r> FromRequest<'r> for SIWETokens {
             invocation,
             delegation,
             orbit,
-            action,
+            invoked_action: action,
         })
     }
 }
@@ -193,7 +193,7 @@ impl AuthorizationToken for SIWEZcapTokens {
 
 impl AuthorizationToken for SIWETokens {
     fn action(&self) -> &Action {
-        &self.action
+        &self.invoked_action
     }
     fn target_orbit(&self) -> &Cid {
         &self.orbit
