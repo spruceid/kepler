@@ -5,6 +5,7 @@ use crate::{
     config::ExternalApis,
     ipfs::Ipfs,
     s3::{Service, Store},
+    siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
@@ -73,10 +74,11 @@ impl OrbitMetadata {
     }
 }
 
-#[derive(Clone)]
 pub enum AuthTokens {
     Tezos(TezosAuthorizationString),
     ZCAP(Box<ZCAPTokens>),
+    SIWEZcapDelegated(Box<SIWEZcapTokens>),
+    SIWEDelegated(Box<SIWETokens>),
 }
 
 #[rocket::async_trait]
@@ -87,6 +89,10 @@ impl<'r> FromRequest<'r> for AuthTokens {
         let ats =
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
                 Self::Tezos(tz)
+            } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
+                Self::SIWEDelegated(Box::new(siwe))
+            } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
+                Self::SIWEZcapDelegated(Box::new(siwe))
             } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
                 Self::ZCAP(Box::new(zcap))
             } else {
@@ -104,12 +110,16 @@ impl AuthorizationToken for AuthTokens {
         match self {
             Self::Tezos(token) => token.action(),
             Self::ZCAP(token) => token.action(),
+            Self::SIWEDelegated(token) => token.action(),
+            Self::SIWEZcapDelegated(token) => token.action(),
         }
     }
     fn target_orbit(&self) -> &Cid {
         match self {
             Self::Tezos(token) => token.target_orbit(),
             Self::ZCAP(token) => token.target_orbit(),
+            Self::SIWEDelegated(token) => token.target_orbit(),
+            Self::SIWEZcapDelegated(token) => token.target_orbit(),
         }
     }
 }
@@ -119,6 +129,8 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
         match auth_token {
             AuthTokens::Tezos(token) => self.authorize(token).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
+            AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
         }
     }
 }
@@ -338,12 +350,17 @@ pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
         .collect::<Result<Map<String, String>>>()
 }
 
+pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
+    Ok(Cid::new_v1(
+        c.codec(),
+        Code::try_from(c.hash().code())?.digest(b.as_ref()),
+    ))
+}
+
 pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
     // try to parse as a URI with matrix params
-    if &Code::try_from(oid.hash().code())?.digest(uri_str.as_bytes()) == oid.hash()
-        && oid.codec() == 0x55
-    {
-        let first_sc = uri_str.find(';').unwrap_or_else(|| uri_str.len());
+    if &hash_same(oid, uri_str)? == oid && oid.codec() == 0x55 {
+        let first_sc = uri_str.find(';').unwrap_or(uri_str.len());
         Ok((
             // method name
             uri_str
