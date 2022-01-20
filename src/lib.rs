@@ -15,6 +15,7 @@ pub mod codec;
 pub mod config;
 pub mod ipfs;
 pub mod orbit;
+pub mod ratelimit;
 pub mod relay;
 pub mod routes;
 pub mod s3;

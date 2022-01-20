@@ -7,6 +7,7 @@ use rocket::{
     serde::json::Json,
     State,
 };
+use rocket_governor::RocketGovernor;
 use std::{collections::HashMap, sync::RwLock};
 
 use crate::allow_list::OrbitAllowList;
@@ -17,6 +18,7 @@ use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
 use crate::orbit::{create_orbit, get_metadata, load_orbit, Orbit};
+use crate::ratelimit::RateLimitGuard;
 use crate::relay::RelayNode;
 use crate::routes::DotPathBuf;
 
@@ -59,6 +61,7 @@ pub async fn list_content_no_auth(
     orbit_id: CidWrap,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
     let orbit = match load_orbit(
         orbit_id.0,
@@ -79,6 +82,7 @@ pub async fn get_content(
     _orbit_id: CidWrap,
     hash: CidWrap,
     orbit: GetAuthWrapper,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
     match orbit.0.get(&hash.0).await {
         Ok(Some(content)) => Ok(Some(content.to_vec())),
@@ -93,6 +97,7 @@ pub async fn get_content_no_auth(
     hash: CidWrap,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
     let orbit = match load_orbit(
         orbit_id.0,
@@ -118,6 +123,7 @@ pub async fn put_content(
     data: Data<'_>,
     codec: SupportedCodecs,
     orbit: PutAuthWrapper,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<String, (Status, String)> {
     match orbit
         .0
@@ -154,6 +160,7 @@ pub async fn batch_put_content(
     _orbit_id: CidWrap,
     orbit: PutAuthWrapper,
     batch: Form<Vec<PutContent>>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<String, (Status, &'static str)> {
     let mut uris = Vec::<String>::new();
     for content in batch.into_inner().into_iter() {
@@ -175,6 +182,7 @@ pub async fn delete_content(
     _orbit_id: CidWrap,
     orbit: DelAuthWrapper,
     hash: CidWrap,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<(), (Status, &'static str)> {
     Ok(orbit
         .0
@@ -187,6 +195,7 @@ pub async fn delete_content(
 pub async fn open_orbit_authz(
     orbit_id: CidWrap,
     authz: CreateAuthWrapper,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
     if &orbit_id.0 == authz.0.id() {
@@ -208,6 +217,7 @@ pub async fn open_orbit_allowlist(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
     keys: &State<RwLock<HashMap<PeerId, Keypair>>>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
@@ -235,10 +245,13 @@ pub async fn open_orbit_allowlist(
 }
 
 #[options("/<_s..>")]
-pub async fn cors(_s: DotPathBuf) {}
+pub async fn cors(_s: DotPathBuf, _limitguard: RocketGovernor<'_, RateLimitGuard>) {}
 
 #[get("/peer/relay")]
-pub fn relay_addr(relay: &State<RelayNode>) -> String {
+pub fn relay_addr(
+    relay: &State<RelayNode>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
+) -> String {
     relay
         .external()
         .with(Protocol::P2p(relay.id.into()))
@@ -248,6 +261,7 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
 #[get("/peer/generate")]
 pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Keypair>>>,
+    _limitguard: RocketGovernor<'_, RateLimitGuard>,
 ) -> Result<String, (Status, &'static str)> {
     let keypair = generate_keypair();
     let id = keypair.to_peer_id();
