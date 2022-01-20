@@ -201,12 +201,12 @@ mod test {
         let tmp = tempdir::TempDir::new("test_streams")?;
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-        let config = ipfs_embed::Config::new(&tmp.path(), ipfs_embed::generate_keypair());
+        let config = ipfs_embed::Config::new(tmp.path(), ipfs_embed::generate_keypair());
         let ipfs = Ipfs::new(config).await?;
 
         let write = IpfsWriteStream::new(&ipfs)?;
         tracing::debug!("write");
-        let (o, pins) = write.write(Cursor::new(data.clone())).await?;
+        let (o, _pins) = write.write(Cursor::new(data.clone())).await?;
 
         let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
 

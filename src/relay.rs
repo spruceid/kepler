@@ -116,7 +116,7 @@ mod test {
             &alice.local_peer_id(),
             relay
                 .external()
-                .with(Protocol::P2p(relay.id.clone().into()))
+                .with(Protocol::P2p(relay.id.into()))
                 .with(Protocol::P2pCircuit)
                 .with(Protocol::P2p(alice.local_peer_id().into())),
         );

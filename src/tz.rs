@@ -292,13 +292,13 @@ async fn round_trip() {
     let did = DID_METHODS
         .generate(&Source::KeyAndPattern(&j, "tz"))
         .unwrap();
-    let pkh = did.split(":").last().unwrap();
+    let pkh = did.split(':').last().unwrap();
     let pk: String = match &j.params {
         Params::OKP(p) => bs58::encode(
             [13, 15, 37, 217]
                 .iter()
                 .chain(&p.public_key.0)
-                .map(|&x| x)
+                .copied()
                 .collect::<Vec<u8>>(),
         )
         .with_check()
@@ -322,7 +322,7 @@ async fn round_trip() {
         [9, 245, 205, 134, 18]
             .iter()
             .chain(&sig_bytes)
-            .map(|&x| x)
+            .copied()
             .collect::<Vec<u8>>(),
     )
     .with_check()
