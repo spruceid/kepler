@@ -183,7 +183,8 @@ mod test {
         let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
         let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
 
-        let rm: Vec<(Vec<u8>, Option<(u64, Cid)>)> = vec![];
+        type RmItem = (Vec<u8>, Option<(u64, Cid)>);
+        let rm: Vec<RmItem> = vec![];
         alice_service
             .write(vec![(s3_obj_1, json.as_bytes())], rm.clone())
             .await?;
