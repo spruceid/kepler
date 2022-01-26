@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ipfs_embed::{GossipEvent, PeerId};
+use ipfs::PeerId;
 use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ mod store;
 
 use super::ipfs::{Block, Ipfs};
 
-pub use entries::{IpfsReadStream, IpfsWriteStream, Object, ObjectBuilder};
+pub use entries::{Object, ObjectBuilder, ObjectReader};
 pub use store::Store;
 
 type TaskHandle = tokio::task::JoinHandle<()>;
@@ -29,17 +29,13 @@ impl Service {
         }
     }
 
-    pub fn start(config: Store) -> Result<Self> {
-        let events = config.ipfs.subscribe(&config.id)?.filter_map(|e| async {
-            match e {
-                GossipEvent::Message(p, d) => Some(match bincode::deserialize(&d) {
-                    Ok(m) => Ok((p, m)),
-                    Err(e) => Err(anyhow!(e)),
-                }),
-                _ => None,
-            }
-        });
-        config.request_heads()?;
+    pub async fn start(config: Store) -> Result<Self> {
+        let events = config.ipfs.pubsub_subscribe(config.id.clone()).await?
+            .map(|msg| match bincode::deserialize(&msg.data) {
+                Ok(kv_msg) => Ok((msg.source, kv_msg)),
+                Err(e) => Err(anyhow!(e))
+            });
+        config.request_heads().await?;
         Ok(Service::new(
             config.clone(),
             tokio::spawn(kv_task(events, config)),
@@ -115,7 +111,7 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
                 Ok((p, KVMessage::StateReq)) => {
                     debug!("{} requests state", p);
                     // send heads
-                    if let Err(e) = store.broadcast_heads() {
+                    if let Err(e) = store.broadcast_heads().await {
                         error!("failed to broadcast heads {}", e);
                     };
                 }
@@ -131,30 +127,31 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 mod test {
     use super::*;
     use crate::tracing_try_init;
-    use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
+    use crate::test::create_test_ipfs;
+    //use ipfs_embed::{generate_keypair, Config, Event as SwarmEvent, Ipfs};
     use rocket::futures::StreamExt;
     use std::{collections::BTreeMap, time::Duration};
 
     async fn create_store(id: &str, path: std::path::PathBuf) -> Result<Store, anyhow::Error> {
         std::fs::create_dir_all(&path)?;
-        let mut config = Config::new(&path, generate_keypair());
-        config.network.broadcast = None;
-        let ipfs = Ipfs::new(config).await?;
-        ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?.next().await;
-        let task_ipfs = ipfs.clone();
-        tokio::spawn(async move {
-            let mut events = task_ipfs.swarm_events();
-            loop {
-                match events.next().await {
-                    Some(SwarmEvent::Discovered(p)) => {
-                        tracing::debug!("dialing peer {}", p);
-                        task_ipfs.dial(&p);
-                    }
-                    None => return,
-                    _ => continue,
-                }
-            }
-        });
+        //let mut config = Config::new(&path, generate_keypair());
+        //config.network.broadcast = None;
+        let ipfs = create_test_ipfs();
+        //ipfs.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?.next().await;
+        //let task_ipfs = ipfs.clone();
+        //tokio::spawn(async move {
+        //    let mut events = task_ipfs.swarm_events();
+        //    loop {
+        //        match events.next().await {
+        //            Some(SwarmEvent::Discovered(p)) => {
+        //                tracing::debug!("dialing peer {}", p);
+        //                task_ipfs.dial(&p);
+        //            }
+        //            None => return,
+        //            _ => continue,
+        //        }
+        //    }
+        //});
         Store::new(id.to_string(), ipfs, sled::open(path.join("db.sled"))?)
     }
 
@@ -167,8 +164,8 @@ mod test {
         let alice = create_store(&id, tmp.path().join("alice")).await?;
         let bob = create_store(&id, tmp.path().join("bob")).await?;
 
-        let alice_service = alice.start_service()?;
-        let bob_service = bob.start_service()?;
+        let alice_service = alice.start_service().await?;
+        let bob_service = bob.start_service().await?;
         std::thread::sleep(Duration::from_millis(500));
 
         let json = r#"{"hello":"there"}"#;
@@ -195,43 +192,49 @@ mod test {
         {
             // ensure only alice has s3_obj_1
             let o = alice_service
-                .get(key1)?
+                .get(key1).await?
                 .expect("object 1 not found for alice");
             assert_eq!(&o.key, key1.as_bytes());
             assert_eq!(&o.metadata, &md);
-            assert_eq!(bob_service.get(key1)?, None);
+            assert_eq!(bob_service.get(key1).await?, None);
         };
         {
             // ensure only bob has s3_obj_2
-            let o = bob_service.get(key2)?.expect("object 2 not found for bob");
+            let o = bob_service
+                .get(key2).await?
+                .expect("object 2 not found for bob");
             assert_eq!(&o.key, key2.as_bytes());
             assert_eq!(&o.metadata, &md);
-            assert_eq!(alice_service.get(key2)?, None);
+            assert_eq!(alice_service.get(key2).await?, None);
         };
 
         std::thread::sleep(Duration::from_millis(500));
         assert_eq!(
-            bob_service.get(key1)?.expect("object 1 not found for bob"),
+            bob_service
+                .get(key1).await?
+                .expect("object 1 not found for bob"),
             alice_service
-                .get(key1)?
+                .get(key1).await?
                 .expect("object 1 not found for alice")
         );
         assert_eq!(
-            bob_service.get(key2)?.expect("object 2 not found for bob"),
+            bob_service
+                .get(key2).await?
+                .expect("object 2 not found for bob"),
             alice_service
-                .get(key2)?
+                .get(key2).await?
                 .expect("object 2 not found for alice")
         );
 
         // remove key1
         let add: Vec<(&[u8], Cid)> = vec![];
-        alice_service.index(add, vec![(key1.as_bytes().to_vec(), None)])?;
+        alice_service.index(add, vec![(key1.as_bytes().to_vec(), None)]).await?;
 
-        assert_eq!(alice_service.get(key1)?, None);
+        assert_eq!(alice_service.get(key1).await?, None);
 
         std::thread::sleep(Duration::from_millis(500));
 
-        assert_eq!(bob_service.get(key1)?, None);
+        assert_eq!(bob_service.get(key1).await?, None);
 
         Ok(())
     }

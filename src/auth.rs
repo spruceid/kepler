@@ -3,8 +3,9 @@ use crate::config;
 use crate::orbit::{create_orbit, get_metadata, load_orbit, AuthTokens, Orbit};
 use crate::relay::RelayNode;
 use anyhow::Result;
-use ipfs_embed::{Keypair, Multiaddr, PeerId};
+use ipfs::{Multiaddr, PeerId};
 use libipld::cid::Cid;
+use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -149,7 +150,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             Ok(i) => i,
             Err(o) => return o,
         };
-        let keys = match req.rocket().state::<RwLock<HashMap<PeerId, Keypair>>>() {
+        let keys = match req.rocket().state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>() {
             Some(k) => k,
             _ => {
                 return Outcome::Failure((

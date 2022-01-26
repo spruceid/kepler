@@ -1,8 +1,9 @@
 use super::{to_block, to_block_raw};
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
-use ipfs_embed::TempPin;
+use ethers_core::abi::FunctionOutputDecoder;
 use libipld::{cid::Cid, store::StoreParams, DagCbor};
+use libp2p::{bytes::Bytes, futures::stream::BoxStream};
 use std::{
     collections::BTreeMap,
     io::{self, Cursor, ErrorKind, Write},
@@ -10,141 +11,68 @@ use std::{
     task::{Context, Poll},
 };
 
-use rocket::tokio::io::{copy, AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio_stream::{iter};
+use tokio_util::io::{ReaderStream, StreamReader};
+use rocket::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use rocket::futures::{StreamExt, TryStreamExt};
 
-pub struct IpfsReadStream {
-    store: Ipfs,
-    block: Cursor<Block>,
-    index: usize,
-    pub content: Vec<(Cid, u32)>,
+pub type ObjectReader = StreamReader<BoxStream<'static, Result<Cursor<Block>, io::Error>>, Cursor<Block>>;
+
+pub fn read_from_store(ipfs: Ipfs, content: Vec<(Cid, u32)>) -> ObjectReader {
+    let chunk_stream = Box::pin(iter(content)
+        .then(move |(cid, _)| get_block(ipfs.clone(), cid))
+        .map_ok(|block| Cursor::new(block))
+        .map_err(|ipfs_err| io::Error::new(ErrorKind::Other, ipfs_err)));
+    StreamReader::new(chunk_stream)
 }
 
-impl IpfsReadStream {
-    pub fn new(store: Ipfs, content: Vec<(Cid, u32)>) -> Result<Self> {
-        let (cid0, _) = content.first().ok_or_else(|| anyhow!("Empty Content"))?;
-        let block = Cursor::new(store.get(cid0)?);
-        Ok(Self {
-            store,
-            content,
-            block,
-            index: 0,
-        })
-    }
+async fn get_block(ipfs: Ipfs, cid: Cid) -> Result<Block, ipfs::Error> {
+    ipfs.get_block(&cid).await
 }
 
-impl AsyncRead for IpfsReadStream {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<(), io::Error>> {
-        let mut s = self.get_mut();
-        let p = s.block.position();
-        match Pin::new(&mut s.block).poll_read(cx, buf) {
-            Poll::Ready(Ok(())) if p == s.block.position() => {
-                tracing::debug!("read {} bytes from block {}", p, s.index);
-                s.index += 1;
-                // TODO probably not good to block here
-                if let Some(block) = s
-                    .content
-                    .get(s.index)
-                    .and_then(|(cid, _)| s.store.get(cid).ok())
-                {
-                    tracing::debug!("loading block {} of {}", s.index + 1, s.content.len());
-                    s.block = Cursor::new(block);
-                    return Pin::new(&mut s).poll_read(cx, buf);
-                }
-                Poll::Ready(Ok(()))
-            }
-            e => e,
-        }
-    }
-}
-
-pub struct IpfsWriteStream<'a> {
-    store: &'a Ipfs,
-    pub content: Vec<(Cid, u32)>,
-    pub pin: TempPin,
-    buffer: Vec<u8>,
-}
-
-impl<'a> IpfsWriteStream<'a> {
-    pub fn new(store: &'a Ipfs) -> anyhow::Result<Self> {
-        Ok(Self {
-            store,
-            content: Default::default(),
-            pin: store.create_temp_pin()?,
-            buffer: Vec::new(),
-        })
-    }
-
-    pub fn seal(mut self) -> anyhow::Result<(Cid, TempPin)> {
-        self.flush_buffer_to_block()?;
-        let block = to_block(&self.content)?;
-        self.store.insert(&block)?;
-        self.store.temp_pin(&self.pin, block.cid())?;
-        Ok((*block.cid(), self.pin))
-    }
-
-    pub async fn write<R>(mut self, mut reader: R) -> anyhow::Result<(Cid, TempPin)>
-    where
-        R: AsyncRead + Unpin,
+pub async fn write_to_store<R>(store: &Ipfs, source: R) -> anyhow::Result<Cid> 
+where
+    R: AsyncRead + Unpin
     {
-        copy(&mut reader, &mut self).await?;
-        self.flush().await?;
-        self.seal()
-    }
-
-    fn flush_buffer_to_block(&mut self) -> Result<(), io::Error> {
-        let len = KeplerParams::MAX_BLOCK_SIZE.min(self.buffer.len());
-
-        if len > 0 {
-            let (block_data, overflow) = self.buffer.split_at(len);
-            let block =
-                to_block_raw(&block_data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-            self.buffer = overflow.to_vec();
-            tracing::debug!("flushing {} bytes to block {}", len, block.cid());
-            self.store
-                .insert(&block)
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-            self.store
-                .temp_pin(&self.pin, block.cid())
-                .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-            self.content.push((*block.cid(), len as u32));
-            tracing::debug!(
-                "block {} flushed {} bytes with {}",
-                self.content.len(),
-                len,
-                block.cid()
-            );
+        let mut reader = ReaderStream::new(source);
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut content: Vec<(Cid, u32)> = Vec::new();
+        while let Some(chunk) = reader.next().await.transpose()? {
+            buffer.write(&chunk);
+            let written = buffer.len();
+            while written >= KeplerParams::MAX_BLOCK_SIZE {
+                flush_buffer_to_block(store, &mut buffer, &mut content).await?;
+            }
         }
-        Ok(())
-    }
-}
-
-impl<'a> AsyncWrite for IpfsWriteStream<'a> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        let s = self.get_mut();
-
-        let written = Write::write(&mut s.buffer, buf)?;
-
-        if s.buffer.len() >= KeplerParams::MAX_BLOCK_SIZE {
-            s.flush_buffer_to_block()?;
+        while buffer.len() >= 0 {
+            flush_buffer_to_block(store, &mut buffer, &mut content).await?;
         }
-        Poll::Ready(Ok(written))
+        let block = to_block(&content)?;
+        let cid = store.put_block(block).await?;
+        Ok(cid)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
+async fn flush_buffer_to_block(store: &Ipfs, buffer: &mut Vec<u8>, content: &mut Vec<(Cid, u32)>) -> Result<(), io::Error> {
+    let len = KeplerParams::MAX_BLOCK_SIZE.min(buffer.len());
+    if len > 0 {
+        let (block_data, overflow) = buffer.split_at(len);
+        let block =
+            to_block_raw(&block_data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
+        *buffer = overflow.to_vec();
+        tracing::debug!("flushing {} bytes to block {}", len, block.cid());
+        let cid = store
+            .put_block(block)
+            .await
+            .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
+        tracing::debug!(
+            "block {} flushed {} bytes with {}",
+            content.len(),
+            len,
+            cid
+        );
+        content.push((cid, len as u32));
     }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        Poll::Ready(Ok(()))
-    }
+    Ok(())
 }
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
@@ -194,6 +122,7 @@ impl ObjectBuilder {
 mod test {
     use super::*;
     use crate::s3::DagCborCodec;
+    use crate::test::create_test_ipfs;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn write() -> Result<(), anyhow::Error> {
@@ -201,19 +130,16 @@ mod test {
         let tmp = tempdir::TempDir::new("test_streams")?;
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-        let config = ipfs_embed::Config::new(tmp.path(), ipfs_embed::generate_keypair());
-        let ipfs = Ipfs::new(config).await?;
+        let ipfs = create_test_ipfs();
 
-        let write = IpfsWriteStream::new(&ipfs)?;
-        tracing::debug!("write");
-        let (o, _pins) = write.write(Cursor::new(data.clone())).await?;
+        let o = write_to_store(&ipfs, Cursor::new(data.clone())).await?;
 
-        let content = ipfs.get(&o)?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
+        let content = ipfs.get_block(&o).await?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
 
-        let mut read = IpfsReadStream::new(ipfs, content)?;
+        let mut read = read_from_store(ipfs, content);
 
         let mut out = Vec::new();
-        copy(&mut read, &mut out).await?;
+        tokio::io::copy(&mut read, &mut out).await?;
 
         assert_eq!(out.len(), data.len());
         Ok(())

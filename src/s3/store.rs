@@ -1,7 +1,8 @@
-use crate::s3::{IpfsReadStream, IpfsWriteStream, Object, ObjectBuilder, Service};
+use crate::s3::{Object, ObjectBuilder, Service};
+use crate::s3::entries::{read_from_store, write_to_store};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use ipfs_embed::TempPin;
+//use ipfs_embed::TempPin;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use sled::{Batch, Db, IVec, Tree};
@@ -11,7 +12,7 @@ use std::{
 };
 use tracing::{debug, error};
 
-use super::{to_block, Block, Ipfs, KVMessage};
+use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
 
 #[derive(DagCbor)]
 struct Delta {
@@ -105,7 +106,7 @@ impl Store {
                 },
             })
     }
-    pub fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
+    pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
         match self
             .elements
@@ -115,7 +116,7 @@ impl Store {
         {
             Some(cid) => {
                 if !self.is_tombstoned(key.as_ref(), &cid)? {
-                    Ok(Some(self.ipfs.get(&cid)?.decode()?))
+                    Ok(Some(self.ipfs.get_block(&cid).await?.decode()?))
                 } else {
                     Ok(None)
                 }
@@ -124,22 +125,22 @@ impl Store {
         }
     }
 
-    pub fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, IpfsReadStream)>>
+    pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, ObjectReader)>>
     where
         N: AsRef<[u8]>,
     {
-        let s3_obj = match self.get(key) {
+        let s3_obj = match self.get(key).await {
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
         match self
             .ipfs
-            .get(&s3_obj.value)?
+            .get_block(&s3_obj.value).await?
             .decode::<DagCborCodec, Vec<(Cid, u32)>>()
         {
             Ok(content) => Ok(Some((
                 s3_obj.metadata,
-                IpfsReadStream::new(self.ipfs.clone(), content)?,
+                read_from_store(self.ipfs.clone(), content),
             ))),
             Err(_) => Ok(None),
         }
@@ -155,23 +156,22 @@ impl Store {
         R: AsyncRead + Unpin,
     {
         tracing::debug!("writing tx");
-        let (indexes, _pins): (Vec<(Vec<u8>, Cid)>, Vec<TempPin>) =
+        let indexes: Vec<(Vec<u8>, Cid)> =
             try_join_all(add.into_iter().map(|(o, r)| async {
                 // tracing::debug!("adding {:#?}", &o.key);
-                let (cid, pin) = IpfsWriteStream::new(&self.ipfs)?.write(r).await?;
+                let cid = write_to_store(&self.ipfs, r).await?;
                 let obj = o.add_content(cid);
                 let block = obj.to_block()?;
-                self.ipfs.insert(&block)?;
-                self.ipfs.temp_pin(&pin, block.cid())?;
-                Ok(((obj.key, *block.cid()), pin)) as Result<((Vec<u8>, Cid), TempPin)>
+                let obj_cid = self.ipfs.put_block(block).await?;
+                Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
             }))
             .await?
             .into_iter()
-            .unzip();
-        self.index(indexes, remove)
+            .collect();
+        self.index(indexes, remove).await
     }
 
-    pub fn index<N, M>(
+    pub async fn index<N, M>(
         &self,
         // tuples of (obj-data, content bytes)
         add: impl IntoIterator<Item = (N, Cid)>,
@@ -213,24 +213,24 @@ impl Store {
         );
         let block = delta.to_block()?;
         // apply/pin root/update heads
-        self.apply(&(block, delta), adds.0, rmvs)?;
+        self.apply(&(block, delta), adds.0, rmvs).await?;
 
         // broadcast
-        self.broadcast_heads()?;
+        self.broadcast_heads().await?;
         Ok(())
     }
 
-    pub(crate) fn broadcast_heads(&self) -> Result<()> {
+    pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         if !heads.is_empty() {
             debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
             self.ipfs
-                .publish(&self.id, bincode::serialize(&KVMessage::Heads(heads))?)?;
+                .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::Heads(heads))?).await?;
         }
         Ok(())
     }
 
-    fn apply<N, M>(
+    async fn apply<N, M>(
         &self,
         (block, delta): &(Block, LinkedDelta),
         // tuples of (obj-cid, obj)
@@ -281,8 +281,7 @@ impl Store {
         // add new head
         self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
         self.heads.new_head(block.cid(), delta.prev.clone())?;
-        self.ipfs.alias(block.cid().to_bytes(), Some(block.cid()))?;
-        self.ipfs.insert(block)?;
+        self.ipfs.put_block(block.clone()).await?;
 
         Ok(())
     }
@@ -294,7 +293,7 @@ impl Store {
     ) -> Result<()> {
         try_join_all(heads.map(|head| async move {
             // fetch head block check block is an event
-            let delta_block = self.ipfs.fetch(&head, self.ipfs.peers()).await?;
+            let delta_block = self.ipfs.get_block(&head).await?;
             let delta: LinkedDelta = delta_block.decode()?;
 
             // recurse through unseen prevs first
@@ -318,41 +317,45 @@ impl Store {
 
             let adds: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.add.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.get_block(c).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.fetch(c, self.ipfs.peers()).await?.decode()?;
+                    let obj: Object = self.ipfs.get_block(c).await?.decode()?;
                     Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
 
-            self.apply(&(delta_block, delta), adds, removes)?;
+            self.apply(&(delta_block, delta), adds, removes).await?;
 
             // dispatch ipfs::sync
             debug!("syncing head {}", head);
-            match self.ipfs.sync(&head, self.ipfs.peers()).await {
-                Ok(_) => {
-                    debug!("synced head {}", head);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("failed sync head {}", e);
-                    Err(anyhow!(e))
-                }
-            }
+            // Can't find sync method in rust-ipfs.
+            // Does bitswap syncing happen automatically behind the scenes?
+
+            //match self.ipfs.sync(&head, self.ipfs.peers()).await {
+            //    Ok(_) => {
+            //        debug!("synced head {}", head);
+            //        Ok(())
+            //    }
+            //    Err(e) => {
+            //        error!("failed sync head {}", e);
+            //        Err(anyhow!(e))
+            //    }
+            //}
+            Ok(()) as Result<()>
         }))
         .await?;
         Ok(())
     }
 
-    pub(crate) fn request_heads(&self) -> Result<()> {
+    pub(crate) async fn request_heads(&self) -> Result<()> {
         debug!("requesting heads");
         self.ipfs
-            .publish(&self.id, bincode::serialize(&KVMessage::StateReq)?)?;
+            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?).await?;
         Ok(())
     }
 
@@ -360,8 +363,8 @@ impl Store {
         [key.as_ref(), &cid.to_bytes()].concat()
     }
 
-    pub fn start_service(self) -> Result<Service> {
-        Service::start(self)
+    pub async fn start_service(self) -> Result<Service> {
+        Service::start(self).await
     }
 
     fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {

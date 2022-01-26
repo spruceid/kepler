@@ -1,6 +1,6 @@
 use crate::orbit::OrbitMetadata;
 use anyhow::Result;
-use ipfs_embed::{Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId};
 use libipld::cid::Cid;
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};

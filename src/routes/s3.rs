@@ -15,7 +15,7 @@ use crate::config;
 use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
 use crate::routes::DotPathBuf;
-use crate::s3::{IpfsReadStream, ObjectBuilder};
+use crate::s3::{ObjectBuilder, ObjectReader};
 use std::collections::BTreeMap;
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -45,10 +45,10 @@ impl<'r> Responder<'r, 'static> for Metadata {
     }
 }
 
-pub struct S3Response(IpfsReadStream, pub Metadata);
+pub struct S3Response(ObjectReader, pub Metadata);
 
 impl S3Response {
-    pub fn new(md: Metadata, reader: IpfsReadStream) -> Self {
+    pub fn new(md: Metadata, reader: ObjectReader) -> Self {
         Self(reader, md)
     }
 }
@@ -123,7 +123,7 @@ pub async fn get_metadata(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    match orbit.0.service.get(k) {
+    match orbit.0.service.get(k).await {
         Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
         Err(e) => Err((Status::InternalServerError, e.to_string())),
         Ok(None) => Ok(None),
@@ -152,7 +152,7 @@ pub async fn get_metadata_no_auth(
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
-    match orbit.service.get(k) {
+    match orbit.service.get(k).await {
         Ok(Some(content)) => Ok(Some(Metadata(content.metadata))),
         Err(e) => Err((Status::InternalServerError, e.to_string())),
         Ok(None) => Ok(None),
@@ -169,7 +169,7 @@ pub async fn get_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    match orbit.0.service.read(k) {
+    match orbit.0.service.read(k).await {
         Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
         _ => Ok(None),
     }
@@ -198,7 +198,7 @@ pub async fn get_content_no_auth(
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
     };
 
-    match orbit.service.read(k) {
+    match orbit.service.read(k).await {
         Ok(Some((md, r))) => Ok(Some(S3Response::new(Metadata(md), r))),
         _ => Ok(None),
     }
@@ -247,6 +247,6 @@ pub async fn delete_content(
     Ok(orbit
         .0
         .service
-        .index(add, vec![(k, None)])
+        .index(add, vec![(k, None)]).await
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }

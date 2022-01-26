@@ -1,11 +1,15 @@
 use super::cas::ContentAddressedStorage;
 use super::codec::SupportedCodecs;
-use ipfs_embed::{DefaultParams, Ipfs as OIpfs};
+//use ipfs_embed::{DefaultParams, Ipfs as OIpfs};
+use ipfs::{Ipfs as OIpfs, Types, IpfsPath, path::PathRoot, PinMode, p2p::TSwarm};
 use libipld::{
+    Ipld,
     block::Block as OBlock,
     cid::{multihash::Code, Cid},
     raw::RawCodec,
+    store::{DefaultParams, StoreParams}
 };
+use libp2p::futures::{StreamExt, TryStreamExt};
 
 pub type KeplerParams = DefaultParams;
 // #[derive(Clone, Debug, Default)]
@@ -17,36 +21,52 @@ pub type KeplerParams = DefaultParams;
 //     type Hashes = Code;
 // }
 
-pub type Ipfs = OIpfs<KeplerParams>;
+pub type Ipfs = OIpfs<Types>;
 pub type Block = OBlock<KeplerParams>;
+pub type Swarm = TSwarm<Types>;
+
+struct Content {
+    parts: Vec<Cid>
+}
 
 #[rocket::async_trait]
 impl ContentAddressedStorage for Ipfs {
     type Error = anyhow::Error;
     async fn put(&self, content: &[u8], _codec: SupportedCodecs) -> Result<Cid, Self::Error> {
-        // TODO find a way to stream this better? (use .take with max block size?)
-        // TODO impl support for chunking with linked data (e.g. use IpldCodec)
-        let block = Block::encode(RawCodec, Code::Blake3_256, content)?;
-        self.insert(&block)?;
-        self.alias(block.cid().to_bytes(), Some(block.cid()))?;
-        Ok(*block.cid())
+        let parts: Vec<Ipld> = content.chunks(KeplerParams::MAX_BLOCK_SIZE)
+            .map(Vec::from)
+            .map(Ipld::Bytes)
+            .collect();
+        
+        let dag = Ipld::List(parts);
+        let cid = self.put_dag(dag).await?;
+        self.insert_pin(&cid, true).await?;
+        Ok(cid)
     }
     async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         // TODO this api returns Result<Block, anyhow::Error>, with an err thrown for no block found
         // until this API changes (a breaking change), we will error here when no block found
-        Ok(Some(self.get(address)?.data().to_vec()))
+        if let Ipld::List(parts) = self.get_dag(IpfsPath::new(PathRoot::Ipld(address.clone()))).await? {
+        return Ok(Some(parts.into_iter()
+            .try_fold(vec![], |mut acc, ipld| {
+                if let Ipld::Bytes(mut part) = ipld {
+                    acc.append(&mut part);
+                    return Ok(acc)
+                }
+                Err(anyhow!("unexpected structure"))
+            })?))
+        } 
+        Err(anyhow!("unexpected structure"))
     }
+
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
-        // TODO this does not enforce deletion across the network, we need to devise a method for that via the pubsub stuff
-        self.alias(address.to_bytes(), None)?;
-        self.remove_record(&address.hash().to_bytes().into());
+        // TODO: does not recursively remove blocks, some cleanup will need to happen.
+        self.remove_pin(address, true).await?;
+        self.remove_block(address.clone()).await?;
         Ok(())
     }
     async fn list(&self) -> Result<Vec<Cid>, Self::Error> {
         // return a list of all CIDs which are aliased/pinned
-        self.iter().map(|i| {
-            i.filter(|c| self.reverse_alias(c).map(|o| o.is_some()).unwrap_or(false))
-                .collect()
-        })
+        self.list_pins(Some(PinMode::Recursive)).await.map_ok(|(cid, _pin_mode)| cid).try_collect().await
     }
 }

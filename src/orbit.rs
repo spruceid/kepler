@@ -3,7 +3,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
-    ipfs::Ipfs,
+    ipfs::{Ipfs, Swarm},
     s3::{Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
@@ -11,12 +11,14 @@ use crate::{
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{generate_keypair, multiaddr::multiaddr, Config, Keypair, Multiaddr, PeerId};
+use ipfs::{IpfsOptions, UninitializedIpfs, repo::{RepoOptions, create_repo}, p2p::{SwarmOptions, create_swarm, TSwarm}};
+//use ipfs_embed::{generate_keypair, multiaddr::multiaddr, Config, Keypair, Multiaddr, PeerId};
 use libipld::cid::{
     multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use libp2p::{multiaddr::multiaddr, core::Multiaddr, PeerId, identity::{Keypair, ed25519::Keypair as Ed25519Keypair}};
 use rocket::{
     futures::StreamExt,
     http::Status,
@@ -159,7 +161,6 @@ impl<T> Deref for AbortOnDrop<T> {
 
 #[derive(Clone)]
 pub struct Orbit {
-    task: Arc<AbortOnDrop<()>>,
     pub service: Service,
     metadata: OrbitMetadata,
 }
@@ -216,7 +217,7 @@ pub async fn create_orbit(
     path: PathBuf,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
-    keys_lock: &RwLock<Map<PeerId, Keypair>>,
+    keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
 ) -> Result<Option<Orbit>> {
     let dir = path.join(md.id.to_string_of_base(Base::Base58Btc)?);
 
@@ -232,12 +233,12 @@ pub async fn create_orbit(
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
         md.hosts()
             .find_map(|h| keys.remove(h))
-            .unwrap_or_else(generate_keypair)
+            .unwrap_or_else(Ed25519Keypair::generate)
     };
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
-    fs::write(dir.join("kp"), kp.to_bytes()).await?;
+    fs::write(dir.join("kp"), kp.encode()).await?;
 
     Ok(Some(load_orbit(md.id, path, relay).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
@@ -260,62 +261,68 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
-    let mut cfg = Config::new(&dir.join("block_store"), kp);
-    cfg.network.streams = None;
+    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
+    let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
     let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let ipfs = Ipfs::new(cfg).await?;
+    let bootstrap: Vec<(Multiaddr, PeerId)> = md.hosts.iter()
+        .filter(|(&p, _)| p != local_peer_id)
+        .map(|(peer, addrs)| addrs.clone().into_iter().zip(std::iter::repeat(peer.clone())))
+        .flatten()
+        .collect();
 
-    // listen for any relayed messages
-    ipfs.listen_on(multiaddr!(P2pCircuit))?.next().await;
-    // establish a connection to the relay
-    ipfs.dial_address(&relay.0, relay.1);
+    let ipfs_opts = IpfsOptions {
+        ipfs_path: dir.join("block_store"),
+        keypair: Keypair::Ed25519(kp),
+        bootstrap,
+        // CC: Not sure about these values.
+        mdns: false,
+        kad_protocol: None,
+        listening_addrs: vec![multiaddr!(P2pCircuit)],
+        span: None
+    };
 
-    for (peer, addrs) in md.hosts.iter() {
-        if peer != &ipfs.local_peer_id() {
-            for addr in addrs.iter() {
-                ipfs.dial_address(peer, addr.clone());
-            }
-        }
-    }
+    let repo_opts = RepoOptions::from(&ipfs_opts);
+    let swarm_opts = SwarmOptions::from(&ipfs_opts);
 
-    let task_ipfs = ipfs.clone();
+    let (repo, _rcvr) = create_repo(repo_opts);
+    let swarm: Swarm = create_swarm(swarm_opts, tracing::Span::none(), Arc::new(repo)).await?;
+
+    let (ipfs, ipfs_task) = UninitializedIpfs::new(ipfs_opts).start().await?;
 
     let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
 
     let service_store = Store::new(id, ipfs, db)?;
-    let service = Service::start(service_store)?;
+    let service = Service::start(service_store).await?;
 
     let st = service.store.clone();
 
-    let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
-        let mut events = st.ipfs.swarm_events();
-        loop {
-            match events.next().await {
-                Some(ipfs_embed::Event::Discovered(p)) => {
-                    if task_ipfs.peers().contains(&p) {
-                        tracing::debug!("dialing peer {}", p);
-                        task_ipfs.dial(&p);
-                        if let Err(e) = st.request_heads() {
-                            tracing::warn!("error when requesting heads {}", e)
-                        }
-                    } else {
-                        task_ipfs.ban(p)
-                    };
-                }
-                None => return,
-                _ => continue,
-            }
-        }
-    })));
+    //let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
+    //    let mut events = st.ipfs.swarm_events();
+    //    loop {
+    //        match events.next().await {
+    //            Some(ipfs_embed::Event::Discovered(p)) => {
+    //                if task_ipfs.peers().contains(&p) {
+    //                    tracing::debug!("dialing peer {}", p);
+    //                    task_ipfs.dial(&p);
+    //                    if let Err(e) = st.request_heads() {
+    //                        tracing::warn!("error when requesting heads {}", e)
+    //                    }
+    //                } else {
+    //                    task_ipfs.ban(p)
+    //                };
+    //            }
+    //            None => return,
+    //            _ => continue,
+    //        }
+    //    }
+    //})));
 
     Ok(Orbit {
         service,
-        task,
         metadata: md,
     })
 }

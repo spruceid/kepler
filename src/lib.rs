@@ -23,7 +23,7 @@ pub mod tz;
 pub mod tz_orbit;
 pub mod zcap;
 
-use ipfs_embed::{generate_keypair, Keypair, PeerId, ToLibp2p};
+use libp2p::{PeerId, identity::{Keypair, ed25519::Keypair as Ed25519Keypair}};
 use relay::RelayNode;
 use routes::core::{
     batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
@@ -51,15 +51,15 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         ));
     }
 
-    let kp: Keypair = if let Ok(bytes) = fs::read(kepler_config.database.path.join("kp")).await {
-        Keypair::from_bytes(&bytes)?
+    let kp: Ed25519Keypair = if let Ok(mut bytes) = fs::read(kepler_config.database.path.join("kp")).await {
+        Ed25519Keypair::decode(&mut bytes)?
     } else {
-        let kp = generate_keypair();
-        fs::write(kepler_config.database.path.join("kp"), kp.to_bytes()).await?;
+        let kp = Ed25519Keypair::generate();
+        fs::write(kepler_config.database.path.join("kp"), kp.encode()).await?;
         kp
     };
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, kp.to_keypair())?;
+    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp))?;
 
     let mut routes = routes![
         put_content,
@@ -157,4 +157,11 @@ Content-Type: application/json
         .await;
 
     assert!(res.status().class().is_success());
+}
+
+mod test {
+    use super::ipfs::Ipfs;
+    pub fn create_test_ipfs() -> Ipfs {
+        unimplemented!()
+    }
 }
