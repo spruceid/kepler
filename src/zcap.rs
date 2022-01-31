@@ -111,17 +111,12 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                     .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
                 match auth_token.invocation.property_set.capability_action {
                     Action::List | Action::Get(_) => {
-                        if !self.read_delegators.contains(&delegator_vm)
-                            && !self.write_delegators.contains(&delegator_vm)
-                            && !self.controllers.contains(&delegator_vm)
-                        {
+                        if !self.controllers.contains(&delegator_vm) {
                             return Err(anyhow!("Delegator not authorized"));
                         }
                     }
                     Action::Put(_) | Action::Del(_) => {
-                        if !self.write_delegators.contains(&delegator_vm)
-                            && !self.controllers.contains(&delegator_vm)
-                        {
+                        if !self.controllers.contains(&delegator_vm) {
                             return Err(anyhow!("Delegator not write-authorized"));
                         }
                     }

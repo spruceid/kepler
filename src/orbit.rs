@@ -49,13 +49,9 @@ pub struct OrbitMetadata {
     #[serde_as(as = "DisplayFromStr")]
     pub id: Cid,
     pub controllers: Vec<DIDURL>,
-    pub read_delegators: Vec<DIDURL>,
-    pub write_delegators: Vec<DIDURL>,
     #[serde(default)]
     #[serde_as(as = "Map<DisplayFromStr, _>")]
     pub hosts: Map<PeerId, Vec<Multiaddr>>,
-    // TODO placeholder type
-    pub revocations: Vec<String>,
 }
 
 impl OrbitMetadata {
@@ -222,9 +218,6 @@ pub async fn get_metadata(
             id: *oid,
             controllers: vec![get_params_vm(method.as_ref(), &params)
                 .ok_or_else(|| anyhow!("Missing Implicit Controller Params"))?],
-            read_delegators: vec![],
-            write_delegators: vec![],
-            revocations: vec![],
             hosts: params
                 .get("hosts")
                 .map(|hs| parse_hosts_str(hs))
@@ -413,20 +406,6 @@ impl Deref for Orbit {
     fn deref(&self) -> &Self::Target {
         &self.metadata
     }
-}
-
-impl Orbit {
-    pub fn read_delegators(&self) -> &[DIDURL] {
-        &self.metadata.read_delegators
-    }
-
-    pub fn write_delegators(&self) -> &[DIDURL] {
-        &self.metadata.write_delegators
-    }
-
-    // async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
-    //     todo!()
-    // }
 }
 
 #[test]

@@ -71,15 +71,6 @@ pub async fn get_orbit_state(tzkt_api: &str, address: &str, id: Cid) -> Result<O
             .await?
             .map(|(k, v)| Ok((PeerId::from_str(&k)?, v)))
             .collect::<Result<Map<PeerId, Vec<Multiaddr>>>>()?,
-        read_delegators: get_bigmap::<String, UnitObject>(tzkt_api, storage.readers)
-            .await?
-            .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
-            .collect::<Result<Vec<DIDURL>>>()?,
-        write_delegators: get_bigmap::<String, UnitObject>(tzkt_api, storage.writers)
-            .await?
-            .map(|(k, _)| Ok(DIDURL::from_str(&k)?))
-            .collect::<Result<Vec<DIDURL>>>()?,
-        revocations: vec![],
     })
 }
 
@@ -95,9 +86,6 @@ pub async fn params_to_tz_orbit(
         (Some(v), None, _) => Ok(OrbitMetadata {
             id: oid,
             controllers: vec![pkh_to_did_vm(v)],
-            read_delegators: vec![],
-            write_delegators: vec![],
-            revocations: vec![],
             hosts: Map::new(),
         }),
         _ => Err(anyhow!("Missing address or contract")),
