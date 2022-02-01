@@ -3,7 +3,6 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
-    ipfs::{Ipfs, Swarm},
     s3::{Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
@@ -11,16 +10,23 @@ use crate::{
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs::{IpfsOptions, UninitializedIpfs, repo::{RepoOptions, create_repo}, p2p::{SwarmOptions, create_swarm, TSwarm}};
+use ipfs::{
+    IpfsOptions, UninitializedIpfs, MultiaddrWithoutPeerId,
+};
 //use ipfs_embed::{generate_keypair, multiaddr::multiaddr, Config, Keypair, Multiaddr, PeerId};
 use libipld::cid::{
     multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
-use libp2p::{multiaddr::multiaddr, core::Multiaddr, PeerId, identity::{Keypair, ed25519::Keypair as Ed25519Keypair}};
+use libp2p::{
+    core::Multiaddr,
+    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
+    multiaddr::multiaddr,
+    PeerId, swarm::SwarmEvent,
+};
 use rocket::{
-    futures::StreamExt,
+    futures::TryStreamExt,
     http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::{fs, task::JoinHandle},
@@ -35,7 +41,7 @@ use std::{
     convert::TryFrom,
     ops::Deref,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock}, future::Future,
 };
 
 #[serde_as]
@@ -160,9 +166,36 @@ impl<T> Deref for AbortOnDrop<T> {
 }
 
 #[derive(Clone)]
+struct OrbitTasks {
+    ipfs: Arc<AbortOnDrop<()>>,
+    new_connections: Arc<AbortOnDrop<()>>,
+}
+
+impl  OrbitTasks {
+    fn new<F: Future<Output = ()> + Send + 'static>(ipfs_future: F, head_request_receiver: std::sync::mpsc::Receiver<()>, store: Store) -> Self{
+
+    let ipfs = Arc::new(AbortOnDrop::new(tokio::spawn(ipfs_future)));
+
+    let handle = |mut request_receiver: std::sync::mpsc::Receiver<()>, store: Store| async move {
+        while let Ok(Ok(returned_receiver)) = tokio::task::spawn_blocking(move || request_receiver.recv().map(|_| request_receiver)).await {
+            if let Err(e) = store.request_heads().await {
+                tracing::error!("failed to request heads from peers: {}", e)
+            }
+            request_receiver = returned_receiver;
+        }
+    };
+
+    let new_connections = Arc::new(AbortOnDrop::new(tokio::spawn(handle(head_request_receiver, store))));
+    Self {ipfs, new_connections}
+
+    }
+}
+
+#[derive(Clone)]
 pub struct Orbit {
     pub service: Service,
     metadata: OrbitMetadata,
+    tasks: OrbitTasks,
 }
 
 fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
@@ -268,62 +301,66 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let bootstrap: Vec<(Multiaddr, PeerId)> = md.hosts.iter()
-        .filter(|(&p, _)| p != local_peer_id)
-        .map(|(peer, addrs)| addrs.clone().into_iter().zip(std::iter::repeat(peer.clone())))
-        .flatten()
-        .collect();
+    let bootstrap: Vec<(Multiaddr, PeerId)> = vec![(relay.1, relay.0)];
 
     let ipfs_opts = IpfsOptions {
         ipfs_path: dir.join("block_store"),
         keypair: Keypair::Ed25519(kp),
         bootstrap,
-        // CC: Not sure about these values.
         mdns: false,
-        kad_protocol: None,
+        kad_protocol: Some(md.id().to_string()),
         listening_addrs: vec![multiaddr!(P2pCircuit)],
-        span: None
+        span: None,
     };
 
-    let repo_opts = RepoOptions::from(&ipfs_opts);
-    let swarm_opts = SwarmOptions::from(&ipfs_opts);
+    let task_hosts = md.hosts.clone();
+    let (head_request_sender, head_request_receiver) = std::sync::mpsc::sync_channel::<()>(100);
 
-    let (repo, _rcvr) = create_repo(repo_opts);
-    let swarm: Swarm = create_swarm(swarm_opts, tracing::Span::none(), Arc::new(repo)).await?;
-
-    let (ipfs, ipfs_task) = UninitializedIpfs::new(ipfs_opts).start().await?;
+    let (ipfs, ipfs_task) = UninitializedIpfs::<ipfs::Types>::new(ipfs_opts)
+        .handle_swarm_events(move |swarm, event| {
+            if let SwarmEvent::ConnectionEstablished {peer_id, ..} = event {
+                if task_hosts.contains_key(peer_id) {
+                    if let Err(_) = head_request_sender.send(()) {
+                        tracing::error!("receiver hung up, unable to request heads after connecting to: {}", peer_id);
+                    }
+                } else {
+                    if let Err(()) = swarm.disconnect_peer_id(peer_id.clone()) {
+                        tracing::error!("tried to disconnect from a peer that is not connected: {}", peer_id);
+                    };
+                    swarm.ban_peer_id(peer_id.clone());
+                }
+            }
+            
+        })    
+        .start().await?;
+        // on discovery, check it is in peer list and request heads, otherwise ban.
 
     let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
 
-    let service_store = Store::new(id, ipfs, db)?;
+    let service_store = Store::new(id, ipfs.clone(), db)?;
     let service = Service::start(service_store).await?;
-
-    let st = service.store.clone();
-
-    //let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
-    //    let mut events = st.ipfs.swarm_events();
-    //    loop {
-    //        match events.next().await {
-    //            Some(ipfs_embed::Event::Discovered(p)) => {
-    //                if task_ipfs.peers().contains(&p) {
-    //                    tracing::debug!("dialing peer {}", p);
-    //                    task_ipfs.dial(&p);
-    //                    if let Err(e) = st.request_heads() {
-    //                        tracing::warn!("error when requesting heads {}", e)
-    //                    }
-    //                } else {
-    //                    task_ipfs.ban(p)
-    //                };
-    //            }
-    //            None => return,
-    //            _ => continue,
-    //        }
-    //    }
-    //})));
+    
+    let tasks = OrbitTasks::new(ipfs_task, head_request_receiver, service.store.clone());
+    
+    tokio_stream::iter(md.hosts
+        .clone()
+        .into_iter()
+        .filter(|(p, _)| p != &local_peer_id)
+        .map(|(peer, addrs)| {
+            addrs
+                .into_iter()
+                .zip(std::iter::repeat(peer))
+        })
+        .flatten()
+        .map(|(addr, peer_id)| {
+            Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))
+        }))
+        .try_for_each(|multiaddr| ipfs.connect(multiaddr)).await?;
 
     Ok(Orbit {
         service,
         metadata: md,
+        tasks
     })
 }
 
