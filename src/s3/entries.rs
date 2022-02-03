@@ -1,28 +1,28 @@
 use super::{to_block, to_block_raw};
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
-use ethers_core::abi::FunctionOutputDecoder;
 use libipld::{cid::Cid, store::StoreParams, DagCbor};
-use libp2p::{bytes::Bytes, futures::stream::BoxStream};
+use libp2p::futures::stream::BoxStream;
 use std::{
     collections::BTreeMap,
     io::{self, Cursor, ErrorKind, Write},
-    pin::Pin,
-    task::{Context, Poll},
 };
 
-use tokio_stream::{iter};
-use tokio_util::io::{ReaderStream, StreamReader};
-use rocket::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use rocket::futures::{StreamExt, TryStreamExt};
+use rocket::tokio::io::AsyncRead;
+use tokio_stream::iter;
+use tokio_util::io::{ReaderStream, StreamReader};
 
-pub type ObjectReader = StreamReader<BoxStream<'static, Result<Cursor<Block>, io::Error>>, Cursor<Block>>;
+pub type ObjectReader =
+    StreamReader<BoxStream<'static, Result<Cursor<Block>, io::Error>>, Cursor<Block>>;
 
 pub fn read_from_store(ipfs: Ipfs, content: Vec<(Cid, u32)>) -> ObjectReader {
-    let chunk_stream = Box::pin(iter(content)
-        .then(move |(cid, _)| get_block(ipfs.clone(), cid))
-        .map_ok(|block| Cursor::new(block))
-        .map_err(|ipfs_err| io::Error::new(ErrorKind::Other, ipfs_err)));
+    let chunk_stream = Box::pin(
+        iter(content)
+            .then(move |(cid, _)| get_block(ipfs.clone(), cid))
+            .map_ok(|block| Cursor::new(block))
+            .map_err(|ipfs_err| io::Error::new(ErrorKind::Other, ipfs_err)),
+    );
     StreamReader::new(chunk_stream)
 }
 
@@ -30,29 +30,32 @@ async fn get_block(ipfs: Ipfs, cid: Cid) -> Result<Block, ipfs::Error> {
     ipfs.get_block(&cid).await
 }
 
-pub async fn write_to_store<R>(store: &Ipfs, source: R) -> anyhow::Result<Cid> 
+pub async fn write_to_store<R>(store: &Ipfs, source: R) -> anyhow::Result<Cid>
 where
-    R: AsyncRead + Unpin
-    {
-        let mut reader = ReaderStream::new(source);
-        let mut buffer: Vec<u8> = Vec::new();
-        let mut content: Vec<(Cid, u32)> = Vec::new();
-        while let Some(chunk) = reader.next().await.transpose()? {
-            buffer.write(&chunk);
-            let written = buffer.len();
-            while written >= KeplerParams::MAX_BLOCK_SIZE {
-                flush_buffer_to_block(store, &mut buffer, &mut content).await?;
-            }
-        }
-        while buffer.len() >= 0 {
+    R: AsyncRead + Unpin,
+{
+    let mut reader = ReaderStream::new(source);
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut content: Vec<(Cid, u32)> = Vec::new();
+    while let Some(chunk) = reader.next().await.transpose()? {
+        buffer.write(&chunk)?;
+        while buffer.len() >= KeplerParams::MAX_BLOCK_SIZE {
             flush_buffer_to_block(store, &mut buffer, &mut content).await?;
         }
-        let block = to_block(&content)?;
-        let cid = store.put_block(block).await?;
-        Ok(cid)
     }
+    while buffer.len() > 0 {
+        flush_buffer_to_block(store, &mut buffer, &mut content).await?;
+    }
+    let block = to_block(&content)?;
+    let cid = store.put_block(block).await?;
+    Ok(cid)
+}
 
-async fn flush_buffer_to_block(store: &Ipfs, buffer: &mut Vec<u8>, content: &mut Vec<(Cid, u32)>) -> Result<(), io::Error> {
+async fn flush_buffer_to_block(
+    store: &Ipfs,
+    buffer: &mut Vec<u8>,
+    content: &mut Vec<(Cid, u32)>,
+) -> Result<(), io::Error> {
     let len = KeplerParams::MAX_BLOCK_SIZE.min(buffer.len());
     if len > 0 {
         let (block_data, overflow) = buffer.split_at(len);
@@ -64,12 +67,7 @@ async fn flush_buffer_to_block(store: &Ipfs, buffer: &mut Vec<u8>, content: &mut
             .put_block(block)
             .await
             .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-        tracing::debug!(
-            "block {} flushed {} bytes with {}",
-            content.len(),
-            len,
-            cid
-        );
+        tracing::debug!("block {} flushed {} bytes with {}", content.len(), len, cid);
         content.push((cid, len as u32));
     }
     Ok(())
@@ -120,26 +118,40 @@ impl ObjectBuilder {
 
 #[cfg(test)]
 mod test {
+    use ipfs::IpfsOptions;
+
     use super::*;
     use crate::s3::DagCborCodec;
-    use crate::test::create_test_ipfs;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn write() -> Result<(), anyhow::Error> {
         crate::tracing_try_init();
-        let tmp = tempdir::TempDir::new("test_streams")?;
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-        let ipfs = create_test_ipfs();
+        println!("1");
+        let (ipfs, task) = IpfsOptions::inmemory_with_generated_keys()
+            .create_uninitialised_ipfs()?
+            .start()
+            .await?;
+        println!("2");
+        let _join_handle = tokio::spawn(task);
+        println!("3");
 
         let o = write_to_store(&ipfs, Cursor::new(data.clone())).await?;
+        println!("4");
 
-        let content = ipfs.get_block(&o).await?.decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
+        let content = ipfs
+            .get_block(&o)
+            .await?
+            .decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
+        println!("5");
 
         let mut read = read_from_store(ipfs, content);
+        println!("6");
 
         let mut out = Vec::new();
         tokio::io::copy(&mut read, &mut out).await?;
+        println!("7");
 
         assert_eq!(out.len(), data.len());
         Ok(())

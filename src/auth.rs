@@ -150,7 +150,10 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             Ok(i) => i,
             Err(o) => return o,
         };
-        let keys = match req.rocket().state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>() {
+        let keys = match req
+            .rocket()
+            .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
+        {
             Some(k) => k,
             _ => {
                 return Outcome::Failure((

@@ -31,12 +31,14 @@ serde_with = { version = "1", features = ["hex"] }
 siwe = { git = "https://github.com/spruceid/siwe-rs" }
 sled = "0.34"
 ssi = "0.3"
+thiserror = "1"
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["fs"] }
 tokio-util = "0.6.9"
 tracing = "0.1"
 tracing-subscriber = "0.2"
 urlencoding = "2.1"
+void = "1"
 
 [dev-dependencies]
 tempdir = "0.3.7"

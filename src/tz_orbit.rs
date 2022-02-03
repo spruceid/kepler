@@ -1,7 +1,7 @@
 use crate::orbit::OrbitMetadata;
 use anyhow::Result;
-use libp2p::{Multiaddr, PeerId};
 use libipld::cid::Cid;
+use libp2p::{Multiaddr, PeerId};
 use reqwest;
 use serde::{de::DeserializeOwned, Deserialize};
 use ssi::did::DIDURL;

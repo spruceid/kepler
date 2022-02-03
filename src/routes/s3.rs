@@ -247,6 +247,7 @@ pub async fn delete_content(
     Ok(orbit
         .0
         .service
-        .index(add, vec![(k, None)]).await
+        .index(add, vec![(k, None)])
+        .await
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }

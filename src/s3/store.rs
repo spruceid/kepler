@@ -1,5 +1,5 @@
-use crate::s3::{Object, ObjectBuilder, Service};
 use crate::s3::entries::{read_from_store, write_to_store};
+use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 //use ipfs_embed::TempPin;
@@ -135,7 +135,8 @@ impl Store {
         };
         match self
             .ipfs
-            .get_block(&s3_obj.value).await?
+            .get_block(&s3_obj.value)
+            .await?
             .decode::<DagCborCodec, Vec<(Cid, u32)>>()
         {
             Ok(content) => Ok(Some((
@@ -156,18 +157,17 @@ impl Store {
         R: AsyncRead + Unpin,
     {
         tracing::debug!("writing tx");
-        let indexes: Vec<(Vec<u8>, Cid)> =
-            try_join_all(add.into_iter().map(|(o, r)| async {
-                // tracing::debug!("adding {:#?}", &o.key);
-                let cid = write_to_store(&self.ipfs, r).await?;
-                let obj = o.add_content(cid);
-                let block = obj.to_block()?;
-                let obj_cid = self.ipfs.put_block(block).await?;
-                Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
-            }))
-            .await?
-            .into_iter()
-            .collect();
+        let indexes: Vec<(Vec<u8>, Cid)> = try_join_all(add.into_iter().map(|(o, r)| async {
+            // tracing::debug!("adding {:#?}", &o.key);
+            let cid = write_to_store(&self.ipfs, r).await?;
+            let obj = o.add_content(cid);
+            let block = obj.to_block()?;
+            let obj_cid = self.ipfs.put_block(block).await?;
+            Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
+        }))
+        .await?
+        .into_iter()
+        .collect();
         self.index(indexes, remove).await
     }
 
@@ -225,7 +225,11 @@ impl Store {
         if !heads.is_empty() {
             debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
             self.ipfs
-                .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::Heads(heads))?).await?;
+                .pubsub_publish(
+                    self.id.clone(),
+                    bincode::serialize(&KVMessage::Heads(heads))?,
+                )
+                .await?;
         }
         Ok(())
     }
@@ -355,7 +359,8 @@ impl Store {
     pub(crate) async fn request_heads(&self) -> Result<()> {
         debug!("requesting heads");
         self.ipfs
-            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?).await?;
+            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
+            .await?;
         Ok(())
     }
 

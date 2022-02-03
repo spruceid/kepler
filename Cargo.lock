@@ -2307,7 +2307,7 @@ dependencies = [
 [[package]]
 name = "ipfs"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#d8b6759c7762bac83290059ccf6b06d8bfd3b0fe"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2340,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "ipfs-bitswap"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#d8b6759c7762bac83290059ccf6b06d8bfd3b0fe"
 dependencies = [
  "fnv",
  "futures",
@@ -2359,12 +2359,13 @@ dependencies = [
 [[package]]
 name = "ipfs-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#d8b6759c7762bac83290059ccf6b06d8bfd3b0fe"
 dependencies = [
  "either",
  "filetime",
  "libipld",
  "quick-protobuf",
+ "sha2 0.9.8",
 ]
 
 [[package]]
@@ -2545,12 +2546,14 @@ dependencies = [
  "sled",
  "ssi",
  "tempdir",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
+ "void",
 ]
 
 [[package]]
@@ -4912,8 +4915,8 @@ dependencies = [
 
 [[package]]
 name = "siwe"
-version = "0.1.3"
-source = "git+https://github.com/spruceid/siwe-rs#6f92676a7b7fa23f5d7f98e0553dc0134d644019"
+version = "0.2.0"
+source = "git+https://github.com/spruceid/siwe-rs#137c3f0f430a6d5c060c7764ee6c54d8b7857f8b"
 dependencies = [
  "chrono",
  "ethers-core",
