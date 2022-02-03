@@ -723,8 +723,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6b8976b33648136e969aafa6eb33d58ff0d301fa0b4e8d513db58fd32cd81aa"
 dependencies = [
  "multibase 0.9.1",
- "multihash 0.14.0",
- "unsigned-varint 0.7.0",
+ "multihash",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -2307,7 +2307,7 @@ dependencies = [
 [[package]]
 name = "ipfs"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=feat/libipld#33bcc88b49647cf2d5a585a02059ed5de0357528"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2340,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "ipfs-bitswap"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=feat/libipld#33bcc88b49647cf2d5a585a02059ed5de0357528"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
 dependencies = [
  "fnv",
  "futures",
@@ -2353,20 +2353,18 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
 ]
 
 [[package]]
 name = "ipfs-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/spruceid/rust-ipfs?branch=feat/libipld#33bcc88b49647cf2d5a585a02059ed5de0357528"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#017c91e3c09274d69771bb93b22c00a8151a0403"
 dependencies = [
  "either",
  "filetime",
  "libipld",
- "multihash 0.11.4",
  "quick-protobuf",
- "sha2 0.9.8",
 ]
 
 [[package]]
@@ -2611,7 +2609,7 @@ dependencies = [
  "libipld-macro",
  "libipld-pb",
  "log",
- "multihash 0.14.0",
+ "multihash",
  "parking_lot",
  "thiserror",
 ]
@@ -2648,7 +2646,7 @@ dependencies = [
  "anyhow",
  "cid",
  "multibase 0.9.1",
- "multihash 0.14.0",
+ "multihash",
  "thiserror",
 ]
 
@@ -2660,7 +2658,7 @@ checksum = "3cf3a6d0e65a5b3f48774f99951d063bc28f7fd799be0a3891de4b10939434e3"
 dependencies = [
  "base64 0.13.0",
  "libipld-core",
- "multihash 0.14.0",
+ "multihash",
  "serde",
  "serde_json",
 ]
@@ -2742,7 +2740,7 @@ dependencies = [
  "libsecp256k1",
  "log",
  "multiaddr",
- "multihash 0.14.0",
+ "multihash",
  "multistream-select",
  "parking_lot",
  "pin-project 1.0.8",
@@ -2754,7 +2752,7 @@ dependencies = [
  "sha2 0.9.8",
  "smallvec",
  "thiserror",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "void",
  "zeroize",
 ]
@@ -2824,7 +2822,7 @@ dependencies = [
  "regex",
  "sha2 0.9.8",
  "smallvec",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "wasm-timer",
 ]
 
@@ -2865,7 +2863,7 @@ dependencies = [
  "sha2 0.9.8",
  "smallvec",
  "uint",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "void",
  "wasm-timer",
 ]
@@ -2906,7 +2904,7 @@ dependencies = [
  "parking_lot",
  "rand 0.7.3",
  "smallvec",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -2959,7 +2957,7 @@ dependencies = [
  "log",
  "prost 0.8.0",
  "prost-build 0.8.0",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "void",
 ]
 
@@ -2995,7 +2993,7 @@ dependencies = [
  "prost-build 0.8.0",
  "rand 0.7.3",
  "smallvec",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "void",
  "wasm-timer",
 ]
@@ -3016,7 +3014,7 @@ dependencies = [
  "minicbor",
  "rand 0.7.3",
  "smallvec",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "wasm-timer",
 ]
 
@@ -3375,11 +3373,11 @@ dependencies = [
  "bs58",
  "byteorder",
  "data-encoding",
- "multihash 0.14.0",
+ "multihash",
  "percent-encoding",
  "serde",
  "static_assertions",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
  "url",
 ]
 
@@ -3407,21 +3405,6 @@ dependencies = [
 
 [[package]]
 name = "multihash"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "567122ab6492f49b59def14ecc36e13e64dca4188196dd0cd41f9f3f979f3df6"
-dependencies = [
- "blake2b_simd",
- "blake2s_simd",
- "digest 0.9.0",
- "sha-1 0.9.8",
- "sha2 0.9.8",
- "sha3",
- "unsigned-varint 0.5.1",
-]
-
-[[package]]
-name = "multihash"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "752a61cd890ff691b4411423d23816d5866dd5621e4d1c5687a53b94b5a979d8"
@@ -3434,7 +3417,7 @@ dependencies = [
  "multihash-derive",
  "sha2 0.9.8",
  "sha3",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -3468,7 +3451,7 @@ dependencies = [
  "log",
  "pin-project 1.0.8",
  "smallvec",
- "unsigned-varint 0.7.0",
+ "unsigned-varint",
 ]
 
 [[package]]
@@ -5712,12 +5695,6 @@ dependencies = [
  "generic-array 0.14.4",
  "subtle 2.4.1",
 ]
-
-[[package]]
-name = "unsigned-varint"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7fdeedbf205afadfe39ae559b75c3240f24e257d0ca27e85f85cb82aa19ac35"
 
 [[package]]
 name = "unsigned-varint"
