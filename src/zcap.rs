@@ -1,6 +1,6 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::OrbitMetadata,
+    orbit::Manifest,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -92,7 +92,7 @@ impl AuthorizationToken for ZCAPTokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
+impl AuthorizationPolicy<ZCAPTokens> for Manifest {
     async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
         let invoker_vm = auth_token
             .invocation

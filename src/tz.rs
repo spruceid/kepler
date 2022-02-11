@@ -1,6 +1,6 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::OrbitMetadata,
+    orbit::Manifest,
 };
 use anyhow::Result;
 use libipld::{cid::multibase::Base, Cid};
@@ -232,7 +232,7 @@ impl core::fmt::Display for TezosAuthorizationString {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<TezosAuthorizationString> for OrbitMetadata {
+impl AuthorizationPolicy<TezosAuthorizationString> for Manifest {
     async fn authorize(&self, auth_token: &TezosAuthorizationString) -> Result<()> {
         let requester = DIDURL {
             did: format!("did:pkh:tz:{}", &auth_token.pkh),

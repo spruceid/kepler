@@ -42,19 +42,8 @@ use std::{
 };
 use tokio::spawn;
 
-#[serde_as]
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct OrbitMetadata {
-    // NOTE This will always serialize in b58check
-    #[serde_as(as = "DisplayFromStr")]
-    pub id: Cid,
-    pub controllers: Vec<DIDURL>,
-    #[serde(default)]
-    #[serde_as(as = "Map<DisplayFromStr, _>")]
-    pub hosts: Map<PeerId, Vec<Multiaddr>>,
-}
-
-impl OrbitMetadata {
+#[derive(Clone, Debug)]
+pub struct Manifest {
     pub fn id(&self) -> &Cid {
         &self.id
     }
@@ -126,7 +115,7 @@ impl AuthorizationToken for AuthTokens {
     }
 }
 #[rocket::async_trait]
-impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
+impl AuthorizationPolicy<AuthTokens> for Manifest {
     async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
         match auth_token {
             AuthTokens::Tezos(token) => self.authorize(token.as_ref()).await,
@@ -224,6 +213,7 @@ pub async fn get_metadata(
                 .unwrap_or_else(|| Ok(Default::default()))?,
         },
     })
+    metadata: Manifest,
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
