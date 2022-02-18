@@ -32,7 +32,7 @@ impl Resource {
     }
 
     pub fn action(&self) -> Option<&str> {
-        self.0.fragment.map(|s| s.as_ref())
+        self.0.fragment.as_ref().map(|s| s.as_ref())
     }
 }
 

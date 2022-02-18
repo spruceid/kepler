@@ -78,22 +78,27 @@ fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
 }
 
 impl From<Document> for Manifest {
-    fn from(d: Document) -> Self {
+    fn from(
+        Document {
+            id,
+            capability_delegation,
+            capability_invocation,
+            service,
+            ..
+        }: Document,
+    ) -> Self {
         Self {
-            delegators: d
-                .capability_delegation
+            delegators: capability_delegation
                 .unwrap_or_else(|| vec![])
                 .into_iter()
-                .map(|vm| id_from_vm(&d.id, vm))
+                .map(|vm| id_from_vm(&id, vm))
                 .collect(),
-            invokers: d
-                .capability_invocation
+            invokers: capability_invocation
                 .unwrap_or_else(|| vec![])
                 .into_iter()
-                .map(|vm| id_from_vm(&d.id, vm))
+                .map(|vm| id_from_vm(&id, vm))
                 .collect(),
-            bootstrap_peers: d
-                .service
+            bootstrap_peers: service
                 .unwrap_or_else(|| vec![])
                 .into_iter()
                 .filter(|s| s.type_.any(|s| s == "KeplerOrbitPeer"))
@@ -114,7 +119,7 @@ impl From<Document> for Manifest {
                     })
                 })
                 .collect(),
-            id: d.id,
+            id,
         }
     }
 }
@@ -124,9 +129,8 @@ pub async fn resolve(id: &str) -> anyhow::Result<Option<Manifest>> {
 
     match (md.error, doc, doc_md.and_then(|d| d.deactivated)) {
         (Some(e), _, _) => Err(anyhow!(e)),
-        (None, Some(d), Some(false)) => Ok(Some(d.into())),
-        (_, None, _) => Ok(None),
-        (_, _, Some(true)) => Ok(None),
+        (_, _, Some(true)) | (_, None, _) => Ok(None),
+        (None, Some(d), None) | (None, Some(d), Some(false)) => Ok(Some(d.into())),
     }
 }
 
@@ -403,8 +407,12 @@ impl Deref for Orbit {
     }
 }
 
-#[test]
-async fn manifest_resolution() {
-    let did = "did:";
-    let md = resolve(did).await.unwrap().unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    async fn manifest_resolution() {
+        let did = "did:pkh:eip155:1:0xb9c5714089478a327f09197987f16f9e5d936e8a";
+        let md = resolve(did).await.unwrap().unwrap();
+    }
 }

@@ -131,34 +131,25 @@ impl<'r> FromRequest<'r> for SIWETokens {
             .iter()
             .filter_map(|r| r.as_str().parse().ok())
             .next()
-            .map(|r: Resource| (r.orbit(), r.path(), r.action()))
-        {
-            Some((o, None, Some("host"))) => (o.into(), Action::Create { content: vec![] }),
-            Some((o, Some(p), Some("list")))
-                if p.starts_with("/s3/") || p.starts_with("/ipfs/") =>
-            {
-                (o.into(), Action::List)
-            }
-            Some((o, Some(p), Some(a))) => (
-                o.into(),
-                match a {
-                    "get" => Action::Get(vec![p.into()]),
-                    "put" => Action::Put(vec![p.into()]),
-                    "del" => Action::Del(vec![p.into()]),
-                    x => {
-                        return Outcome::Failure((
-                            Status::Unauthorized,
-                            anyhow!("Invalid Action: {}", x),
-                        ))
-                    }
-                },
-            ),
-            Some((_, None, _)) => {
-                return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Path")))
-            }
-            Some((_, _, None)) => {
-                return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Action")))
-            }
+            .map(|r: Resource| match (r.orbit(), r.path(), r.action()) {
+                (o, None, Some("host")) => Ok((o.into(), Action::Create { content: vec![] })),
+                (o, Some(p), Some("list")) if p.starts_with("/s3/") || p.starts_with("/ipfs/") => {
+                    Ok((o.into(), Action::List))
+                }
+                (o, Some(p), Some(a)) => Ok((
+                    o.into(),
+                    match a {
+                        "get" => Action::Get(vec![p.into()]),
+                        "put" => Action::Put(vec![p.into()]),
+                        "del" => Action::Del(vec![p.into()]),
+                        x => Err((Status::Unauthorized, anyhow!("Invalid Action: {}", x)))?,
+                    },
+                )),
+                (_, None, _) => Err((Status::Unauthorized, anyhow!("Missing Path"))),
+                (_, _, None) => Err((Status::Unauthorized, anyhow!("Missing Action"))),
+            }) {
+            Some(Ok(o)) => o,
+            Some(Err(e)) => return Outcome::Failure(e),
             None => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Resource"))),
         };
         Outcome::Success(Self {
