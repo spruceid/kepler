@@ -140,19 +140,30 @@ macro_rules! impl_fromreq {
                     Some(Ok(o)) => o.0,
                     _ => {
                         return Outcome::Failure((
-                            Status::InternalServerError,
+                            Status::BadRequest,
                             anyhow!("Could not parse orbit"),
                         ));
                     }
                 };
-                match (token.action(), &oid == token.target_orbit()) {
+                match (
+                    token.action(),
+                    &oid == &match hash_same(&oid, token.target_orbit()) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            return Outcome::Failure((
+                                Status::BadRequest,
+                                anyhow!("Could not match orbit"),
+                            ))
+                        }
+                    },
+                ) {
                     (_, false) => Outcome::Failure((
                         Status::BadRequest,
                         anyhow!("Token target orbit not matching endpoint"),
                     )),
                     (Action::$method { .. }, true) => {
                         let orbit = match load_orbit(
-                            *token.target_orbit(),
+                            token.target_orbit().into(),
                             config.database.path.clone(),
                             relay,
                         )
@@ -212,11 +223,16 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
         match &token.action() {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create { parameters, .. } => {
-                let md = match get_metadata(token.target_orbit(), parameters, &config.chains).await
-                {
-                    Ok(md) => md,
-                    Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
+            Action::Create { .. } => {
+                let md = match resolve(token.target_orbit()).await {
+                    Ok(Some(md)) => md,
+                    Ok(None) => {
+                        return Outcome::Failure((
+                            Status::NotFound,
+                            anyhow!("Orbit Manifest Doesnt Exist"),
+                        ))
+                    }
+                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
                 };
 
                 match md.authorize(&token).await {
