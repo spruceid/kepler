@@ -43,6 +43,10 @@ use std::{
 };
 use tokio::spawn;
 
+/// An implementation of an Orbit Manifest.
+///
+/// Orbit Manifests are [DID Documents](https://www.w3.org/TR/did-spec-registries/#did-methods) used directly as the root of a capabilities
+/// authorization framework. This enables Orbits to be managed using independant DID lifecycle management tools.
 #[derive(Clone, Debug)]
 pub struct Manifest {
     id: String,
@@ -83,17 +87,20 @@ impl From<Document> for Manifest {
             id,
             capability_delegation,
             capability_invocation,
+            verification_method,
             service,
             ..
         }: Document,
     ) -> Self {
         Self {
             delegators: capability_delegation
+                .or_else(|| verification_method.clone())
                 .unwrap_or_else(|| vec![])
                 .into_iter()
                 .map(|vm| id_from_vm(&id, vm))
                 .collect(),
             invokers: capability_invocation
+                .or(verification_method)
                 .unwrap_or_else(|| vec![])
                 .into_iter()
                 .map(|vm| id_from_vm(&id, vm))
@@ -135,25 +142,29 @@ pub async fn resolve(id: &str) -> anyhow::Result<Option<Manifest>> {
 }
 
 impl Manifest {
+    /// ID of the Orbit, usually a DID
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// The set of Peers discoverable from the Orbit Manifest.
     pub fn bootstrap_peers(&self) -> &[Peer] {
         &self.bootstrap_peers
     }
 
+    /// The set of [Verification Methods](https://www.w3.org/TR/did-core/#verification-methods) who are authorized to delegate any capability.
     pub fn delegators(&self) -> &[DIDURL] {
         &self.delegators
     }
 
+    /// The set of [Verification Methods](https://www.w3.org/TR/did-core/#verification-methods) who are authorized to invoke any capability.
     pub fn invokers(&self) -> &[DIDURL] {
         &self.invokers
     }
 
     pub fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
-            "kepler:{}//{}",
+            "kepler:{}/ipfs/{}",
             self.id(),
             cid.to_string_of_base(Base::Base58Btc)?
         ))
@@ -410,9 +421,20 @@ impl Deref for Orbit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use didkit::DID_METHODS;
+    use ssi::{
+        did::Source,
+        jwk::{Algorithm, Params, JWK},
+    };
     #[test]
     async fn manifest_resolution() {
-        let did = "did:pkh:eip155:1:0xb9c5714089478a327f09197987f16f9e5d936e8a";
-        let md = resolve(did).await.unwrap().unwrap();
+        let j = JWK::generate_secp256k1().unwrap();
+        let did = DID_METHODS
+            .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
+            .unwrap();
+
+        let md = resolve(&did).await.unwrap().unwrap();
+        println!("{:?}", md);
+        assert!(false);
     }
 }
