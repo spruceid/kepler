@@ -7,7 +7,6 @@ use crate::{
     s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
-    tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
@@ -30,36 +29,128 @@ use rocket::{
 };
 
 use cached::proc_macro::cached;
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
-use ssi::did::DIDURL;
+use ssi::{
+    did::{Document, RelativeDIDURL, ServiceEndpoint, VerificationMethod, DIDURL},
+    did_resolve::DIDResolver,
+};
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
     ops::Deref,
     path::PathBuf,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 use tokio::spawn;
 
 #[derive(Clone, Debug)]
 pub struct Manifest {
-    pub fn id(&self) -> &Cid {
+    id: String,
+    delegators: Vec<DIDURL>,
+    invokers: Vec<DIDURL>,
+    bootstrap_peers: Vec<Peer>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Peer {
+    pub id: PeerId,
+    pub addrs: Vec<Multiaddr>,
+}
+
+fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
+    match vm {
+        VerificationMethod::DIDURL(d) => d,
+        VerificationMethod::RelativeDIDURL(f) => f.to_absolute(did),
+        VerificationMethod::Map(m) => {
+            if let Ok(abs_did_url) = DIDURL::from_str(&m.id) {
+                abs_did_url
+            } else if let Ok(rel_did_url) = RelativeDIDURL::from_str(&m.id) {
+                rel_did_url.to_absolute(did)
+            } else {
+                // HACK well-behaved did methods should not allow id's which lead to this path
+                DIDURL {
+                    did: m.id,
+                    ..Default::default()
+                }
+            }
+        }
+    }
+}
+
+impl From<Document> for Manifest {
+    fn from(d: Document) -> Self {
+        Self {
+            delegators: d
+                .capability_delegation
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .map(|vm| id_from_vm(&d.id, vm))
+                .collect(),
+            invokers: d
+                .capability_invocation
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .map(|vm| id_from_vm(&d.id, vm))
+                .collect(),
+            bootstrap_peers: d
+                .service
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .filter(|s| s.type_.any(|s| s == "KeplerOrbitPeer"))
+                .filter_map(|s| {
+                    Some(Peer {
+                        id: s.id[1..].parse().ok()?,
+                        addrs: s
+                            .service_endpoint?
+                            .into_iter()
+                            .filter_map(|e| match e {
+                                ServiceEndpoint::URI(a) => match &a.get(..10) {
+                                    Some("multiaddr:") => a.get(10..)?.parse().ok(),
+                                    _ => None,
+                                },
+                                _ => None,
+                            })
+                            .collect(),
+                    })
+                })
+                .collect(),
+            id: d.id,
+        }
+    }
+}
+
+pub async fn resolve(id: &str) -> anyhow::Result<Option<Manifest>> {
+    let (md, doc, doc_md) = didkit::DID_METHODS.resolve(id, &Default::default()).await;
+
+    match (md.error, doc, doc_md.and_then(|d| d.deactivated)) {
+        (Some(e), _, _) => Err(anyhow!(e)),
+        (None, Some(d), Some(false)) => Ok(Some(d.into())),
+        (_, None, _) => Ok(None),
+        (_, _, Some(true)) => Ok(None),
+    }
+}
+
+impl Manifest {
+    pub fn id(&self) -> &str {
         &self.id
     }
 
-    pub fn hosts(&self) -> impl Iterator<Item = &PeerId> {
-        self.hosts.keys()
+    pub fn bootstrap_peers(&self) -> &[Peer] {
+        &self.bootstrap_peers
     }
 
-    pub fn controllers(&self) -> &[DIDURL] {
-        &self.controllers
+    pub fn delegators(&self) -> &[DIDURL] {
+        &self.delegators
+    }
+
+    pub fn invokers(&self) -> &[DIDURL] {
+        &self.invokers
     }
 
     pub fn make_uri(&self, cid: &Cid) -> Result<String> {
         Ok(format!(
-            "kepler://{}/{}",
-            self.id().to_string_of_base(Base::Base58Btc)?,
+            "kepler:{}//{}",
+            self.id(),
             cid.to_string_of_base(Base::Base58Btc)?
         ))
     }
@@ -168,63 +259,23 @@ impl OrbitTasks {
 #[derive(Clone)]
 pub struct Orbit {
     pub service: Service,
-    metadata: OrbitMetadata,
     _tasks: OrbitTasks,
-}
-
-fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
-    match method {
-        "tz" => match (params.get("address"), params.get("contract")) {
-            (_, Some(_contract)) => None,
-            (Some(address), None) => Some(DIDURL {
-                did: format!("did:pkh:tz:{}", &address),
-                fragment: Some("TezosMethod2021".to_string()),
-                ..Default::default()
-            }),
-            _ => None,
-        },
-        "did" => match (params.get("did"), params.get("vm")) {
-            (Some(did), Some(vm_id)) => Some(DIDURL {
-                did: did.into(),
-                fragment: Some(vm_id.into()),
-                ..Default::default()
-            }),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-pub async fn get_metadata(
-    oid: &Cid,
-    param_str: &str,
-    chains: &ExternalApis,
-) -> Result<OrbitMetadata> {
-    let (method, params) = verify_oid(oid, param_str)?;
-    Ok(match (method.as_str(), &chains) {
-        ("tz", ExternalApis { tzkt, .. }) => params_to_tz_orbit(*oid, &params, tzkt).await?,
-        _ => OrbitMetadata {
-            id: *oid,
-            controllers: vec![get_params_vm(method.as_ref(), &params)
-                .ok_or_else(|| anyhow!("Missing Implicit Controller Params"))?],
-            hosts: params
-                .get("hosts")
-                .map(|hs| parse_hosts_str(hs))
-                .unwrap_or_else(|| Ok(Default::default()))?,
-        },
-    })
     metadata: Manifest,
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
-    md: &OrbitMetadata,
+    id: &str,
     path: PathBuf,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(md.id.to_string_of_base(Base::Base58Btc)?);
+    let md = match resolve(id).await? {
+        Some(m) => m,
+        _ => return Ok(None),
+    };
+    let dir = path.join(id);
 
     // fails if DIR exists, this is Create, not Open
     if dir.exists() {
@@ -236,12 +287,12 @@ pub async fn create_orbit(
 
     let kp = {
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
-        md.hosts()
-            .find_map(|h| keys.remove(h))
-            .unwrap_or_else(Ed25519Keypair::generate)
+        md.bootstrap_peers()
+            .iter()
+            .find_map(|p| keys.remove(&p.id))
+            .unwrap_or_else(generate_keypair)
     };
 
-    fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.encode()).await?;
 
@@ -251,26 +302,28 @@ pub async fn create_orbit(
 }
 
 pub async fn load_orbit(
-    oid: Cid,
+    id: String,
     path: PathBuf,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    let dir = path.join(&id);
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(dir, relay).await.map(Some)
+    load_orbit_(dir, id, relay).await.map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
-async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
-    let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
+async fn load_orbit_(dir: PathBuf, id: String, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+    let md = resolve(&id)
+        .await?
+        .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
+    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
+    let mut cfg = Config::new(&dir.join("block_store"), kp);
+    cfg.network.streams = None;
 
-    let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
-    let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
     let (ipfs, ipfs_future, receiver) = create_ipfs(
@@ -312,59 +365,11 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     })
 }
 
-pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
-    s.split('|')
-        .map(|hs| {
-            hs.split_once(':')
-                .ok_or_else(|| anyhow!("missing host:addrs map"))
-                .and_then(|(id, s)| {
-                    Ok((
-                        id.parse()?,
-                        s.split(',')
-                            .map(|a| Ok(a.parse()?))
-                            .collect::<Result<Vec<Multiaddr>>>()?,
-                    ))
-                })
-        })
-        .collect()
-}
-
-pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
-    matrix_params
-        .split(';')
-        .map(|pair_str| match pair_str.split_once('=') {
-            Some((key, value)) => Ok((
-                urlencoding::decode(key)?.into_owned(),
-                urlencoding::decode(value)?.into_owned(),
-            )),
-            _ => Err(anyhow!("Invalid matrix param")),
-        })
-        .collect::<Result<Map<String, String>>>()
-}
-
 pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
     Ok(Cid::new_v1(
         c.codec(),
         Code::try_from(c.hash().code())?.digest(b.as_ref()),
     ))
-}
-
-pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
-    // try to parse as a URI with matrix params
-    if &hash_same(oid, uri_str)? == oid && oid.codec() == 0x55 {
-        let first_sc = uri_str.find(';').unwrap_or(uri_str.len());
-        Ok((
-            // method name
-            uri_str
-                .get(..first_sc)
-                .ok_or_else(|| anyhow!("Missing Orbit Method"))?
-                .into(),
-            // matrix parameters
-            get_params(uri_str.get(first_sc + 1..).unwrap_or(""))?,
-        ))
-    } else {
-        Err(anyhow!("Failed to verify Orbit ID"))
-    }
 }
 
 #[rocket::async_trait]
@@ -392,32 +397,14 @@ impl ContentAddressedStorage for Orbit {
 }
 
 impl Deref for Orbit {
-    type Target = OrbitMetadata;
+    type Target = Manifest;
     fn deref(&self) -> &Self::Target {
         &self.metadata
     }
 }
 
 #[test]
-async fn oid_verification() {
-    let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
-        .parse()
-        .unwrap();
-    let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
-    let domain = "kepler.tzprofiles.com";
-    let index = 0;
-    let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
-    let (method, params) = verify_oid(&oid, &uri).unwrap();
-    assert_eq!(method, "tz");
-    assert_eq!(params.get("address").unwrap(), pkh);
-    assert_eq!(params.get("domain").unwrap(), domain);
-    assert_eq!(params.get("index").unwrap(), "0");
-}
-
-#[test]
-async fn parameters() -> Result<()> {
-    let params = r#"did;did=did%3Akey%3Az6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom;hosts=12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly%3A%2Fip4%2F127.0.0.1%2Ftcp%2F8081%2Fp2p%2F12D3KooWG4GKKKocGcX9pfdcdQncaLM73mY4X6TwB6tT48g1ijTY%2Fp2p-circuit%2Fp2p%2F12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly;vm=z6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom"#;
-    let oid: Cid = "zCT5htkeCSu7WefuBKYUidQJkRgEvEGZQrFVqYS6ZJVM6zwLCRcF".parse()?;
-    let _md = get_metadata(&oid, params, &Default::default()).await?;
-    Ok(())
+async fn manifest_resolution() {
+    let did = "did:";
+    let md = resolve(did).await.unwrap().unwrap();
 }

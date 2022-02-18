@@ -1,6 +1,6 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, get_metadata, load_orbit, AuthTokens, Orbit};
+use crate::orbit::{create_orbit, hash_same, load_orbit, resolve, AuthTokens, Orbit};
 use crate::relay::RelayNode;
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
