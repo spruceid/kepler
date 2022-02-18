@@ -11,7 +11,56 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::RwLock};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
+use ssi::did::DIDURL;
+use std::{collections::HashMap, fmt, str::FromStr, sync::RwLock};
+use thiserror::Error;
+
+#[derive(Clone, Debug, SerializeDisplay, DeserializeFromStr)]
+pub struct Resource(DIDURL);
+
+impl Resource {
+    pub fn orbit(&self) -> &str {
+        &self.0.did
+    }
+
+    pub fn path(&self) -> Option<&str> {
+        match self.0.path_abempty.as_ref() {
+            "" => None,
+            p => Some(p),
+        }
+    }
+
+    pub fn action(&self) -> Option<&str> {
+        self.0.fragment.map(|s| s.as_ref())
+    }
+}
+
+impl fmt::Display for Resource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "kepler:{}", &self.0)
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ResourceParseError {
+    #[error("Invalid URI name space: {0}, expected to begin with kepler:")]
+    WrongType(String),
+    #[error(transparent)]
+    InvalidURI(#[from] ssi::error::Error),
+}
+
+impl FromStr for Resource {
+    type Err = ResourceParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split_once(":") {
+            Some(("kepler", u)) => Ok(Self(u.parse()?)),
+            Some((n, _)) => Err(Self::Err::WrongType(n.into())),
+            None => Err(Self::Err::WrongType(s.into())),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
