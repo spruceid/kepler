@@ -3,14 +3,12 @@ use crate::{
     orbit::Manifest,
 };
 use anyhow::Result;
-use libipld::{cid::multibase::Base, Cid};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
-    combinator::map_parser,
     multi::many1,
     sequence::{preceded, tuple},
-    IResult, ParseTo,
+    IResult,
 };
 use rocket::request::{FromRequest, Outcome, Request};
 use ssi::{
@@ -27,7 +25,7 @@ pub struct TezosAuthorizationString {
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
-    pub orbit: Cid,
+    pub orbit: String,
     pub action: Action,
 }
 
@@ -35,28 +33,29 @@ impl FromStr for TezosAuthorizationString {
     type Err = anyhow::Error;
     fn from_str<'a>(s: &'a str) -> Result<Self, Self::Err> {
         match tuple::<_, _, nom::error::Error<&'a str>, _>((
-            tag("Tezos Signed Message:"),         // remove
-            space_delimit,                        // domain string
-            space_delimit,                        // get timestamp
-            space_delimit,                        // get pk
-            space_delimit,                        // get pkh
-            map_parser(space_delimit, parse_cid), // get orbit
+            tag("Tezos Signed Message:"), // remove
+            space_delimit,                // domain string
+            space_delimit,                // get timestamp
+            space_delimit,                // get pk
+            space_delimit,                // get pkh
+            space_delimit,                // get orbit
             tag(" "),
             parse_action, // get action
             tag(" "),
         ))(s)
         {
-            Ok((sig_str, (_, domain_str, timestamp_str, pk_str, pkh_str, orbit, _, action, _))) => {
-                Ok(TezosAuthorizationString {
-                    sig: sig_str.into(),
-                    domain: domain_str.into(),
-                    pk: pk_str.into(),
-                    pkh: pkh_str.into(),
-                    timestamp: timestamp_str.into(),
-                    orbit,
-                    action,
-                })
-            }
+            Ok((
+                sig_str,
+                (_, domain_str, timestamp_str, pk_str, pkh_str, orbit_str, _, action, _),
+            )) => Ok(TezosAuthorizationString {
+                sig: sig_str.into(),
+                domain: domain_str.into(),
+                pk: pk_str.into(),
+                pkh: pkh_str.into(),
+                timestamp: timestamp_str.into(),
+                orbit: orbit_str.into(),
+                action,
+            }),
             // TODO there is a lifetime issue which prevents using the nom error here
             Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
         }
@@ -65,16 +64,6 @@ impl FromStr for TezosAuthorizationString {
 
 fn space_delimit(s: &str) -> IResult<&str, &str> {
     preceded(tag(" "), take_until(" "))(s)
-}
-
-// NOTE this REQUIRES that the cid end with a space or the end of a string!!
-fn parse_cid(s: &str) -> IResult<&str, Cid> {
-    Ok((
-        "",
-        s.parse_to().ok_or_else(|| {
-            nom::Err::Failure(nom::error::make_error(s, nom::error::ErrorKind::IsNot))
-        })?,
-    ))
 }
 
 fn parse_list(s: &str) -> IResult<&str, Action> {
@@ -109,17 +98,11 @@ fn parse_del(s: &str) -> IResult<&str, Action> {
 }
 
 fn parse_create(s: &str) -> IResult<&str, Action> {
-    tuple((
-        tag("CREATE"),
-        space_delimit, // parameters
-        many1(space_delimit),
-    ))(s)
-    .map(|(rest, (_, params, content))| {
+    tuple((tag("CREATE"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
         (
             rest,
             Action::Create {
                 content: content.iter().map(|s| String::from(*s)).collect(),
-                parameters: params.into(),
             },
         )
     })
@@ -135,10 +118,7 @@ fn serialize_action(action: &Action) -> Result<String> {
         Action::Get(content) => serialize_content_action("GET", content),
         Action::Del(content) => serialize_content_action("DEL", content),
         Action::List => Ok("LIST".into()),
-        Action::Create {
-            content,
-            parameters,
-        } => Ok(["CREATE", parameters, &content.join(" ")].join(" ")),
+        Action::Create { content } => Ok(["CREATE", &content.join(" ")].join(" ")),
     }
 }
 
@@ -154,7 +134,7 @@ impl TezosAuthorizationString {
             &self.timestamp,
             &self.pk,
             &self.pkh,
-            &self.orbit.to_string_of_base(Base::Base58Btc)?,
+            &self.orbit,
             serialize_action(&self.action)?
         ))
     }
@@ -195,7 +175,7 @@ impl AuthorizationToken for TezosAuthorizationString {
     fn action(&self) -> &Action {
         &self.action
     }
-    fn target_orbit(&self) -> &Cid {
+    fn target_orbit(&self) -> &str {
         &self.orbit
     }
 }
@@ -221,10 +201,7 @@ impl core::fmt::Display for TezosAuthorizationString {
             &self.timestamp,
             &self.pk,
             &self.pkh,
-            &self
-                .orbit
-                .to_string_of_base(Base::Base58Btc)
-                .map_err(|_| core::fmt::Error)?,
+            &self.orbit,
             serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
             &self.sig
         )
@@ -240,7 +217,7 @@ impl AuthorizationPolicy<TezosAuthorizationString> for Manifest {
             ..Default::default()
         };
 
-        if !self.controllers.contains(&requester) {
+        if !self.invokers().contains(&requester) {
             Err(anyhow!("Requester not a controller of the orbit"))
         } else {
             auth_token.verify()
@@ -311,7 +288,7 @@ async fn round_trip() {
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
-        orbit: Cid::from_str(dummy_orbit).expect("failed to parse orbit ID"),
+        orbit: dummy_orbit.into(),
         action: Action::Put(vec![dummy_cid.to_string()]),
     };
     let message = tz_unsigned

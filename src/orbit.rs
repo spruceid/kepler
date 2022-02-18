@@ -196,7 +196,7 @@ impl AuthorizationToken for AuthTokens {
             Self::SIWEZcapDelegated(token) => token.action(),
         }
     }
-    fn target_orbit(&self) -> &Cid {
+    fn target_orbit(&self) -> &str {
         match self {
             Self::Tezos(token) => token.target_orbit(),
             Self::ZCAP(token) => token.target_orbit(),

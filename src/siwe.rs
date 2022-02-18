@@ -1,11 +1,10 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken, Resource},
     orbit::Manifest,
     zcap::KeplerInvocation,
 };
 use anyhow::Result;
 use didkit::DID_METHODS;
-use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -15,7 +14,7 @@ use ethers_core::{types::H160, utils::to_checksum};
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use siwe::Message;
+use siwe::eip4361::Message;
 use std::{ops::Deref, str::FromStr};
 
 pub struct SIWESignature([u8; 65]);
@@ -59,7 +58,7 @@ pub struct SIWETokens {
     pub invocation: SIWEMessage,
     pub delegation: Option<SIWEMessage>,
     // kinda weird
-    pub orbit: Cid,
+    pub orbit: String,
     pub invoked_action: Action,
 }
 
@@ -129,32 +128,19 @@ impl<'r> FromRequest<'r> for SIWETokens {
         };
         let (orbit, action) = match invocation
             .resources
-            .first()
-            .and_then(|u| u.as_str().strip_prefix("kepler://"))
-            .and_then(|p| p.split_once('#'))
-            .map(|(op, a)| match op.rsplit_once('/') {
-                Some((o, p)) => Ok((
-                    Cid::from_str(o)?,
-                    Some(p.strip_prefix("s3/").unwrap_or(p)),
-                    a,
-                )),
-                _ => Ok((Cid::from_str(op)?, None, a)),
-            }) {
-            Some(Ok((o, _, "host"))) => (
-                o,
-                Action::Create {
-                    parameters: invocation
-                        .uri
-                        .as_str()
-                        .strip_prefix("kepler://")
-                        .unwrap_or("")
-                        .into(),
-                    content: vec![],
-                },
-            ),
-            Some(Ok((o, _, "list"))) => (o, Action::List),
-            Some(Ok((o, Some(p), a))) => (
-                o,
+            .iter()
+            .filter_map(|r| r.as_str().parse().ok())
+            .next()
+            .map(|r: Resource| (r.orbit(), r.path(), r.action()))
+        {
+            Some((o, None, Some("host"))) => (o.into(), Action::Create { content: vec![] }),
+            Some((o, Some(p), Some("list")))
+                if p.starts_with("/s3/") || p.starts_with("/ipfs/") =>
+            {
+                (o.into(), Action::List)
+            }
+            Some((o, Some(p), Some(a))) => (
+                o.into(),
                 match a {
                     "get" => Action::Get(vec![p.into()]),
                     "put" => Action::Put(vec![p.into()]),
@@ -167,11 +153,13 @@ impl<'r> FromRequest<'r> for SIWETokens {
                     }
                 },
             ),
-            Some(Ok(_)) => {
+            Some((_, None, _)) => {
                 return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Path")))
             }
-            Some(Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
-            _ => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Action"))),
+            Some((_, _, None)) => {
+                return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Action")))
+            }
+            None => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Resource"))),
         };
         Outcome::Success(Self {
             invocation,
@@ -186,7 +174,7 @@ impl AuthorizationToken for SIWEZcapTokens {
     fn action(&self) -> &Action {
         &self.invocation.property_set.capability_action
     }
-    fn target_orbit(&self) -> &Cid {
+    fn target_orbit(&self) -> &str {
         &self.invocation.property_set.invocation_target
     }
 }
@@ -195,16 +183,16 @@ impl AuthorizationToken for SIWETokens {
     fn action(&self) -> &Action {
         &self.invoked_action
     }
-    fn target_orbit(&self) -> &Cid {
+    fn target_orbit(&self) -> &str {
         &self.orbit
     }
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
+impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
     async fn authorize(&self, auth_token: &SIWEZcapTokens) -> Result<()> {
         // check delegator is controller
-        if !self.controllers().contains(
+        if !self.delegators().contains(
             &format!(
                 "did:pkh:eip155:{}:{}#blockchainAccountId",
                 &auth_token.delegation.0.chain_id,
@@ -247,34 +235,33 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
         };
 
         // check action is authorized by blanket root ("." as relative path against "kepler://<orbit-id>/") auth
-        if !auth_token
-            .delegation
-            .resources
-            .iter()
-            .map(|uri| uri.to_absolute_and_fragment())
-            .map(|(abs, action)| {
-                Ok((
-                    abs.as_str()
-                        .strip_prefix("kepler://")
-                        .ok_or_else(|| anyhow!("resource uri did not begin with 'kepler://'"))
-                        .map(Cid::from_str)??,
-                    action.ok_or_else(|| anyhow!("resource uri did not have an action"))?,
-                ))
-            })
-            .try_fold(false, |authorised, cid_and_action: anyhow::Result<_>| {
-                let (target, action) = cid_and_action?;
-                Ok(
-                    (match &auth_token.invocation.property_set.capability_action {
-                        Action::Get(_) => action == "get",
-                        Action::List => action == "list",
-                        Action::Del(_) => action == "del",
-                        Action::Put(_) => action == "put",
-                        _ => return Err(anyhow!("Invalid Action")),
-                    } && target == auth_token.invocation.property_set.invocation_target)
-                        || authorised,
-                )
-            })?
+        if !auth_token.delegation.resources.contains(&match auth_token
+            .invocation
+            .property_set
+            .capability_action
         {
+            Action::List => format!(
+                "kepler:{}#list",
+                &auth_token.invocation.property_set.invocation_target
+            )
+            .parse()?,
+            Action::Put(_) => format!(
+                "kepler:{}#put",
+                &auth_token.invocation.property_set.invocation_target
+            )
+            .parse()?,
+            Action::Get(_) => format!(
+                "kepler:{}#get",
+                &auth_token.invocation.property_set.invocation_target
+            )
+            .parse()?,
+            Action::Del(_) => format!(
+                "kepler:{}#del",
+                &auth_token.invocation.property_set.invocation_target
+            )
+            .parse()?,
+            _ => return Err(anyhow!("Invalid Action")),
+        }) {
             return Err(anyhow!("Invoked action not authorized by delegation"));
         };
 
@@ -296,7 +283,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
+impl AuthorizationPolicy<SIWETokens> for Manifest {
     async fn authorize(&self, t: &SIWETokens) -> Result<()> {
         if &t.orbit != self.id() {
             return Err(anyhow!("Incorrect Orbit ID"));
@@ -311,7 +298,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
         match &t.delegation {
             Some(d) => {
                 // check delegator is controller
-                if !self.controllers().contains(
+                if !self.delegators().contains(
                     &format!(
                         "did:pkh:eip155:{}:{}#blockchainAccountId",
                         &d.chain_id,
@@ -332,7 +319,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
             }
             None => {
                 // check invoker is controller
-                if !self.controllers().contains(&invoker.parse()?) {
+                if !self.invokers().contains(&invoker.parse()?) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
             }

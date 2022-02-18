@@ -19,16 +19,13 @@ pub enum Action {
     Put(Vec<String>),
     Get(Vec<String>),
     Del(Vec<String>),
-    Create {
-        parameters: String,
-        content: Vec<String>,
-    },
+    Create { content: Vec<String> },
     List,
 }
 
 pub trait AuthorizationToken {
     fn action(&self) -> &Action;
-    fn target_orbit(&self) -> &Cid;
+    fn target_orbit(&self) -> &str;
 }
 
 #[rocket::async_trait]
@@ -178,7 +175,14 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
 
-                match create_orbit(&md, config.database.path.clone(), &auth_data, relay, keys).await
+                match create_orbit(
+                    &md.id(),
+                    config.database.path.clone(),
+                    &auth_data,
+                    relay,
+                    keys,
+                )
+                .await
                 {
                     Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
                     Ok(None) => {
