@@ -14,6 +14,7 @@ pub mod cas;
 pub mod codec;
 pub mod config;
 pub mod ipfs;
+pub mod manifest;
 pub mod orbit;
 pub mod relay;
 pub mod routes;

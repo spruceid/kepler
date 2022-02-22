@@ -1,6 +1,6 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken, Resource},
-    orbit::Manifest,
+    manifest::Manifest,
     zcap::KeplerInvocation,
 };
 use anyhow::Result;

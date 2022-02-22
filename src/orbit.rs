@@ -1,18 +1,18 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{Action, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
     ipfs::create_ipfs,
+    manifest::Manifest,
     s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs::MultiaddrWithoutPeerId;
+use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use libipld::cid::{
-    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -29,147 +29,14 @@ use rocket::{
 };
 
 use cached::proc_macro::cached;
-use ssi::{
-    did::{Document, RelativeDIDURL, ServiceEndpoint, VerificationMethod, DIDURL},
-    did_resolve::DIDResolver,
-};
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
     ops::Deref,
-    path::PathBuf,
-    str::FromStr,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 use tokio::spawn;
-
-/// An implementation of an Orbit Manifest.
-///
-/// Orbit Manifests are [DID Documents](https://www.w3.org/TR/did-spec-registries/#did-methods) used directly as the root of a capabilities
-/// authorization framework. This enables Orbits to be managed using independant DID lifecycle management tools.
-#[derive(Clone, Debug)]
-pub struct Manifest {
-    id: String,
-    delegators: Vec<DIDURL>,
-    invokers: Vec<DIDURL>,
-    bootstrap_peers: Vec<Peer>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Peer {
-    pub id: PeerId,
-    pub addrs: Vec<Multiaddr>,
-}
-
-fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
-    match vm {
-        VerificationMethod::DIDURL(d) => d,
-        VerificationMethod::RelativeDIDURL(f) => f.to_absolute(did),
-        VerificationMethod::Map(m) => {
-            if let Ok(abs_did_url) = DIDURL::from_str(&m.id) {
-                abs_did_url
-            } else if let Ok(rel_did_url) = RelativeDIDURL::from_str(&m.id) {
-                rel_did_url.to_absolute(did)
-            } else {
-                // HACK well-behaved did methods should not allow id's which lead to this path
-                DIDURL {
-                    did: m.id,
-                    ..Default::default()
-                }
-            }
-        }
-    }
-}
-
-impl From<Document> for Manifest {
-    fn from(
-        Document {
-            id,
-            capability_delegation,
-            capability_invocation,
-            verification_method,
-            service,
-            ..
-        }: Document,
-    ) -> Self {
-        Self {
-            delegators: capability_delegation
-                .or_else(|| verification_method.clone())
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .map(|vm| id_from_vm(&id, vm))
-                .collect(),
-            invokers: capability_invocation
-                .or(verification_method)
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .map(|vm| id_from_vm(&id, vm))
-                .collect(),
-            bootstrap_peers: service
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .filter(|s| s.type_.any(|s| s == "KeplerOrbitPeer"))
-                .filter_map(|s| {
-                    Some(Peer {
-                        id: s.id[1..].parse().ok()?,
-                        addrs: s
-                            .service_endpoint?
-                            .into_iter()
-                            .filter_map(|e| match e {
-                                ServiceEndpoint::URI(a) => match &a.get(..10) {
-                                    Some("multiaddr:") => a.get(10..)?.parse().ok(),
-                                    _ => None,
-                                },
-                                _ => None,
-                            })
-                            .collect(),
-                    })
-                })
-                .collect(),
-            id,
-        }
-    }
-}
-
-pub async fn resolve(id: &str) -> anyhow::Result<Option<Manifest>> {
-    let (md, doc, doc_md) = didkit::DID_METHODS.resolve(id, &Default::default()).await;
-
-    match (md.error, doc, doc_md.and_then(|d| d.deactivated)) {
-        (Some(e), _, _) => Err(anyhow!(e)),
-        (_, _, Some(true)) | (_, None, _) => Ok(None),
-        (None, Some(d), None) | (None, Some(d), Some(false)) => Ok(Some(d.into())),
-    }
-}
-
-impl Manifest {
-    /// ID of the Orbit, usually a DID
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    /// The set of Peers discoverable from the Orbit Manifest.
-    pub fn bootstrap_peers(&self) -> &[Peer] {
-        &self.bootstrap_peers
-    }
-
-    /// The set of [Verification Methods](https://www.w3.org/TR/did-core/#verification-methods) who are authorized to delegate any capability.
-    pub fn delegators(&self) -> &[DIDURL] {
-        &self.delegators
-    }
-
-    /// The set of [Verification Methods](https://www.w3.org/TR/did-core/#verification-methods) who are authorized to invoke any capability.
-    pub fn invokers(&self) -> &[DIDURL] {
-        &self.invokers
-    }
-
-    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
-        Ok(format!(
-            "kepler:{}/ipfs/{}",
-            self.id(),
-            cid.to_string_of_base(Base::Base58Btc)?
-        ))
-    }
-}
 
 pub enum AuthTokens {
     Tezos(Box<TezosAuthorizationString>),
@@ -220,17 +87,6 @@ impl AuthorizationToken for AuthTokens {
         }
     }
 }
-#[rocket::async_trait]
-impl AuthorizationPolicy<AuthTokens> for Manifest {
-    async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
-        match auth_token {
-            AuthTokens::Tezos(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct AbortOnDrop<T>(JoinHandle<T>);
@@ -275,7 +131,60 @@ impl OrbitTasks {
 pub struct Orbit {
     pub service: Service,
     _tasks: OrbitTasks,
-    metadata: Manifest,
+    manifest: Manifest,
+}
+
+impl Orbit {
+    async fn new<P: AsRef<Path>>(
+        path: P,
+        kp: Keypair,
+        manifest: Manifest,
+        relay: Option<(PeerId, Multiaddr)>,
+    ) -> anyhow::Result<Self> {
+        let (ipfs, ipfs_future, receiver) = create_ipfs(
+            id.clone(),
+            &dir,
+            Keypair::Ed25519(kp),
+            md.hosts.clone().into_keys(),
+        )
+        .await?;
+
+        let ipfs_task = spawn(ipfs_future);
+        if let Some(r) = relay {
+            ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
+                .await?;
+        };
+
+        let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
+
+        let service_store = Store::new(id, ipfs.clone(), db)?;
+        let service = Service::start(service_store).await?;
+
+        let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
+
+        let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
+
+        tokio_stream::iter(
+            md.hosts
+                .clone()
+                .into_iter()
+                .filter(|(p, _)| p != &local_peer_id)
+                .flat_map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
+                .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
+        )
+        .try_for_each(|multiaddr| ipfs.connect(multiaddr))
+        .await?;
+
+        Ok(Orbit {
+            service,
+            metadata: md,
+            _tasks: tasks,
+        })
+    }
+
+    async fn connect(&self, node: &MultiaddrWithPeerId) -> anyhow::Result<()> {
+        self.service.store.ipfs.connect(node).await
+    }
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -286,7 +195,7 @@ pub async fn create_orbit(
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
 ) -> Result<Option<Orbit>> {
-    let md = match resolve(id).await? {
+    let md = match Manifest::resolve_dyn(id, None).await? {
         Some(m) => m,
         _ => return Ok(None),
     };
@@ -311,9 +220,11 @@ pub async fn create_orbit(
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.encode()).await?;
 
-    Ok(Some(load_orbit(md.id, path, relay).await.map(|o| {
-        o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
-    })??))
+    Ok(Some(
+        load_orbit(md.id().to_string(), path, relay)
+            .await
+            .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
+    ))
 }
 
 pub async fn load_orbit(
@@ -332,52 +243,18 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_(dir: PathBuf, id: String, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let md = resolve(&id)
+    let md = Manifest::resolve_dyn(&id, None)
         .await?
         .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
     let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
-    let mut cfg = Config::new(&dir.join("block_store"), kp);
-    cfg.network.streams = None;
 
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let (ipfs, ipfs_future, receiver) = create_ipfs(
-        id.clone(),
-        &dir,
-        Keypair::Ed25519(kp),
-        md.hosts.clone().into_keys(),
-    )
-    .await?;
-
-    let ipfs_task = spawn(ipfs_future);
-    ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
+    let orbit = Orbit::new(dir, kp, md, Some(relay)).await?;
+    orbit
+        .connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
         .await?;
-
-    let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
-
-    let service_store = Store::new(id, ipfs.clone(), db)?;
-    let service = Service::start(service_store).await?;
-
-    let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
-
-    let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
-
-    tokio_stream::iter(
-        md.hosts
-            .clone()
-            .into_iter()
-            .filter(|(p, _)| p != &local_peer_id)
-            .flat_map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
-            .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
-    )
-    .try_for_each(|multiaddr| ipfs.connect(multiaddr))
-    .await?;
-
-    Ok(Orbit {
-        service,
-        metadata: md,
-        _tasks: tasks,
-    })
+    Ok(orbit)
 }
 
 pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
@@ -414,7 +291,7 @@ impl ContentAddressedStorage for Orbit {
 impl Deref for Orbit {
     type Target = Manifest;
     fn deref(&self) -> &Self::Target {
-        &self.metadata
+        &self.manifest
     }
 }
 
@@ -422,19 +299,22 @@ impl Deref for Orbit {
 mod tests {
     use super::*;
     use didkit::DID_METHODS;
-    use ssi::{
-        did::Source,
-        jwk::{Algorithm, Params, JWK},
-    };
+    use ssi::{did::Source, jwk::JWK};
+    use tempdir::TempDir;
+
+    async fn op(md: Manifest) -> anyhow::Result<Orbit> {
+        Orbit::new(TempDir::new(md.id()).unwrap(), generate_keypair(), md).await
+    }
+
     #[test]
-    async fn manifest_resolution() {
+    async fn did_orbit() {
         let j = JWK::generate_secp256k1().unwrap();
         let did = DID_METHODS
             .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
             .unwrap();
 
-        let md = resolve(&did).await.unwrap().unwrap();
-        println!("{:?}", md);
-        assert!(false);
+        let md = Manifest::resolve_dyn(&did, None).await.unwrap().unwrap();
+
+        let orbit = op(md).await.unwrap();
     }
 }

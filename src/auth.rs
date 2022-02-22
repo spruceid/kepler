@@ -1,6 +1,7 @@
 use crate::cas::CidWrap;
 use crate::config;
-use crate::orbit::{create_orbit, hash_same, load_orbit, resolve, AuthTokens, Orbit};
+use crate::manifest::Manifest;
+use crate::orbit::{create_orbit, hash_same, load_orbit, AuthTokens, Orbit};
 use crate::relay::RelayNode;
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
@@ -224,7 +225,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
             Action::Create { .. } => {
-                let md = match resolve(token.target_orbit()).await {
+                let md = match Manifest::resolve_dyn(token.target_orbit(), None).await {
                     Ok(Some(md)) => md,
                     Ok(None) => {
                         return Outcome::Failure((
@@ -232,7 +233,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                             anyhow!("Orbit Manifest Doesnt Exist"),
                         ))
                     }
-                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+                    Err(e) => return Outcome::Failure((Status::InternalServerError, anyhow!(e))),
                 };
 
                 match md.authorize(&token).await {

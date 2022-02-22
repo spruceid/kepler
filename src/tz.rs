@@ -1,6 +1,6 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::Manifest,
+    manifest::Manifest,
 };
 use anyhow::Result;
 use nom::{
