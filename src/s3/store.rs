@@ -2,7 +2,6 @@ use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
-//use ipfs_embed::TempPin;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use sled::{Batch, Db, IVec, Tree};
@@ -10,7 +9,7 @@ use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
 };
-use tracing::{debug, error};
+use tracing::debug;
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
 
@@ -223,7 +222,7 @@ impl Store {
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         if !heads.is_empty() {
-            debug!("broadcasting {} heads at maxheight {}", heads.len(), height);
+            info!("{}: broadcasting {} heads at maxheight {} on {}", self.ipfs.identity().await?.0.into_peer_id(), heads.len(), height, self.id);
             self.ipfs
                 .pubsub_publish(
                     self.id.clone(),
@@ -337,6 +336,9 @@ impl Store {
 
             // dispatch ipfs::sync
             debug!("syncing head {}", head);
+
+            self.ipfs.insert_pin(&head, true).await?;
+
             // Can't find sync method in rust-ipfs.
             // Does bitswap syncing happen automatically behind the scenes?
 

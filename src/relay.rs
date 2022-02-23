@@ -102,7 +102,7 @@ impl Drop for RelayNode {
 mod test {
     use super::*;
     use ipfs::{
-        p2p::transport::TransportBuilder, IpfsOptions, MultiaddrWithoutPeerId, TestTypes, Types,
+        p2p::transport::TransportBuilder, IpfsOptions, MultiaddrWithoutPeerId, Types,
         UninitializedIpfs,
     };
     use libp2p::core::multiaddr::{multiaddr, Protocol};
@@ -119,7 +119,7 @@ mod test {
         let bob_path = dir.path().join("bob");
         std::fs::create_dir(&bob_path)?;
 
-        // Isn't actually in-memory, just uses std::env::tmp_dir. Does provide fine defaults for the other fields though.
+        // Isn't actually in-memory, just provides useful defaults.
         let mut alice_opts = IpfsOptions::inmemory_with_generated_keys();
         alice_opts.ipfs_path = alice_path;
         alice_opts.listening_addrs = vec![multiaddr!(P2pCircuit)];
@@ -167,8 +167,6 @@ mod test {
         )
         .await
         .expect("bob failed to connect to alice");
-
-        bob.pubsub_subscribe("test".to_string()).await?;
 
         tokio::time::sleep(Duration::from_millis(1000)).await;
 

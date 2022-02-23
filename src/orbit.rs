@@ -4,28 +4,22 @@ use crate::{
     codec::SupportedCodecs,
     config::ExternalApis,
     ipfs::create_ipfs,
-    s3::{
-        behaviour::{Behaviour, BehaviourProcess, Event as BehaviourEvent},
-        Service, Store,
-    },
+    s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs::{
-    p2p::transport::TransportBuilder, IpfsOptions, MultiaddrWithoutPeerId, UninitializedIpfs,
-};
+use ipfs::MultiaddrWithoutPeerId;
 use libipld::cid::{
     multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
 use libp2p::{
-    core::{transport::MemoryTransport, Multiaddr},
+    core::Multiaddr,
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    multiaddr::multiaddr,
     PeerId,
 };
 use rocket::{

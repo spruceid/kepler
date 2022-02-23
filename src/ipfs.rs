@@ -1,8 +1,4 @@
-use std::{
-    future::Future,
-    path::{Path, PathBuf},
-    sync::mpsc::Receiver,
-};
+use std::{future::Future, path::Path, sync::{mpsc::Receiver, atomic::{AtomicU16, Ordering}}};
 
 use crate::s3::behaviour::{Behaviour, Event as BehaviourEvent};
 
@@ -13,20 +9,15 @@ use ipfs::{
     multiaddr,
     p2p::{transport::TransportBuilder, TSwarm},
     path::PathRoot,
-    Ipfs as OIpfs, IpfsOptions, IpfsPath, Keypair, PeerId, PinMode, RepoTypes, Types,
-    UninitializedIpfs,
+    Ipfs as OIpfs, IpfsOptions, IpfsPath, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
 };
 use libipld::{
     block::Block as OBlock,
-    cid::{multihash::Code, Cid},
-    raw::RawCodec,
+    cid::Cid,
     store::{DefaultParams, StoreParams},
     Ipld,
 };
-use libp2p::{
-    core::transport::MemoryTransport,
-    futures::{StreamExt, TryStreamExt},
-};
+use libp2p::{core::transport::MemoryTransport, futures::TryStreamExt};
 
 pub type KeplerParams = DefaultParams;
 // #[derive(Clone, Debug, Default)]
@@ -42,6 +33,8 @@ pub type Ipfs = OIpfs<Types>;
 pub type Block = OBlock<KeplerParams>;
 pub type Swarm = TSwarm<Types>;
 
+static p: AtomicU16 = AtomicU16::new(10002);
+
 pub async fn create_ipfs<'l, I>(
     id: String,
     dir: &'l Path,
@@ -53,13 +46,14 @@ where
 {
     let ipfs_path = dir.join("ipfs");
     std::fs::create_dir(&ipfs_path)?;
+    let i = p.fetch_add(1, Ordering::SeqCst);
     let ipfs_opts = IpfsOptions {
         ipfs_path,
         keypair,
         bootstrap: vec![],
         mdns: false,
-        kad_protocol: Some("/ipfs/lan/kad/1.0.0".to_string()),
-        listening_addrs: vec![multiaddr!(P2pCircuit)],
+        kad_protocol: None,
+        listening_addrs: vec![multiaddr!(P2pCircuit), multiaddr!(Memory(i))],
         span: None,
     };
 
@@ -84,8 +78,23 @@ where
     Ok((ipfs, ipfs_task, receiver))
 }
 
-struct Content {
-    parts: Vec<Cid>,
+pub async fn relay(port: u16) -> OIpfs<ipfs::TestTypes> {
+    let mut ipfs_opts = IpfsOptions::inmemory_with_generated_keys();
+    ipfs_opts.listening_addrs = vec![
+        multiaddr!(Memory(port)),
+    ];
+
+    let (transport_builder, relay_behaviour) = TransportBuilder::new(ipfs_opts.keypair.clone())
+        .unwrap()
+        .or(MemoryTransport::default())
+        .relay();
+    let (ipfs, ipfs_task) =
+        UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
+            .start()
+            .await
+            .unwrap();
+    tokio::task::spawn(ipfs_task);
+    return ipfs;
 }
 
 #[rocket::async_trait]
