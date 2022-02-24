@@ -1,4 +1,4 @@
-use std::{future::Future, path::Path, sync::{mpsc::Receiver, atomic::{AtomicU16, Ordering}}};
+use std::{future::Future, path::Path, sync::mpsc::Receiver};
 
 use crate::s3::behaviour::{Behaviour, Event as BehaviourEvent};
 
@@ -33,8 +33,6 @@ pub type Ipfs = OIpfs<Types>;
 pub type Block = OBlock<KeplerParams>;
 pub type Swarm = TSwarm<Types>;
 
-static p: AtomicU16 = AtomicU16::new(10002);
-
 pub async fn create_ipfs<'l, I>(
     id: String,
     dir: &'l Path,
@@ -46,14 +44,13 @@ where
 {
     let ipfs_path = dir.join("ipfs");
     std::fs::create_dir(&ipfs_path)?;
-    let i = p.fetch_add(1, Ordering::SeqCst);
     let ipfs_opts = IpfsOptions {
         ipfs_path,
         keypair,
         bootstrap: vec![],
         mdns: false,
         kad_protocol: None,
-        listening_addrs: vec![multiaddr!(P2pCircuit), multiaddr!(Memory(i))],
+        listening_addrs: vec![multiaddr!(P2pCircuit)],
         span: None,
     };
 
@@ -80,9 +77,7 @@ where
 
 pub async fn relay(port: u16) -> OIpfs<ipfs::TestTypes> {
     let mut ipfs_opts = IpfsOptions::inmemory_with_generated_keys();
-    ipfs_opts.listening_addrs = vec![
-        multiaddr!(Memory(port)),
-    ];
+    ipfs_opts.listening_addrs = vec![multiaddr!(Memory(port))];
 
     let (transport_builder, relay_behaviour) = TransportBuilder::new(ipfs_opts.keypair.clone())
         .unwrap()

@@ -222,7 +222,14 @@ impl Store {
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.state()?;
         if !heads.is_empty() {
-            info!("{}: broadcasting {} heads at maxheight {} on {}", self.ipfs.identity().await?.0.into_peer_id(), heads.len(), height, self.id);
+            info!(
+                "{}: broadcasting {} heads at maxheight {} on {}: {:?}",
+                self.ipfs.identity().await?.0.into_peer_id(),
+                heads.len(),
+                height,
+                self.id,
+                heads
+            );
             self.ipfs
                 .pubsub_publish(
                     self.id.clone(),

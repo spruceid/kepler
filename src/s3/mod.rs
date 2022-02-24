@@ -108,7 +108,7 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
             match ev {
                 Ok((p, ev)) if p == this_pid => {
                     info!("{} filtered out this event from self: {:?}", p, ev)
-                },
+                }
                 Ok((p, KVMessage::Heads(heads))) => {
                     info!(
                         "{} new heads from {}",
@@ -137,7 +137,7 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 
 #[cfg(test)]
 mod test {
-    use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol, multiaddr};
+    use ipfs::{multiaddr, Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
     use crate::{ipfs::create_ipfs, relay::RelayNode, tracing_try_init};
@@ -186,40 +186,51 @@ mod test {
 
         let alice_service = alice_store.start_service().await?;
         let bob_service = bob_store.start_service().await?;
-        //alice_service
-        //    .ipfs
-        //    .connect(
-        //        MultiaddrWithoutPeerId::try_from(relay_internal.clone())?.with(relay_peer_id.clone()),
-        //    )
-        //    .await
-        //    .expect("alice failed to connect to relay");
-        //bob_service
-        //    .ipfs
-        //    .connect(
-        //        MultiaddrWithoutPeerId::try_from(relay_internal.clone())?.with(relay_peer_id.clone()),
-        //    )
-        //    .await
-        //    .expect("bob failed to connect to relay");
 
+        // Add peers to eachothers floodsub `target_list` of peers to share messages with.
+        bob_service
+            .ipfs
+            .pubsub_add_peer(alice_peer_id.clone())
+            .await?;
+        alice_service
+            .ipfs
+            .pubsub_add_peer(bob_peer_id.clone())
+            .await?;
+
+        // Connect the peers to the relay.
+        alice_service
+            .ipfs
+            .connect(
+                MultiaddrWithoutPeerId::try_from(relay_internal.clone())?
+                    .with(relay_peer_id.clone()),
+            )
+            .await
+            .expect("alice failed to connect to relay");
+        bob_service
+            .ipfs
+            .connect(
+                MultiaddrWithoutPeerId::try_from(relay_internal.clone())?
+                    .with(relay_peer_id.clone()),
+            )
+            .await
+            .expect("bob failed to connect to relay");
+
+        // Connect the peers to eachother.
         bob_service
             .ipfs
             .connect(
                 MultiaddrWithoutPeerId::try_from(
-                    multiaddr!(Memory(10002u16))
-                    //relay_internal
-                    //    .with(Protocol::P2p(relay_peer_id.into()))
-                    //    .with(Protocol::P2pCircuit),
+                    relay_internal
+                        .with(Protocol::P2p(relay_peer_id.into()))
+                        .with(Protocol::P2pCircuit),
                 )?
                 .with(alice_peer_id.clone()),
             )
             .await
             .expect("bob failed to connect to alice");
 
-        let peers = bob_service.ipfs.peers().await?;
-        tracing::info!(
-            "{:?}",
-            peers.iter().map(|c| c.addr.peer_id).collect::<Vec<_>>()
-        );
+        // TODO: Work out why there is a race condition, and fix it so we don't need this sleep between connecting and writing.
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let json = r#"{"hello":"there"}"#;
         let key1 = "my_json.json";
@@ -266,14 +277,9 @@ mod test {
                 "object 2 found for alice"
             );
         };
-        let peers = bob_service.ipfs.peers().await?;
-        tracing::info!(
-            "{:#?}",
-            peers
-        );
-        tracing::info!("11");
 
         tokio::time::sleep(Duration::from_millis(500)).await;
+
         assert_eq!(
             bob_service
                 .get(key1)
@@ -284,7 +290,7 @@ mod test {
                 .await?
                 .expect("object 1 not found for alice")
         );
-        tracing::info!("12");
+
         assert_eq!(
             bob_service
                 .get(key2)
@@ -295,7 +301,6 @@ mod test {
                 .await?
                 .expect("object 2 not found for alice")
         );
-        tracing::info!("13");
 
         // remove key1
         let add: Vec<(&[u8], Cid)> = vec![];

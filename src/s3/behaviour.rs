@@ -44,8 +44,8 @@ impl NetworkBehaviour for Behaviour {
         Vec::new()
     }
 
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(peer_id.clone())) {
+    fn inject_connected(&mut self, _peer_id: &PeerId) {
+        if let Err(_e) = self.sender.send(Event::ConnectionEstablished()) {
             tracing::error!("Behaviour process has shutdown.")
         }
     }
@@ -74,8 +74,7 @@ impl BehaviourProcess {
             {
                 receiver = returned_receiver;
                 match event {
-                    Event::ConnectionEstablished(peer_id) => {
-                        info!("{} connected to {}", store.ipfs.identity().await.unwrap().0.into_peer_id(), peer_id);
+                    Event::ConnectionEstablished() => {
                         if let Err(e) = store.request_heads().await {
                             tracing::error!("failed to request heads from peers: {}", e)
                         }
@@ -88,5 +87,5 @@ impl BehaviourProcess {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    ConnectionEstablished(PeerId),
+    ConnectionEstablished(),
 }

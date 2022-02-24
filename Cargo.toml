@@ -19,7 +19,7 @@ chrono = "0.4"
 didkit = "0.3"
 ethers-core = "0.6"
 hex = "0.4"
-ipfs = { git = "https://github.com/spruceid/rust-ipfs", branch = "kepler-staging" }
+ipfs = { git = "https://github.com/cobward/rust-ipfs", branch = "kepler-staging" }
 libipld = "0.12"
 libp2p = "0.39"
 nom = "6"
