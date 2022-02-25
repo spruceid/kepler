@@ -45,13 +45,13 @@ impl NetworkBehaviour for Behaviour {
     }
 
     fn inject_connected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(peer_id.clone())) {
+        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(*peer_id)) {
             tracing::error!("Behaviour process has shutdown.")
         }
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(peer_id.clone())) {
+        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(*peer_id)) {
             tracing::error!("Behaviour process has shutdown.")
         }
     }
@@ -88,7 +88,10 @@ impl BehaviourProcess {
                     }
                     Event::ConnectionTerminated(peer_id) => {
                         if let Err(e) = store.ipfs.pubsub_remove_peer(peer_id).await {
-                            tracing::error!("failed to remove disconnected peer from allowed pubsub peers: {}", e)
+                            tracing::error!(
+                                "failed to remove disconnected peer from allowed pubsub peers: {}",
+                                e
+                            )
                         }
                     }
                 }

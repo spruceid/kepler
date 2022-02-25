@@ -79,19 +79,33 @@ impl Drop for RelayNode {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
     use ipfs::{
         p2p::transport::TransportBuilder, IpfsOptions, MultiaddrWithoutPeerId, Types,
         UninitializedIpfs,
     };
     use libp2p::core::multiaddr::{multiaddr, Protocol};
-    use std::{convert::TryFrom, time::Duration};
+    use std::{
+        convert::TryFrom,
+        sync::atomic::{AtomicU16, Ordering},
+        time::Duration,
+    };
+
+    static PORT: AtomicU16 = AtomicU16::new(10000);
+
+    pub async fn test_relay() -> Result<RelayNode> {
+        RelayNode::new(
+            PORT.fetch_add(1, Ordering::SeqCst),
+            Keypair::generate_ed25519(),
+        )
+        .await
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn relay() -> Result<()> {
         crate::tracing_try_init();
-        let relay = RelayNode::new(10000, Keypair::generate_ed25519()).await?;
+        let relay = test_relay().await?;
 
         let dir = tempdir::TempDir::new("relay")?;
         let alice_path = dir.path().join("alice");

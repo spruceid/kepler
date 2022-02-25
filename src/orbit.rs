@@ -166,8 +166,8 @@ impl<T> Deref for AbortOnDrop<T> {
 
 #[derive(Clone, Debug)]
 struct OrbitTasks {
-    ipfs: Arc<AbortOnDrop<()>>,
-    behaviour_process: BehaviourProcess,
+    _ipfs: Arc<AbortOnDrop<()>>,
+    _behaviour_process: BehaviourProcess,
 }
 
 impl OrbitTasks {
@@ -177,8 +177,8 @@ impl OrbitTasks {
     ) -> Self {
         let ipfs = Arc::new(AbortOnDrop::new(tokio::spawn(ipfs_future)));
         Self {
-            ipfs,
-            behaviour_process,
+            _ipfs: ipfs,
+            _behaviour_process: behaviour_process,
         }
     }
 }
@@ -187,7 +187,7 @@ impl OrbitTasks {
 pub struct Orbit {
     pub service: Service,
     metadata: OrbitMetadata,
-    tasks: OrbitTasks,
+    _tasks: OrbitTasks,
 }
 
 fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
@@ -328,7 +328,7 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     Ok(Orbit {
         service,
         metadata: md,
-        tasks,
+        _tasks: tasks,
     })
 }
 

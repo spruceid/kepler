@@ -138,7 +138,7 @@ mod test {
     use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
-    use crate::{ipfs::create_ipfs, relay::RelayNode, tracing_try_init};
+    use crate::{ipfs::create_ipfs, relay::test::test_relay, tracing_try_init};
     use std::{collections::BTreeMap, convert::TryFrom, path::PathBuf, time::Duration};
 
     async fn create_store<I>(
@@ -165,7 +165,7 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     async fn test() -> Result<(), anyhow::Error> {
         tracing_try_init();
-        let relay = RelayNode::new(10001, Keypair::generate_ed25519()).await?;
+        let relay = test_relay().await?;
         let relay_peer_id = relay.id.clone();
         let relay_internal = relay.internal();
 
@@ -208,7 +208,8 @@ mod test {
             .ipfs
             .connect(
                 MultiaddrWithoutPeerId::try_from(
-                    relay_internal
+                    relay
+                        .external()
                         .with(Protocol::P2p(relay_peer_id.into()))
                         .with(Protocol::P2pCircuit),
                 )?

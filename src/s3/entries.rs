@@ -126,12 +126,13 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     async fn write() -> Result<(), anyhow::Error> {
         crate::tracing_try_init();
+        let tmp = tempdir::TempDir::new("test_streams")?;
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-        let (ipfs, task) = IpfsOptions::inmemory_with_generated_keys()
-            .create_uninitialised_ipfs()?
-            .start()
-            .await?;
+        let mut config = IpfsOptions::inmemory_with_generated_keys();
+        config.ipfs_path = tmp.path().into();
+
+        let (ipfs, task) = config.create_uninitialised_ipfs()?.start().await?;
         let _join_handle = tokio::spawn(task);
 
         let o = write_to_store(&ipfs, Cursor::new(data.clone())).await?;

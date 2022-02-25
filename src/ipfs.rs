@@ -44,7 +44,7 @@ where
 {
     let ipfs_path = dir.join("ipfs");
     if !ipfs_path.exists() {
-        tokio::fs::create_dir(&ipfs_path).await?;
+        tokio::fs::create_dir_all(&ipfs_path).await?;
     }
     id.insert_str(0, "/kepler/");
     let ipfs_opts = IpfsOptions {
