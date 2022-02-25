@@ -185,16 +185,6 @@ mod test {
         let alice_service = alice_store.start_service().await?;
         let bob_service = bob_store.start_service().await?;
 
-        // Add peers to eachothers floodsub `target_list` of peers to share messages with.
-        bob_service
-            .ipfs
-            .pubsub_add_peer(alice_peer_id.clone())
-            .await?;
-        alice_service
-            .ipfs
-            .pubsub_add_peer(bob_peer_id.clone())
-            .await?;
-
         // Connect the peers to the relay.
         alice_service
             .ipfs

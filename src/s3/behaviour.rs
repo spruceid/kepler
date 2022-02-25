@@ -44,13 +44,17 @@ impl NetworkBehaviour for Behaviour {
         Vec::new()
     }
 
-    fn inject_connected(&mut self, _peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionEstablished()) {
+    fn inject_connected(&mut self, peer_id: &PeerId) {
+        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(peer_id.clone())) {
             tracing::error!("Behaviour process has shutdown.")
         }
     }
 
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
+    fn inject_disconnected(&mut self, peer_id: &PeerId) {
+        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(peer_id.clone())) {
+            tracing::error!("Behaviour process has shutdown.")
+        }
+    }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: Void) {}
 
@@ -74,9 +78,17 @@ impl BehaviourProcess {
             {
                 receiver = returned_receiver;
                 match event {
-                    Event::ConnectionEstablished() => {
+                    Event::ConnectionEstablished(peer_id) => {
+                        if let Err(e) = store.ipfs.pubsub_add_peer(peer_id).await {
+                            tracing::error!("failed to add new peer to allowed pubsub peers: {}", e)
+                        }
                         if let Err(e) = store.request_heads().await {
                             tracing::error!("failed to request heads from peers: {}", e)
+                        }
+                    }
+                    Event::ConnectionTerminated(peer_id) => {
+                        if let Err(e) = store.ipfs.pubsub_remove_peer(peer_id).await {
+                            tracing::error!("failed to remove disconnected peer from allowed pubsub peers: {}", e)
                         }
                     }
                 }
@@ -87,5 +99,6 @@ impl BehaviourProcess {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    ConnectionEstablished(),
+    ConnectionEstablished(PeerId),
+    ConnectionTerminated(PeerId),
 }
