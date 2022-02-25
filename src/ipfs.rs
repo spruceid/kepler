@@ -33,9 +33,9 @@ pub type Ipfs = OIpfs<Types>;
 pub type Block = OBlock<KeplerParams>;
 pub type Swarm = TSwarm<Types>;
 
-pub async fn create_ipfs<'l, I>(
-    id: String,
-    dir: &'l Path,
+pub async fn create_ipfs<I>(
+    mut id: String,
+    dir: &Path,
     keypair: Keypair,
     allowed_peers: I,
 ) -> Result<(Ipfs, impl Future<Output = ()>, Receiver<BehaviourEvent>)>
@@ -43,13 +43,16 @@ where
     I: IntoIterator<Item = PeerId> + 'static,
 {
     let ipfs_path = dir.join("ipfs");
-    std::fs::create_dir(&ipfs_path)?;
+    if !ipfs_path.exists() {
+        tokio::fs::create_dir(&ipfs_path).await?;
+    }
+    id.insert_str(0, "/kepler/");
     let ipfs_opts = IpfsOptions {
         ipfs_path,
         keypair,
         bootstrap: vec![],
         mdns: false,
-        kad_protocol: None,
+        kad_protocol: Some(id),
         listening_addrs: vec![multiaddr!(P2pCircuit)],
         span: None,
     };
@@ -75,23 +78,6 @@ where
     Ok((ipfs, ipfs_task, receiver))
 }
 
-pub async fn relay(port: u16) -> OIpfs<ipfs::TestTypes> {
-    let mut ipfs_opts = IpfsOptions::inmemory_with_generated_keys();
-    ipfs_opts.listening_addrs = vec![multiaddr!(Memory(port))];
-
-    let (transport_builder, relay_behaviour) = TransportBuilder::new(ipfs_opts.keypair.clone())
-        .unwrap()
-        .or(MemoryTransport::default())
-        .relay();
-    let (ipfs, ipfs_task) =
-        UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
-            .start()
-            .await
-            .unwrap();
-    tokio::task::spawn(ipfs_task);
-    return ipfs;
-}
-
 #[rocket::async_trait]
 impl ContentAddressedStorage for Ipfs {
     type Error = anyhow::Error;
@@ -111,7 +97,7 @@ impl ContentAddressedStorage for Ipfs {
         // TODO this api returns Result<Block, anyhow::Error>, with an err thrown for no block found
         // until this API changes (a breaking change), we will error here when no block found
         if let Ipld::List(parts) = self
-            .get_dag(IpfsPath::new(PathRoot::Ipld(address.clone())))
+            .get_dag(IpfsPath::new(PathRoot::Ipld(*address)))
             .await?
         {
             return Ok(Some(parts.into_iter().try_fold(
@@ -131,7 +117,7 @@ impl ContentAddressedStorage for Ipfs {
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         // TODO: does not recursively remove blocks, some cleanup will need to happen.
         self.remove_pin(address, true).await?;
-        self.remove_block(address.clone()).await?;
+        self.remove_block(*address).await?;
         Ok(())
     }
     async fn list(&self) -> Result<Vec<Cid>, Self::Error> {

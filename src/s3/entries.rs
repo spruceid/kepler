@@ -20,7 +20,7 @@ pub fn read_from_store(ipfs: Ipfs, content: Vec<(Cid, u32)>) -> ObjectReader {
     let chunk_stream = Box::pin(
         iter(content)
             .then(move |(cid, _)| get_block(ipfs.clone(), cid))
-            .map_ok(|block| Cursor::new(block))
+            .map_ok(Cursor::new)
             .map_err(|ipfs_err| io::Error::new(ErrorKind::Other, ipfs_err)),
     );
     StreamReader::new(chunk_stream)
@@ -38,12 +38,12 @@ where
     let mut buffer: Vec<u8> = Vec::new();
     let mut content: Vec<(Cid, u32)> = Vec::new();
     while let Some(chunk) = reader.next().await.transpose()? {
-        buffer.write(&chunk)?;
+        buffer.write_all(&chunk)?;
         while buffer.len() >= KeplerParams::MAX_BLOCK_SIZE {
             flush_buffer_to_block(store, &mut buffer, &mut content).await?;
         }
     }
-    while buffer.len() > 0 {
+    while !buffer.is_empty() {
         flush_buffer_to_block(store, &mut buffer, &mut content).await?;
     }
     let block = to_block(&content)?;
@@ -128,30 +128,23 @@ mod test {
         crate::tracing_try_init();
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 
-        println!("1");
         let (ipfs, task) = IpfsOptions::inmemory_with_generated_keys()
             .create_uninitialised_ipfs()?
             .start()
             .await?;
-        println!("2");
         let _join_handle = tokio::spawn(task);
-        println!("3");
 
         let o = write_to_store(&ipfs, Cursor::new(data.clone())).await?;
-        println!("4");
 
         let content = ipfs
             .get_block(&o)
             .await?
             .decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
-        println!("5");
 
         let mut read = read_from_store(ipfs, content);
-        println!("6");
 
         let mut out = Vec::new();
         tokio::io::copy(&mut read, &mut out).await?;
-        println!("7");
 
         assert_eq!(out.len(), data.len());
         Ok(())

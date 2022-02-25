@@ -1,94 +1,74 @@
 use anyhow::Result;
-use libp2p::{
-    core::{
-        identity::Keypair,
-        multiaddr::multiaddr,
-        transport::MemoryTransport,
-        upgrade::{SelectUpgrade, Version},
-        Multiaddr, PeerId, Transport,
-    },
-    dns::TokioDnsConfig as DnsConfig,
-    mplex::MplexConfig,
-    noise::{self, NoiseConfig, X25519Spec},
-    ping::{Ping, PingEvent},
-    relay::{new_transport_and_behaviour, Relay},
-    swarm::{NetworkBehaviourEventProcess, Swarm},
-    tcp::TokioTcpConfig as TcpConfig,
-    yamux::YamuxConfig,
+use ipfs::{p2p::transport::TransportBuilder, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+use libp2p::core::{
+    identity::Keypair, multiaddr::multiaddr, transport::MemoryTransport, Multiaddr, PeerId,
 };
-use rocket::{
-    futures::stream::StreamExt,
-    tokio::{spawn, task::JoinHandle},
-};
-use std::time::Duration;
+use rocket::tokio::{spawn, task::JoinHandle};
 
 pub struct RelayNode {
     pub port: u16,
     pub id: PeerId,
     task: JoinHandle<()>,
-}
-
-#[derive(libp2p::NetworkBehaviour)]
-struct RelayBehaviour {
-    relay: Relay,
-    ping: Ping,
-}
-
-impl NetworkBehaviourEventProcess<()> for RelayBehaviour {
-    fn inject_event(&mut self, _event: ()) {}
-}
-impl NetworkBehaviourEventProcess<PingEvent> for RelayBehaviour {
-    fn inject_event(&mut self, _event: PingEvent) {}
+    _ipfs: Ipfs<TestTypes>,
 }
 
 impl RelayNode {
-    pub fn new(port: u16, key: Keypair) -> Result<Self> {
-        let local_public_key = key.public();
+    pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
+        let local_public_key = keypair.public();
         let id = local_public_key.into_peer_id();
-        let base = MemoryTransport.or_transport(DnsConfig::system(TcpConfig::new().nodelay(true))?);
-        let (t, r) = new_transport_and_behaviour(Default::default(), base);
-        let b = RelayBehaviour {
-            relay: r,
-            ping: Ping::default(),
+        let relay_tcp_addr = Self::_external(port);
+        let relay_mem_addr = Self::_internal(port);
+
+        let (transport_builder, relay_behaviour) = TransportBuilder::new(keypair.clone())?
+            .or(MemoryTransport::default())
+            .relay();
+
+        let ipfs_opts = IpfsOptions {
+            ipfs_path: std::env::temp_dir(),
+            keypair,
+            bootstrap: vec![],
+            mdns: false,
+            kad_protocol: "/kepler/relay".to_string().into(),
+            listening_addrs: vec![relay_tcp_addr, relay_mem_addr],
+            span: None,
         };
 
-        let transport = t
-            .upgrade(Version::V1)
-            .authenticate(
-                NoiseConfig::xx(noise::Keypair::<X25519Spec>::new().into_authentic(&key)?)
-                    .into_authenticated(),
-            )
-            .multiplex(SelectUpgrade::new(
-                YamuxConfig::default(),
-                MplexConfig::new(),
-            ))
-            .timeout(Duration::from_secs(5))
-            .boxed();
-
-        let relay_tcp_addr = multiaddr!(Ip4([127, 0, 0, 1]), Tcp(port));
-        let relay_mem_addr = multiaddr!(Memory(port));
-        let mut swarm = Swarm::new(transport, b, id);
+        // TestTypes designates an in-memory Ipfs instance, but this peer won't store data anyway.
+        let (_ipfs, ipfs_task) =
+            UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
+                .start()
+                .await?;
 
         tracing::debug!(
             "opened relay: {} at {}, {}",
             id,
-            relay_mem_addr,
-            relay_tcp_addr
+            Self::_internal(port),
+            Self::_external(port),
         );
 
-        swarm.listen_on(relay_tcp_addr)?;
-        swarm.listen_on(relay_mem_addr)?;
+        let task = spawn(ipfs_task);
+        Ok(Self {
+            port,
+            task,
+            id,
+            _ipfs,
+        })
+    }
 
-        let task = spawn(swarm.for_each_concurrent(None, |_| async move {}));
-        Ok(Self { port, task, id })
+    fn _internal(port: u16) -> Multiaddr {
+        multiaddr!(Memory(port))
     }
 
     pub fn internal(&self) -> Multiaddr {
-        multiaddr!(Memory(self.port))
+        Self::_internal(self.port)
+    }
+
+    fn _external(port: u16) -> Multiaddr {
+        multiaddr!(Ip4([127, 0, 0, 1]), Tcp(port))
     }
 
     pub fn external(&self) -> Multiaddr {
-        multiaddr!(Ip4([127, 0, 0, 1]), Tcp(self.port))
+        Self::_external(self.port)
     }
 }
 
@@ -106,12 +86,12 @@ mod test {
         UninitializedIpfs,
     };
     use libp2p::core::multiaddr::{multiaddr, Protocol};
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, time::Duration};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn relay() -> Result<()> {
         crate::tracing_try_init();
-        let relay = RelayNode::new(10000, Keypair::generate_ed25519())?;
+        let relay = RelayNode::new(10000, Keypair::generate_ed25519()).await?;
 
         let dir = tempdir::TempDir::new("relay")?;
         let alice_path = dir.path().join("alice");

@@ -30,20 +30,19 @@ impl Service {
         }
     }
 
-    pub async fn start(config: Store) -> Result<Self> {
-        let events = config
+    pub async fn start(store: Store) -> Result<Self> {
+        let events = store
             .ipfs
-            .pubsub_subscribe(config.id.clone())
+            .pubsub_subscribe(store.id.clone())
             .await?
             .map(|msg| match bincode::deserialize(&msg.data) {
                 Ok(kv_msg) => Ok((msg.source, kv_msg)),
                 Err(e) => Err(anyhow!(e)),
             });
-        config.request_heads().await?;
-        Ok(Service::new(
-            config.clone(),
-            tokio::spawn(kv_task(events, config)),
-        ))
+        let peer_id = store.ipfs.identity().await?.0.into_peer_id();
+        let task = tokio::spawn(kv_task(events, store.clone(), peer_id));
+        store.request_heads().await?;
+        Ok(Service::new(store, task))
     }
 }
 
@@ -100,28 +99,27 @@ enum KVMessage {
     StateReq,
 }
 
-async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send, store: Store) {
+async fn kv_task(
+    events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
+    store: Store,
+    peer_id: PeerId,
+) {
     debug!("starting KV task");
-    let this_pid = store.ipfs.identity().await.unwrap().0.into_peer_id();
     events
         .for_each_concurrent(None, |ev| async {
             match ev {
-                Ok((p, ev)) if p == this_pid => {
-                    info!("{} filtered out this event from self: {:?}", p, ev)
+                Ok((p, ev)) if p == peer_id => {
+                    debug!("{} filtered out this event from self: {:?}", p, ev)
                 }
                 Ok((p, KVMessage::Heads(heads))) => {
-                    info!(
-                        "{} new heads from {}",
-                        store.ipfs.identity().await.unwrap().0.into_peer_id(),
-                        p
-                    );
+                    debug!("{} received new heads from {}", peer_id, p);
                     // sync heads
                     if let Err(e) = store.try_merge_heads(heads.into_iter()).await {
                         error!("failed to merge heads {}", e);
                     };
                 }
                 Ok((p, KVMessage::StateReq)) => {
-                    info!("{} requests state", p);
+                    debug!("{} requests state", p);
                     // send heads
                     if let Err(e) = store.broadcast_heads().await {
                         error!("failed to broadcast heads {}", e);
@@ -137,7 +135,7 @@ async fn kv_task(events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
 
 #[cfg(test)]
 mod test {
-    use ipfs::{multiaddr, Keypair, MultiaddrWithoutPeerId, Protocol};
+    use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
     use crate::{ipfs::create_ipfs, relay::RelayNode, tracing_try_init};
@@ -167,9 +165,9 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     async fn test() -> Result<(), anyhow::Error> {
         tracing_try_init();
-        let relay = crate::ipfs::relay(10001).await;
-        let relay_peer_id = relay.identity().await?.0.into_peer_id();
-        let relay_internal = multiaddr!(Memory(10001u16));
+        let relay = RelayNode::new(10001, Keypair::generate_ed25519()).await?;
+        let relay_peer_id = relay.id.clone();
+        let relay_internal = relay.internal();
 
         let tmp = tempdir::TempDir::new("test_streams")?;
         let id = "test_id".to_string();

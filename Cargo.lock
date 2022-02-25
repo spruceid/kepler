@@ -2307,7 +2307,7 @@ dependencies = [
 [[package]]
 name = "ipfs"
 version = "0.2.1"
-source = "git+https://github.com/cobward/rust-ipfs?branch=kepler-staging#b177a12961cb093d394536a55f8436ef4bda8fca"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#07d292f9e2e10f70cfac100d665ddeddf1e6fd53"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2340,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "ipfs-bitswap"
 version = "0.1.0"
-source = "git+https://github.com/cobward/rust-ipfs?branch=kepler-staging#b177a12961cb093d394536a55f8436ef4bda8fca"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#07d292f9e2e10f70cfac100d665ddeddf1e6fd53"
 dependencies = [
  "fnv",
  "futures",
@@ -2359,7 +2359,7 @@ dependencies = [
 [[package]]
 name = "ipfs-unixfs"
 version = "0.2.0"
-source = "git+https://github.com/cobward/rust-ipfs?branch=kepler-staging#b177a12961cb093d394536a55f8436ef4bda8fca"
+source = "git+https://github.com/spruceid/rust-ipfs?branch=kepler-staging#07d292f9e2e10f70cfac100d665ddeddf1e6fd53"
 dependencies = [
  "either",
  "filetime",

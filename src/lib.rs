@@ -64,7 +64,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             kp
         };
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp))?;
+    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
 
     let mut routes = routes![
         put_content,
