@@ -8,14 +8,10 @@ use anyhow::Result;
 use ipfs::{
     multiaddr,
     p2p::{transport::TransportBuilder, TSwarm},
-    path::PathRoot,
-    Ipfs as OIpfs, IpfsOptions, IpfsPath, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
+    Ipfs as OIpfs, IpfsOptions, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
 };
 use libipld::{
-    block::Block as OBlock,
-    cid::Cid,
-    store::{DefaultParams, StoreParams},
-    Ipld,
+    block::Block as OBlock, cid::Cid, multihash::Code, raw::RawCodec, store::DefaultParams,
 };
 use libp2p::{core::transport::MemoryTransport, futures::TryStreamExt};
 
@@ -82,41 +78,21 @@ where
 impl ContentAddressedStorage for Ipfs {
     type Error = anyhow::Error;
     async fn put(&self, content: &[u8], _codec: SupportedCodecs) -> Result<Cid, Self::Error> {
-        let parts: Vec<Ipld> = content
-            .chunks(KeplerParams::MAX_BLOCK_SIZE)
-            .map(Vec::from)
-            .map(Ipld::Bytes)
-            .collect();
-
-        let dag = Ipld::List(parts);
-        let cid = self.put_dag(dag).await?;
-        self.insert_pin(&cid, true).await?;
+        // TODO find a way to stream this better? (use .take with max block size?)
+        let block: Block = Block::encode(RawCodec, Code::Blake3_256, content)?;
+        let cid = self.put_block(block).await?;
+        self.insert_pin(&cid, false).await?;
         Ok(cid)
     }
     async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
         // TODO this api returns Result<Block, anyhow::Error>, with an err thrown for no block found
         // until this API changes (a breaking change), we will error here when no block found
-        if let Ipld::List(parts) = self
-            .get_dag(IpfsPath::new(PathRoot::Ipld(*address)))
-            .await?
-        {
-            return Ok(Some(parts.into_iter().try_fold(
-                vec![],
-                |mut acc, ipld| {
-                    if let Ipld::Bytes(mut part) = ipld {
-                        acc.append(&mut part);
-                        return Ok(acc);
-                    }
-                    Err(anyhow!("unexpected structure"))
-                },
-            )?));
-        }
-        Err(anyhow!("unexpected structure"))
+        Ok(Some(self.get_block(address).await?.data().to_vec()))
     }
 
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         // TODO: does not recursively remove blocks, some cleanup will need to happen.
-        self.remove_pin(address, true).await?;
+        self.remove_pin(address, false).await?;
         self.remove_block(*address).await?;
         Ok(())
     }
