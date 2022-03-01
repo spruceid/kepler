@@ -37,10 +37,6 @@ jobs:
         path: didkit
         ref: 436f53baa875564dccf8c04deb57a424290358af
         submodules: true
-    
-    # This is necessary until cargo build doesn't hang on stable rust.
-    - name: Configure rust
-      run: rustup default 1.56
         
     - name: Build
       run: cargo build --verbose
@@ -58,7 +54,6 @@ jobs:
     
     - name: Configure rust
       run: |
-        rustup default 1.56
         rustup component add clippy
       
     - name: Clippy
@@ -74,7 +69,6 @@ jobs:
     
     - name: Configure rust
       run: |
-        rustup default 1.56
         rustup component add rustfmt
 
     - name: Fmt
