@@ -3,22 +3,27 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config::ExternalApis,
-    ipfs::Ipfs,
-    s3::{Service, Store},
+    ipfs::create_ipfs,
+    s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs_embed::{generate_keypair, multiaddr::multiaddr, Config, Keypair, Multiaddr, PeerId};
+use ipfs::MultiaddrWithoutPeerId;
 use libipld::cid::{
     multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use libp2p::{
+    core::Multiaddr,
+    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
+    PeerId,
+};
 use rocket::{
-    futures::StreamExt,
+    futures::TryStreamExt,
     http::Status,
     request::{FromRequest, Outcome, Request},
     tokio::{fs, task::JoinHandle},
@@ -31,6 +36,7 @@ use ssi::did::DIDURL;
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
+    future::Future,
     ops::Deref,
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -135,7 +141,8 @@ impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
     }
 }
 
-struct AbortOnDrop<T>(JoinHandle<T>);
+#[derive(Debug)]
+pub struct AbortOnDrop<T>(JoinHandle<T>);
 
 impl<T> AbortOnDrop<T> {
     pub fn new(h: JoinHandle<T>) -> Self {
@@ -157,11 +164,30 @@ impl<T> Deref for AbortOnDrop<T> {
     }
 }
 
+#[derive(Clone, Debug)]
+struct OrbitTasks {
+    _ipfs: Arc<AbortOnDrop<()>>,
+    _behaviour_process: BehaviourProcess,
+}
+
+impl OrbitTasks {
+    fn new<F: Future<Output = ()> + Send + 'static>(
+        ipfs_future: F,
+        behaviour_process: BehaviourProcess,
+    ) -> Self {
+        let ipfs = Arc::new(AbortOnDrop::new(tokio::spawn(ipfs_future)));
+        Self {
+            _ipfs: ipfs,
+            _behaviour_process: behaviour_process,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Orbit {
-    task: Arc<AbortOnDrop<()>>,
     pub service: Service,
     metadata: OrbitMetadata,
+    _tasks: OrbitTasks,
 }
 
 fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
@@ -216,7 +242,7 @@ pub async fn create_orbit(
     path: PathBuf,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
-    keys_lock: &RwLock<Map<PeerId, Keypair>>,
+    keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
 ) -> Result<Option<Orbit>> {
     let dir = path.join(md.id.to_string_of_base(Base::Base58Btc)?);
 
@@ -232,12 +258,12 @@ pub async fn create_orbit(
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
         md.hosts()
             .find_map(|h| keys.remove(h))
-            .unwrap_or_else(generate_keypair)
+            .unwrap_or_else(Ed25519Keypair::generate)
     };
 
     fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
-    fs::write(dir.join("kp"), kp.to_bytes()).await?;
+    fs::write(dir.join("kp"), kp.encode()).await?;
 
     Ok(Some(load_orbit(md.id, path, relay).await.map(|o| {
         o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
@@ -260,63 +286,49 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
-    let mut cfg = Config::new(&dir.join("block_store"), kp);
-    cfg.network.streams = None;
+    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
+    let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
 
     let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
     let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let ipfs = Ipfs::new(cfg).await?;
-
-    // listen for any relayed messages
-    ipfs.listen_on(multiaddr!(P2pCircuit))?.next().await;
-    // establish a connection to the relay
-    ipfs.dial_address(&relay.0, relay.1);
-
-    for (peer, addrs) in md.hosts.iter() {
-        if peer != &ipfs.local_peer_id() {
-            for addr in addrs.iter() {
-                ipfs.dial_address(peer, addr.clone());
-            }
-        }
-    }
-
-    let task_ipfs = ipfs.clone();
+    let (ipfs, ipfs_task, receiver) = create_ipfs(
+        id.clone(),
+        &dir,
+        Keypair::Ed25519(kp),
+        md.hosts.clone().into_keys(),
+    )
+    .await?;
 
     let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
 
-    let service_store = Store::new(id, ipfs, db)?;
-    let service = Service::start(service_store)?;
+    let service_store = Store::new(id, ipfs.clone(), db)?;
+    let service = Service::start(service_store).await?;
 
-    let st = service.store.clone();
+    let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
 
-    let task = Arc::new(AbortOnDrop::new(tokio::spawn(async move {
-        let mut events = st.ipfs.swarm_events();
-        loop {
-            match events.next().await {
-                Some(ipfs_embed::Event::Discovered(p)) => {
-                    if task_ipfs.peers().contains(&p) {
-                        tracing::debug!("dialing peer {}", p);
-                        task_ipfs.dial(&p);
-                        if let Err(e) = st.request_heads() {
-                            tracing::warn!("error when requesting heads {}", e)
-                        }
-                    } else {
-                        task_ipfs.ban(p)
-                    };
-                }
-                None => return,
-                _ => continue,
-            }
-        }
-    })));
+    let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
+
+    ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
+        .await?;
+
+    tokio_stream::iter(
+        md.hosts
+            .clone()
+            .into_iter()
+            .filter(|(p, _)| p != &local_peer_id)
+            .map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
+            .flatten()
+            .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
+    )
+    .try_for_each(|multiaddr| ipfs.connect(multiaddr))
+    .await?;
 
     Ok(Orbit {
         service,
-        task,
         metadata: md,
+        _tasks: tasks,
     })
 }
 

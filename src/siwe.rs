@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::Result;
 use didkit::DID_METHODS;
-use ipfs_embed::Cid;
+use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -15,7 +15,7 @@ use ethers_core::{types::H160, utils::to_checksum};
 use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use siwe::eip4361::Message;
+use siwe::Message;
 use std::{ops::Deref, str::FromStr};
 
 pub struct SIWESignature([u8; 65]);

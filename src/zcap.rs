@@ -5,7 +5,7 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use didkit::DID_METHODS;
-use ipfs_embed::Cid;
+use libipld::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},

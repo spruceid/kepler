@@ -1,76 +1,74 @@
 use anyhow::Result;
-use libp2p::{
-    core::{
-        identity::Keypair,
-        multiaddr::multiaddr,
-        transport::MemoryTransport,
-        upgrade::{SelectUpgrade, Version},
-        Multiaddr, PeerId, Transport,
-    },
-    dns::TokioDnsConfig as DnsConfig,
-    mplex::MplexConfig,
-    noise::{self, NoiseConfig, X25519Spec},
-    relay::new_transport_and_behaviour,
-    swarm::Swarm,
-    tcp::TokioTcpConfig as TcpConfig,
-    yamux::YamuxConfig,
+use ipfs::{p2p::transport::TransportBuilder, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
+use libp2p::core::{
+    identity::Keypair, multiaddr::multiaddr, transport::MemoryTransport, Multiaddr, PeerId,
 };
-use rocket::{
-    futures::stream::StreamExt,
-    tokio::{spawn, task::JoinHandle},
-};
-use std::time::Duration;
+use rocket::tokio::{spawn, task::JoinHandle};
 
 pub struct RelayNode {
     pub port: u16,
     pub id: PeerId,
     task: JoinHandle<()>,
+    _ipfs: Ipfs<TestTypes>,
 }
 
 impl RelayNode {
-    pub fn new(port: u16, key: Keypair) -> Result<Self> {
-        let local_public_key = key.public();
+    pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
+        let local_public_key = keypair.public();
         let id = local_public_key.into_peer_id();
-        let base = MemoryTransport.or_transport(DnsConfig::system(TcpConfig::new().nodelay(true))?);
-        let (t, r) = new_transport_and_behaviour(Default::default(), base);
+        let relay_tcp_addr = Self::_external(port);
+        let relay_mem_addr = Self::_internal(port);
 
-        let transport = t
-            .upgrade(Version::V1)
-            .authenticate(
-                NoiseConfig::xx(noise::Keypair::<X25519Spec>::new().into_authentic(&key)?)
-                    .into_authenticated(),
-            )
-            .multiplex(SelectUpgrade::new(
-                YamuxConfig::default(),
-                MplexConfig::new(),
-            ))
-            .timeout(Duration::from_secs(5))
-            .boxed();
+        let (transport_builder, relay_behaviour) = TransportBuilder::new(keypair.clone())?
+            .or(MemoryTransport::default())
+            .relay();
 
-        let relay_tcp_addr = multiaddr!(Ip4([127, 0, 0, 1]), Tcp(port));
-        let relay_mem_addr = multiaddr!(Memory(port));
-        let mut swarm = Swarm::new(transport, r, id);
+        let ipfs_opts = IpfsOptions {
+            ipfs_path: std::env::temp_dir(),
+            keypair,
+            bootstrap: vec![],
+            mdns: false,
+            kad_protocol: "/kepler/relay".to_string().into(),
+            listening_addrs: vec![relay_tcp_addr, relay_mem_addr],
+            span: None,
+        };
+
+        // TestTypes designates an in-memory Ipfs instance, but this peer won't store data anyway.
+        let (_ipfs, ipfs_task) =
+            UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
+                .start()
+                .await?;
 
         tracing::debug!(
             "opened relay: {} at {}, {}",
             id,
-            relay_mem_addr,
-            relay_tcp_addr
+            Self::_internal(port),
+            Self::_external(port),
         );
 
-        swarm.listen_on(relay_tcp_addr)?;
-        swarm.listen_on(relay_mem_addr)?;
+        let task = spawn(ipfs_task);
+        Ok(Self {
+            port,
+            task,
+            id,
+            _ipfs,
+        })
+    }
 
-        let task = spawn(swarm.for_each_concurrent(None, |_| async move {}));
-        Ok(Self { port, task, id })
+    fn _internal(port: u16) -> Multiaddr {
+        multiaddr!(Memory(port))
     }
 
     pub fn internal(&self) -> Multiaddr {
-        multiaddr!(Memory(self.port))
+        Self::_internal(self.port)
+    }
+
+    fn _external(port: u16) -> Multiaddr {
+        multiaddr!(Ip4([127, 0, 0, 1]), Tcp(port))
     }
 
     pub fn external(&self) -> Multiaddr {
-        multiaddr!(Ip4([127, 0, 0, 1]), Tcp(self.port))
+        Self::_external(self.port)
     }
 }
 
@@ -81,50 +79,99 @@ impl Drop for RelayNode {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
-    use crate::ipfs::Ipfs;
-    use ipfs_embed::{generate_keypair, Config, ToLibp2p};
+    use ipfs::{
+        p2p::transport::TransportBuilder, IpfsOptions, MultiaddrWithoutPeerId, Types,
+        UninitializedIpfs,
+    };
     use libp2p::core::multiaddr::{multiaddr, Protocol};
-    use std::path::Path;
-    use tempdir::TempDir;
+    use std::{
+        convert::TryFrom,
+        sync::atomic::{AtomicU16, Ordering},
+        time::Duration,
+    };
 
-    fn get_cfg<P: AsRef<Path>>(path: P) -> Config {
-        let mut c = Config::new(path.as_ref(), generate_keypair());
-        // ensure mdns isnt doing all the work here
-        c.network.mdns = None;
-        c
+    static PORT: AtomicU16 = AtomicU16::new(10000);
+
+    pub async fn test_relay() -> Result<RelayNode> {
+        RelayNode::new(
+            PORT.fetch_add(1, Ordering::SeqCst),
+            Keypair::generate_ed25519(),
+        )
+        .await
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn relay() -> Result<()> {
         crate::tracing_try_init();
-        let relay = RelayNode::new(10000, generate_keypair().to_keypair())?;
-        let tmp = TempDir::new("test")?;
+        let relay = test_relay().await?;
 
-        let alice = Ipfs::new(get_cfg(tmp.path().join("alice"))).await?;
-        let bob = Ipfs::new(get_cfg(tmp.path().join("bob"))).await?;
+        let dir = tempdir::TempDir::new("relay")?;
+        let alice_path = dir.path().join("alice");
+        std::fs::create_dir(&alice_path)?;
+        let bob_path = dir.path().join("bob");
+        std::fs::create_dir(&bob_path)?;
 
-        alice.listen_on(multiaddr!(P2pCircuit))?.next().await;
-        alice.dial_address(&relay.id, relay.internal());
+        // Isn't actually in-memory, just provides useful defaults.
+        let mut alice_opts = IpfsOptions::inmemory_with_generated_keys();
+        alice_opts.ipfs_path = alice_path;
+        alice_opts.listening_addrs = vec![multiaddr!(P2pCircuit)];
+        let mut bob_opts = IpfsOptions::inmemory_with_generated_keys();
+        bob_opts.ipfs_path = bob_path;
 
-        bob.listen_on(multiaddr!(Ip4([127u8, 0u8, 0u8, 1u8]), Tcp(10001u16)))?
-            .next()
-            .await;
-        tracing::debug!("dialing alice");
-        bob.dial_address(
-            &alice.local_peer_id(),
-            relay
-                .external()
-                .with(Protocol::P2p(relay.id.into()))
-                .with(Protocol::P2pCircuit)
-                .with(Protocol::P2p(alice.local_peer_id().into())),
-        );
+        let alice_peer_id = alice_opts.keypair.public().into_peer_id();
+        let bob_peer_id = bob_opts.keypair.public().into_peer_id();
 
-        std::thread::sleep(Duration::from_millis(1000));
+        let (alice_builder, alice_relay) = TransportBuilder::new(alice_opts.keypair.clone())?
+            .or(MemoryTransport::default())
+            .relay();
+        let alice_transport = alice_builder
+            .map_auth()
+            .map(crate::transport::auth_mapper([bob_peer_id.clone()]))
+            .build();
+        let (alice, task) =
+            UninitializedIpfs::<Types>::new(alice_opts, alice_transport, Some(alice_relay))
+                .start()
+                .await?;
+        tokio::spawn(task);
 
-        assert!(alice.is_connected(&bob.local_peer_id()));
-        assert!(bob.is_connected(&alice.local_peer_id()));
+        let (bob_builder, bob_relay) = TransportBuilder::new(bob_opts.keypair.clone())?
+            .or(MemoryTransport::default())
+            .relay();
+        let (bob, task) =
+            UninitializedIpfs::<Types>::new(bob_opts, bob_builder.build(), Some(bob_relay))
+                .start()
+                .await?;
+        tokio::spawn(task);
+
+        alice
+            .connect(MultiaddrWithoutPeerId::try_from(relay.internal())?.with(relay.id.clone()))
+            .await
+            .expect("alice failed to connect to relay");
+
+        bob.connect(
+            MultiaddrWithoutPeerId::try_from(
+                relay
+                    .external()
+                    .with(Protocol::P2p(relay.id.clone().into()))
+                    .with(Protocol::P2pCircuit),
+            )?
+            .with(alice_peer_id.clone()),
+        )
+        .await
+        .expect("bob failed to connect to alice");
+
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+
+        let alice_peers = alice.peers().await?;
+        let bob_peers = bob.peers().await?;
+        assert!(alice_peers
+            .iter()
+            .any(|conn| conn.addr.peer_id == bob_peer_id));
+        assert!(bob_peers
+            .iter()
+            .any(|conn| conn.addr.peer_id == alice_peer_id));
 
         Ok(())
     }

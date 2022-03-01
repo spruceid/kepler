@@ -1,5 +1,6 @@
 use anyhow::Result;
-use ipfs_embed::{generate_keypair, multiaddr::Protocol, Keypair, PeerId, ToLibp2p};
+use ipfs::{PeerId, Protocol};
+use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     data::{Data, ToByteUnit},
     form::Form,
@@ -207,7 +208,7 @@ pub async fn open_orbit_allowlist(
     params_str: &str,
     config: &State<config::Config>,
     relay: &State<RelayNode>,
-    keys: &State<RwLock<HashMap<PeerId, Keypair>>>,
+    keys: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
     match (
@@ -247,10 +248,10 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
 
 #[get("/peer/generate")]
 pub fn open_host_key(
-    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
+    s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
-    let keypair = generate_keypair();
-    let id = keypair.to_peer_id();
+    let keypair = Ed25519Keypair::generate();
+    let id = ipfs::PublicKey::Ed25519(keypair.public()).into_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);
