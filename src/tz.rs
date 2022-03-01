@@ -183,7 +183,7 @@ impl<'r> FromRequest<'r> for TezosAuthorizationString {
         match request
             .headers()
             .get_one("Authorization")
-            .map(|s| Self::from_str(s))
+            .map(Self::from_str)
         {
             Some(Ok(t)) => Outcome::Success(t),
             _ => Outcome::Forward(()),
