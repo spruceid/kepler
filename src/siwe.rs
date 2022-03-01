@@ -131,8 +131,8 @@ impl<'r> FromRequest<'r> for SIWETokens {
             .resources
             .first()
             .and_then(|u| u.as_str().strip_prefix("kepler://"))
-            .and_then(|p| p.split_once("#"))
-            .map(|(op, a)| match op.rsplit_once("/") {
+            .and_then(|p| p.split_once('#'))
+            .map(|(op, a)| match op.rsplit_once('/') {
                 Some((o, p)) => Ok((
                     Cid::from_str(o)?,
                     Some(p.strip_prefix("s3/").unwrap_or(p)),

@@ -81,7 +81,7 @@ impl OrbitMetadata {
 }
 
 pub enum AuthTokens {
-    Tezos(TezosAuthorizationString),
+    Tezos(Box<TezosAuthorizationString>),
     ZCAP(Box<ZCAPTokens>),
     SIWEZcapDelegated(Box<SIWEZcapTokens>),
     SIWEDelegated(Box<SIWETokens>),
@@ -94,7 +94,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let ats =
             if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
-                Self::Tezos(tz)
+                Self::Tezos(Box::new(tz))
             } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
                 Self::SIWEDelegated(Box::new(siwe))
             } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
@@ -133,7 +133,7 @@ impl AuthorizationToken for AuthTokens {
 impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
     async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
         match auth_token {
-            AuthTokens::Tezos(token) => self.authorize(token).await,
+            AuthTokens::Tezos(token) => self.authorize(token.as_ref()).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
@@ -318,8 +318,7 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
             .clone()
             .into_iter()
             .filter(|(p, _)| p != &local_peer_id)
-            .map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
-            .flatten()
+            .flat_map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
             .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
     )
     .try_for_each(|multiaddr| ipfs.connect(multiaddr))
@@ -335,7 +334,7 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
 pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
     s.split('|')
         .map(|hs| {
-            hs.split_once(":")
+            hs.split_once(':')
                 .ok_or_else(|| anyhow!("missing host:addrs map"))
                 .and_then(|(id, s)| {
                     Ok((
@@ -352,7 +351,7 @@ pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
 pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
     matrix_params
         .split(';')
-        .map(|pair_str| match pair_str.split_once("=") {
+        .map(|pair_str| match pair_str.split_once('=') {
             Some((key, value)) => Ok((
                 urlencoding::decode(key)?.into_owned(),
                 urlencoding::decode(value)?.into_owned(),
