@@ -2534,6 +2534,7 @@ dependencies = [
  "ethers-core",
  "hex",
  "ipfs",
+ "iri-string",
  "libipld",
  "libp2p",
  "nom",

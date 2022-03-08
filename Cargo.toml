@@ -20,6 +20,7 @@ didkit = "0.3"
 ethers-core = "0.6"
 hex = "0.4"
 ipfs = { git = "https://github.com/spruceid/rust-ipfs", branch = "kepler-staging" }
+iri-string = "0.4"
 libipld = "0.12"
 libp2p = "0.39"
 nom = "6"

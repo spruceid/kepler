@@ -17,6 +17,7 @@ pub mod ipfs;
 pub mod manifest;
 pub mod orbit;
 pub mod relay;
+pub mod resource;
 pub mod routes;
 pub mod s3;
 pub mod siwe;

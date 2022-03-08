@@ -1,7 +1,7 @@
 use libipld::cid::{multibase::Base, Cid, Error as CidError};
 use libp2p::{Multiaddr, PeerId};
 
-use crate::{auth::AuthorizationPolicy, orbit::AuthTokens};
+use crate::{auth::AuthorizationPolicy, orbit::AuthTokens, resource::OrbitId};
 use ssi::{
     did::{Document, RelativeDIDURL, Service, ServiceEndpoint, VerificationMethod, DIDURL},
     did_resolve::DIDResolver,
@@ -19,7 +19,7 @@ use thiserror::Error;
 /// authorization framework. This enables Orbits to be managed using independant DID lifecycle management tools.
 #[derive(Clone, Debug)]
 pub struct Manifest {
-    id: String,
+    id: OrbitId,
     delegators: Vec<DIDURL>,
     invokers: Vec<DIDURL>,
     bootstrap_peers: Vec<BootstrapPeer>,
@@ -71,41 +71,42 @@ impl Manifest {
 }
 
 #[derive(Clone, Debug, Hash)]
+pub struct BootstrapPeers {
+    pub id: String,
+    pub bootstrap_peers: Vec<BootstrapPeer>,
+}
+
+#[derive(Clone, Debug, Hash)]
 pub struct BootstrapPeer {
     pub id: PeerId,
     pub addrs: Vec<Multiaddr>,
 }
 
-impl From<Document> for Manifest {
-    fn from(
-        Document {
-            id,
-            capability_delegation,
-            capability_invocation,
-            verification_method,
-            service,
-            ..
-        }: Document,
-    ) -> Self {
+impl<'a> From<(Document, &'a str)> for Manifest {
+    fn from((d, n): (Document, &'a str)) -> Self {
         Self {
-            delegators: capability_delegation
-                .or_else(|| verification_method.clone())
+            delegators: d
+                .capability_delegation
+                .or_else(|| d.verification_method.clone())
                 .unwrap_or_else(|| vec![])
                 .into_iter()
-                .map(|vm| id_from_vm(&id, vm))
+                .map(|vm| id_from_vm(&d.id, vm))
                 .collect(),
-            invokers: capability_invocation
-                .or(verification_method)
+            invokers: d
+                .capability_invocation
+                .or(d.verification_method)
                 .unwrap_or_else(|| vec![])
                 .into_iter()
-                .map(|vm| id_from_vm(&id, vm))
+                .map(|vm| id_from_vm(&d.id, vm))
                 .collect(),
-            bootstrap_peers: service
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .filter_map(|s| s.try_into().ok())
-                .collect(),
-            id,
+            bootstrap_peers: d
+                .select_service(n)
+                .and_then(|s| BootstrapPeers::try_from(s).ok())
+                .unwrap_or_else(|| vec![]),
+            id: OrbitId {
+                id: d.id,
+                name: n.into(),
+            },
         }
     }
 }
@@ -120,6 +121,7 @@ pub enum ResolutionError {
 
 pub async fn resolve_dyn(
     id: &str,
+    name: Option<&str>,
     resolver: Option<&dyn DIDResolver>,
 ) -> Result<Option<Manifest>, ResolutionError> {
     let (md, doc, doc_md) = resolver
@@ -131,12 +133,13 @@ pub async fn resolve_dyn(
         (Some(e), _, _) => Err(ResolutionError::Resolver(e)),
         (_, _, Some(true)) => Err(ResolutionError::Deactivated),
         (_, None, _) => Ok(None),
-        (None, Some(d), None | Some(false)) => Ok(Some(d.into())),
+        (None, Some(d), None | Some(false)) => Ok(Some((d, name).into())),
     }
 }
 
 pub async fn resolve<D: DIDResolver>(
     id: &str,
+    name: Option<&str>,
     resolver: &D,
 ) -> Result<Option<Manifest>, ResolutionError> {
     let (md, doc, doc_md) = resolver.resolve(id, &Default::default()).await;
@@ -145,24 +148,44 @@ pub async fn resolve<D: DIDResolver>(
         (Some(e), _, _) => Err(ResolutionError::Resolver(e)),
         (_, _, Some(true)) => Err(ResolutionError::Deactivated),
         (_, None, _) => Ok(None),
-        (None, Some(d), None | Some(false)) => Ok(Some(d.into())),
+        (None, Some(d), None | Some(false)) => Ok(Some((d, name).into())),
+    }
+}
+
+impl TryInto<Vec<BootstrapPeer>> for &[ServiceEndpoint] {
+    type Error = ServicePeersConversionError;
+    fn try_into(self) -> Result<Vec<BootstrapPeer>, Self::Error> {
+        let mut m: std::collections::HashMap<PeerId, Vec<Multiaddr>> = Default::default();
+        for e in self.iter() {
+            match e {
+                ServiceEndpoint::URI(u) => todo!(),
+                ServiceEndpoint::Map(m) => todo!(),
+            }
+        }
+        Ok(m.into_iter()
+            .map(|(id, addrs)| BootstrapPeer { id, addrs })
+            .collect())
     }
 }
 
 #[derive(Error, Debug)]
-pub enum ServicePeerConversionError {
+pub enum ServicePeersConversionError {
     #[error(transparent)]
     IdParse(<PeerId as FromStr>::Err),
     #[error("Missing KeplerOrbitPeer type string")]
     WrongType,
 }
 
-impl TryFrom<Service> for BootstrapPeer {
-    type Error = ServicePeerConversionError;
+impl TryFrom<Service> for BootstrapPeers {
+    type Error = ServicePeersConversionError;
     fn try_from(s: Service) -> Result<Self, Self::Error> {
-        if s.type_.any(|t| t == "KeplerOrbitPeer") {
+        if s.type_.any(|t| t == "KeplerOrbitPeers") {
             Ok(Self {
-                id: s.id[1..].parse().map_err(|e| Self::Error::IdParse(e))?,
+                id: s
+                    .id
+                    .rsplit_once('#')
+                    .map(|(_, id)| id.into())
+                    .unwrap_or_else(s.id),
                 addrs: s
                     .service_endpoint
                     .unwrap_or(OneOrMany::Many(vec![]))
@@ -171,7 +194,7 @@ impl TryFrom<Service> for BootstrapPeer {
                         ServiceEndpoint::URI(a) => {
                             a.strip_prefix("multiaddr:").and_then(|a| a.parse().ok())
                         }
-                        _ => None,
+                        ServiceEndpoint::Map(_) => None,
                     })
                     .collect(),
             })
@@ -181,11 +204,11 @@ impl TryFrom<Service> for BootstrapPeer {
     }
 }
 
-impl From<BootstrapPeer> for Service {
-    fn from(p: BootstrapPeer) -> Self {
+impl From<BootstrapPeers> for Service {
+    fn from(p: BootstrapPeers) -> Self {
         Self {
             id: format!("#{}", p.id),
-            type_: OneOrMany::One("KeplerOrbitPeer".into()),
+            type_: OneOrMany::One("KeplerOrbitPeers".into()),
             service_endpoint: match p.addrs.len() {
                 0 => None,
                 1 => Some(OneOrMany::One(ServiceEndpoint::URI(format!(
