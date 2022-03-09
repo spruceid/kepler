@@ -27,7 +27,7 @@ pub struct Manifest {
 
 impl Manifest {
     /// ID of the Orbit, usually a DID
-    pub fn id(&self) -> &str {
+    pub fn id(&self) -> &OrbitId {
         &self.id
     }
 

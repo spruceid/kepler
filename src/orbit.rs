@@ -137,15 +137,21 @@ pub struct Orbit {
 impl Orbit {
     async fn new<P: AsRef<Path>>(
         path: P,
-        kp: Keypair,
+        kp: Ed25519Keypair,
         manifest: Manifest,
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
+        let id = manifest.id().to_string();
+        let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id.clone(),
-            &dir,
+            path.as_ref(),
             Keypair::Ed25519(kp),
-            md.hosts.clone().into_keys(),
+            manifest
+                .bootstrap_peers()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<PeerId>>(),
         )
         .await?;
 
@@ -155,7 +161,7 @@ impl Orbit {
                 .await?;
         };
 
-        let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
+        let db = sled::open(path.join(&id).with_extension("ks3db"))?;
 
         let service_store = Store::new(id, ipfs.clone(), db)?;
         let service = Service::start(service_store).await?;
@@ -165,11 +171,16 @@ impl Orbit {
         let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
 
         tokio_stream::iter(
-            md.hosts
-                .clone()
+            manifest
+                .bootstrap_peers()
                 .into_iter()
-                .filter(|(p, _)| p != &local_peer_id)
-                .flat_map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
+                .filter(|p| p.id != local_peer_id)
+                .flat_map(|peer| {
+                    peer.addrs
+                        .clone()
+                        .into_iter()
+                        .zip(std::iter::repeat(peer.id))
+                })
                 .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
         )
         .try_for_each(|multiaddr| ipfs.connect(multiaddr))
@@ -177,12 +188,12 @@ impl Orbit {
 
         Ok(Orbit {
             service,
-            metadata: md,
+            manifest,
             _tasks: tasks,
         })
     }
 
-    async fn connect(&self, node: &MultiaddrWithPeerId) -> anyhow::Result<()> {
+    async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
         self.service.store.ipfs.connect(node).await
     }
 }
@@ -214,7 +225,7 @@ pub async fn create_orbit(
         md.bootstrap_peers()
             .iter()
             .find_map(|p| keys.remove(&p.id))
-            .unwrap_or_else(generate_keypair)
+            .unwrap_or_else(Ed25519Keypair::generate)
     };
 
     fs::write(dir.join("access_log"), auth).await?;
@@ -246,7 +257,8 @@ async fn load_orbit_(dir: PathBuf, id: String, relay: (PeerId, Multiaddr)) -> Re
     let md = Manifest::resolve_dyn(&id, None)
         .await?
         .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
-    let kp = Keypair::from_bytes(&fs::read(dir.join("kp")).await?)?;
+
+    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
 
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
@@ -303,7 +315,12 @@ mod tests {
     use tempdir::TempDir;
 
     async fn op(md: Manifest) -> anyhow::Result<Orbit> {
-        Orbit::new(TempDir::new(md.id()).unwrap(), generate_keypair(), md).await
+        Orbit::new(
+            TempDir::new(&md.id().to_string()).unwrap(),
+            Ed25519Keypair::generate(),
+            md,
+        )
+        .await
     }
 
     #[test]

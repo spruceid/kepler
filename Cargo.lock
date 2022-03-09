@@ -2394,6 +2394,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "iri-string"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec8cc841faef2a1776a41301350a3718c1d6b21fcedc67e7224d2c9a364440d"
+
+[[package]]
 name = "itertools"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2534,7 +2540,7 @@ dependencies = [
  "ethers-core",
  "hex",
  "ipfs",
- "iri-string",
+ "iri-string 0.5.0",
  "libipld",
  "libp2p",
  "nom",
@@ -4923,7 +4929,7 @@ dependencies = [
  "ethers-core",
  "hex",
  "http",
- "iri-string",
+ "iri-string 0.4.0",
  "k256 0.9.6",
  "rand 0.8.4",
  "sha3",
