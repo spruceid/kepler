@@ -1,6 +1,7 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken, Resource},
+    auth::{Action, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
+    resource::{OrbitId, ResourceId},
     zcap::KeplerInvocation,
 };
 use anyhow::Result;
@@ -58,7 +59,7 @@ pub struct SIWETokens {
     pub invocation: SIWEMessage,
     pub delegation: Option<SIWEMessage>,
     // kinda weird
-    pub orbit: String,
+    pub orbit: OrbitId,
     pub invoked_action: Action,
 }
 
@@ -131,22 +132,25 @@ impl<'r> FromRequest<'r> for SIWETokens {
             .iter()
             .filter_map(|r| r.as_str().parse().ok())
             .next()
-            .map(|r: Resource| match (r.orbit(), r.path(), r.action()) {
-                (o, None, Some("host")) => Ok((o.into(), Action::Create { content: vec![] })),
-                (o, Some(p), Some("list")) if p.starts_with("/s3/") || p.starts_with("/ipfs/") => {
-                    Ok((o.into(), Action::List))
-                }
-                (o, Some(p), Some(a)) => Ok((
-                    o.into(),
-                    match a {
-                        "get" => Action::Get(vec![p.into()]),
-                        "put" => Action::Put(vec![p.into()]),
-                        "del" => Action::Del(vec![p.into()]),
-                        x => Err((Status::Unauthorized, anyhow!("Invalid Action: {}", x)))?,
+            .map(|r: ResourceId| {
+                Ok((
+                    r.orbit().clone(),
+                    match (
+                        r.service().as_deref(),
+                        r.path().as_deref(),
+                        r.fragment().as_deref(),
+                    ) {
+                        (None, None, Some("host")) => Action::Create { content: vec![] },
+                        (Some("s3") | Some("ipfs"), p, Some(a)) => match (p, a) {
+                            (None, "list") => Action::List,
+                            (Some(path), "get") => Action::Get(vec![path.into()]),
+                            (Some(path), "put") => Action::Put(vec![path.into()]),
+                            (Some(path), "del") => Action::Del(vec![path.into()]),
+                        },
+                        (_, None, _) => Err((Status::Unauthorized, anyhow!("Missing Path")))?,
+                        (_, _, None) => Err((Status::Unauthorized, anyhow!("Missing Action")))?,
                     },
-                )),
-                (_, None, _) => Err((Status::Unauthorized, anyhow!("Missing Path"))),
-                (_, _, None) => Err((Status::Unauthorized, anyhow!("Missing Action"))),
+                ))
             }) {
             Some(Ok(o)) => o,
             Some(Err(e)) => return Outcome::Failure(e),
@@ -165,7 +169,7 @@ impl AuthorizationToken for SIWEZcapTokens {
     fn action(&self) -> &Action {
         &self.invocation.property_set.capability_action
     }
-    fn target_orbit(&self) -> &str {
+    fn target_orbit(&self) -> &OrbitId {
         &self.invocation.property_set.invocation_target
     }
 }
@@ -174,7 +178,7 @@ impl AuthorizationToken for SIWETokens {
     fn action(&self) -> &Action {
         &self.invoked_action
     }
-    fn target_orbit(&self) -> &str {
+    fn target_orbit(&self) -> &OrbitId {
         &self.orbit
     }
 }

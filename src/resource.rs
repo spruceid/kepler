@@ -1,8 +1,13 @@
 use iri_string::{types::UriString, validate::Error as UriError};
+use libipld::cid::{
+    multihash::{Code, MultihashDigest},
+    Cid,
+};
+
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
-#[derive(Clone, Hash, PartialEq, Debug)]
+#[derive(Clone, Hash, PartialEq, Debug, Eq)]
 pub struct OrbitId {
     suffix: String,
     id: String,
@@ -20,14 +25,33 @@ impl OrbitId {
     pub fn name(&self) -> &str {
         &self.id
     }
+
+    pub fn get_cid(&self) -> Cid {
+        Cid::new_v1(0x55, Code::Blake2b256.digest(self.to_string().as_bytes()))
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Debug)]
 pub struct ResourceId {
-    pub orbit: OrbitId,
-    pub service: Option<String>,
-    pub path: Option<String>,
-    pub fragment: Option<String>,
+    orbit: OrbitId,
+    service: Option<String>,
+    path: Option<String>,
+    fragment: Option<String>,
+}
+
+impl ResourceId {
+    pub fn orbit(&self) -> &OrbitId {
+        &self.orbit
+    }
+    pub fn service(&self) -> &Option<String> {
+        &self.service
+    }
+    pub fn path(&self) -> &Option<String> {
+        &self.path
+    }
+    pub fn fragment(&self) -> &Option<String> {
+        &self.fragment
+    }
 }
 
 impl fmt::Display for OrbitId {
@@ -68,7 +92,7 @@ impl FromStr for OrbitId {
             _ => Err(Self::Err::IncorrectForm)?,
         };
         match UriString::from_str(&s[p - 1..])
-            .map(|uri| (uri, uri.authority_components()))
+            .map(|uri| (uri, uri.as_slice().authority_components()))
             .map(|(u, a)| {
                 (
                     &s[..p].strip_prefix("kepler:"),

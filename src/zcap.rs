@@ -1,6 +1,7 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
+    resource::OrbitId,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -11,7 +12,7 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_with::serde_as;
+use serde_with::{serde_as, DisplayFromStr};
 use ssi::{
     did::DIDURL,
     vc::URI,
@@ -33,7 +34,8 @@ pub struct DelProps {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
-    pub invocation_target: String,
+    #[serde_as(as = "DisplayFromStr")]
+    pub invocation_target: OrbitId,
     pub capability_action: Action,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,7 +86,7 @@ impl AuthorizationToken for ZCAPTokens {
     fn action(&self) -> &Action {
         &self.invocation.property_set.capability_action
     }
-    fn target_orbit(&self) -> &str {
+    fn target_orbit(&self) -> &OrbitId {
         &self.invocation.property_set.invocation_target
     }
 }

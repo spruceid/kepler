@@ -5,6 +5,7 @@ use crate::{
     config::ExternalApis,
     ipfs::create_ipfs,
     manifest::Manifest,
+    resource::OrbitId,
     s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
@@ -78,7 +79,7 @@ impl AuthorizationToken for AuthTokens {
             Self::SIWEZcapDelegated(token) => token.action(),
         }
     }
-    fn target_orbit(&self) -> &str {
+    fn target_orbit(&self) -> &OrbitId {
         match self {
             Self::Tezos(token) => token.target_orbit(),
             Self::ZCAP(token) => token.target_orbit(),
@@ -149,6 +150,7 @@ impl Orbit {
             Keypair::Ed25519(kp),
             manifest
                 .bootstrap_peers()
+                .peers
                 .iter()
                 .map(|p| p.id)
                 .collect::<Vec<PeerId>>(),
@@ -173,7 +175,8 @@ impl Orbit {
         tokio_stream::iter(
             manifest
                 .bootstrap_peers()
-                .into_iter()
+                .peers
+                .iter()
                 .filter(|p| p.id != local_peer_id)
                 .flat_map(|peer| {
                     peer.addrs
@@ -200,7 +203,7 @@ impl Orbit {
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
-    id: &str,
+    id: &OrbitId,
     path: PathBuf,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
@@ -210,7 +213,7 @@ pub async fn create_orbit(
         Some(m) => m,
         _ => return Ok(None),
     };
-    let dir = path.join(id);
+    let dir = path.join(&id.get_cid().to_string());
 
     // fails if DIR exists, this is Create, not Open
     if dir.exists() {
@@ -223,6 +226,7 @@ pub async fn create_orbit(
     let kp = {
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
         md.bootstrap_peers()
+            .peers
             .iter()
             .find_map(|p| keys.remove(&p.id))
             .unwrap_or_else(Ed25519Keypair::generate)
@@ -231,19 +235,17 @@ pub async fn create_orbit(
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.encode()).await?;
 
-    Ok(Some(
-        load_orbit(md.id().to_string(), path, relay)
-            .await
-            .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
-    ))
+    Ok(Some(load_orbit(md.id().clone(), path, relay).await.map(
+        |o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")),
+    )??))
 }
 
 pub async fn load_orbit(
-    id: String,
+    id: OrbitId,
     path: PathBuf,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(&id);
+    let dir = path.join(&id.get_cid().to_string());
     if !dir.exists() {
         return Ok(None);
     }
@@ -253,7 +255,7 @@ pub async fn load_orbit(
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
-async fn load_orbit_(dir: PathBuf, id: String, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+async fn load_orbit_(dir: PathBuf, id: OrbitId, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
     let md = Manifest::resolve_dyn(&id, None)
         .await?
         .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
