@@ -190,7 +190,7 @@ pub async fn open_orbit_authz(
     authz: CreateAuthWrapper,
 ) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    if &orbit_id.0 == authz.0.id() {
+    if &orbit_id.0 == &authz.0.id().get_cid() {
         Ok(authz.0.id().to_string())
     } else {
         Err((Status::BadRequest, "Path does not match authorization"))
@@ -211,15 +211,14 @@ pub async fn open_orbit_allowlist(
     keys: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<(), (Status, &'static str)> {
     // no auth token, use allowlist
-    match (
-        get_metadata(&orbit_id.0, params_str, &config.chains).await,
-        config.orbits.allowlist.as_ref(),
-    ) {
-        (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
-        (Ok(md), Some(list)) => match list.is_allowed(&orbit_id.0).await {
+    match config.orbits.allowlist.as_ref() {
+        None => Err((Status::InternalServerError, "Allowlist Not Configured")),
+        Some(list) => match list.is_allowed(&orbit_id.0).await {
             Ok(_controllers) => {
                 create_orbit(
-                    &md,
+                    // as long as we use a CID for this route, we cant actually make this work. we do not know
+                    // based on the CID what the actual Orbit ID is (to resolve the controllers and stuff)
+                    todo!(),
                     config.database.path.clone(),
                     &[],
                     (relay.id, relay.internal()),
@@ -231,7 +230,6 @@ pub async fn open_orbit_allowlist(
             }
             _ => Err((Status::Unauthorized, "Orbit not allowed")),
         },
-        (Err(_), _) => Err((Status::BadRequest, "Invalid Orbit Params")),
     }
 }
 

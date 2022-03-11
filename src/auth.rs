@@ -119,7 +119,7 @@ macro_rules! impl_fromreq {
                     )),
                     (Action::$method { .. }, true) => {
                         let orbit = match load_orbit(
-                            token.target_orbit().clone(),
+                            token.target_orbit().get_cid(),
                             config.database.path.clone(),
                             relay,
                         )

@@ -234,28 +234,32 @@ pub async fn create_orbit(
 
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.encode()).await?;
+    fs::write(dir.join("id"), id.to_string()).await?;
 
-    Ok(Some(load_orbit(md.id().clone(), path, relay).await.map(
-        |o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")),
-    )??))
+    Ok(Some(
+        load_orbit(md.id().get_cid(), path, relay)
+            .await
+            .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
+    ))
 }
 
 pub async fn load_orbit(
-    id: OrbitId,
+    id_cid: Cid,
     path: PathBuf,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(&id.get_cid().to_string());
+    let dir = path.join(&id_cid.to_string());
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(dir, id, relay).await.map(Some)
+    load_orbit_(dir, relay).await.map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
-async fn load_orbit_(dir: PathBuf, id: OrbitId, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+    let id: OrbitId = String::from_utf8(fs::read(dir.join("id")).await?)?.parse()?;
     let md = Manifest::resolve_dyn(&id, None)
         .await?
         .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
