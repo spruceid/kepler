@@ -84,32 +84,38 @@ pub struct BootstrapPeer {
 
 impl<'a> From<(Document, &'a str)> for Manifest {
     fn from((d, n): (Document, &'a str)) -> Self {
-        Self {
-            delegators: d
-                .capability_delegation
-                .or_else(|| d.verification_method.clone())
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .map(|vm| id_from_vm(&d.id, vm))
-                .collect(),
-            invokers: d
-                .capability_invocation
-                .or(d.verification_method)
-                .unwrap_or_else(|| vec![])
-                .into_iter()
-                .map(|vm| id_from_vm(&d.id, vm))
-                .collect(),
-            bootstrap_peers: d
-                .select_service(n)
-                .and_then(|s| BootstrapPeers::try_from(s).ok())
-                .unwrap_or_else(|| BootstrapPeers {
-                    id: n.into(),
-                    peers: vec![],
-                }),
-            id: OrbitId {
-                suffix: d.id.split_once(':').map(|(_, s)| s.into()).unwrap_or(d.id),
+        let bootstrap_peers = d
+            .select_service(n)
+            .and_then(|s| BootstrapPeers::try_from(s).ok())
+            .unwrap_or_else(|| BootstrapPeers {
                 id: n.into(),
-            },
+                peers: vec![],
+            });
+        let Document {
+            id,
+            capability_delegation,
+            capability_invocation,
+            verification_method,
+            ..
+        } = d;
+        Self {
+            delegators: capability_delegation
+                .or_else(|| verification_method.clone())
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .map(|vm| id_from_vm(&id, vm))
+                .collect(),
+            invokers: capability_invocation
+                .or_else(|| verification_method.clone())
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .map(|vm| id_from_vm(&id, vm))
+                .collect(),
+            bootstrap_peers,
+            id: OrbitId::new(
+                id.split_once(':').map(|(_, s)| s.into()).unwrap_or(id),
+                n.into(),
+            ),
         }
     }
 }
@@ -169,11 +175,13 @@ impl TryFrom<&Service> for BootstrapPeers {
                 id: s
                     .id
                     .rsplit_once('#')
-                    .map(|(_, id)| id.into())
-                    .unwrap_or_else(|| s.id),
+                    .map(|(_, id)| id)
+                    .unwrap_or_else(|| &s.id)
+                    .into(),
                 peers: s
                     .service_endpoint
-                    .unwrap_or(OneOrMany::Many(vec![]))
+                    .as_ref()
+                    .unwrap_or(&OneOrMany::Many(vec![]))
                     .into_iter()
                     // TODO parse peers from objects or multiaddrs
                     .filter_map(|_| None)

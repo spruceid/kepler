@@ -3,6 +3,7 @@ use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use ssi::did::DIDURL;
 
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
@@ -14,6 +15,10 @@ pub struct OrbitId {
 }
 
 impl OrbitId {
+    pub fn new(suffix: String, id: String) -> Self {
+        Self { suffix, id }
+    }
+
     pub fn did(&self) -> String {
         ["did", &self.suffix()].join(":")
     }
@@ -28,6 +33,18 @@ impl OrbitId {
 
     pub fn get_cid(&self) -> Cid {
         Cid::new_v1(0x55, Code::Blake2b256.digest(self.to_string().as_bytes()))
+    }
+}
+impl TryFrom<DIDURL> for OrbitId {
+    type Error = ();
+    fn try_from(did: DIDURL) -> Result<Self, Self::Error> {
+        match (did.did.strip_prefix("did:"), did.fragment) {
+            (Some(s), Some(i)) => Ok(Self {
+                suffix: s.into(),
+                id: i.into(),
+            }),
+            _ => Err(()),
+        }
     }
 }
 
@@ -67,7 +84,7 @@ impl fmt::Display for ResourceId {
             write!(f, ":{}", s)?
         };
         if let Some(p) = &self.path {
-            write!(f, "/{}", p)?
+            write!(f, "{}", p)?
         };
         if let Some(fr) = &self.fragment {
             write!(f, "#{}", fr)?
@@ -91,23 +108,19 @@ impl FromStr for OrbitId {
             Some(p) if p > 0 => p,
             _ => Err(Self::Err::IncorrectForm)?,
         };
-        match UriString::from_str(&s[p - 1..])
-            .map(|uri| (uri, uri.as_slice().authority_components()))
-            .map(|(u, a)| {
-                (
-                    &s[..p].strip_prefix("kepler:"),
-                    a.host(),
-                    a.port(),
-                    a.userinfo(),
-                    u.path_str(),
-                    u.fragment(),
-                    u.query_str(),
-                )
-            })? {
-            (Some(suf), Some(a), None, None, None, None, None) => Ok(Self {
-                suffix: suf.into(),
-                id: a.host().into(),
-            }),
+        let uri = UriString::from_str(&s[p - 1..])?;
+        match uri.authority_components().map(|a| {
+            (
+                s[..p].strip_prefix("kepler:").map(|su| su.to_string()),
+                a.host().to_string(),
+                a.port(),
+                a.userinfo(),
+                uri.path_str(),
+                uri.fragment(),
+                uri.query_str(),
+            )
+        }) {
+            Some((Some(suffix), id, None, None, "", None, None)) => Ok(Self { suffix, id }),
             _ => Err(Self::Err::IncorrectForm),
         }
     }
@@ -116,27 +129,33 @@ impl FromStr for OrbitId {
 impl FromStr for ResourceId {
     type Err = KRIParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (a, p, f) = s
-            .split_once("://")
-            .map(|(_, p)| (p.find(':'), p.find('/'), p.find('#')))
-            .ok_or_else(|| Self::Err::IncorrectForm)?;
-        let (orbit, service, path, fragment) = match (a, p, f) {
-            (None, None, None) => (s.parse()?, None, None, None),
-            (Some(a), None, None) => (s[..a].parse()?, Some(s[a..].into()), None, None),
-            (Some(a), Some(p), Some(f)) if a < p && p < f => (
-                s[..a].parse()?,
-                Some(s[a..p].into()),
-                Some(s[p..f].into()),
-                Some(s[f..].into()),
-            ),
-            // (Some(a),)
+        let p = match s.find("://") {
+            Some(p) if p > 0 => p,
+            _ => Err(Self::Err::IncorrectForm)?,
         };
-        Ok(Self {
-            orbit,
-            service,
-            path,
-            fragment,
-        })
+        let uri = UriString::from_str(&s[p - 1..])?;
+        match uri.authority_components().map(|a| {
+            (
+                s[..p].strip_prefix("kepler:").map(|su| su.to_string()),
+                a.host(),
+                a.port(),
+                a.userinfo(),
+            )
+        }) {
+            Some((Some(suffix), name, service, None)) => Ok(Self {
+                orbit: OrbitId {
+                    suffix,
+                    id: name.into(),
+                },
+                service: service.map(|s| s.into()),
+                path: match uri.path_str() {
+                    "" => None,
+                    ps => Some(ps.to_string()),
+                },
+                fragment: uri.fragment().map(|s| s.to_string()),
+            }),
+            _ => Err(Self::Err::IncorrectForm),
+        }
     }
 }
 

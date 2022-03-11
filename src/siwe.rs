@@ -146,9 +146,9 @@ impl<'r> FromRequest<'r> for SIWETokens {
                             (Some(path), "get") => Action::Get(vec![path.into()]),
                             (Some(path), "put") => Action::Put(vec![path.into()]),
                             (Some(path), "del") => Action::Del(vec![path.into()]),
+                            _ => Err((Status::Unauthorized, anyhow!("Invalid Action")))?,
                         },
-                        (_, None, _) => Err((Status::Unauthorized, anyhow!("Missing Path")))?,
-                        (_, _, None) => Err((Status::Unauthorized, anyhow!("Missing Action")))?,
+                        _ => Err((Status::Unauthorized, anyhow!("Invalid Resource")))?,
                     },
                 ))
             }) {

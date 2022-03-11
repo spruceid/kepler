@@ -1,6 +1,7 @@
 use crate::{
     auth::{Action, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
+    resource::OrbitId,
 };
 use anyhow::Result;
 use nom::{
@@ -25,7 +26,7 @@ pub struct TezosAuthorizationString {
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
-    pub orbit: String,
+    pub orbit: OrbitId,
     pub action: Action,
 }
 
@@ -53,7 +54,7 @@ impl FromStr for TezosAuthorizationString {
                 pk: pk_str.into(),
                 pkh: pkh_str.into(),
                 timestamp: timestamp_str.into(),
-                orbit: orbit_str.into(),
+                orbit: orbit_str.parse()?,
                 action,
             }),
             // TODO there is a lifetime issue which prevents using the nom error here
@@ -175,7 +176,7 @@ impl AuthorizationToken for TezosAuthorizationString {
     fn action(&self) -> &Action {
         &self.action
     }
-    fn target_orbit(&self) -> &str {
+    fn target_orbit(&self) -> &OrbitId {
         &self.orbit
     }
 }
@@ -264,7 +265,7 @@ async fn round_trip() {
 
     let ts = "2021-01-14T15:16:04Z";
     let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";
-    let dummy_orbit = "uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA";
+    let dummy_orbit = "kepler:did:example://my-orbit";
     let j = JWK::generate_ed25519().unwrap();
     let did = DID_METHODS
         .generate(&Source::KeyAndPattern(&j, "tz"))
@@ -288,7 +289,7 @@ async fn round_trip() {
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
-        orbit: dummy_orbit.into(),
+        orbit: dummy_orbit.parse().unwrap(),
         action: Action::Put(vec![dummy_cid.to_string()]),
     };
     let message = tz_unsigned
