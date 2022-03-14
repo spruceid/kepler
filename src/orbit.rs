@@ -33,7 +33,6 @@ use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
-use tokio::spawn;
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
@@ -41,6 +40,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
+use tokio::spawn;
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -171,10 +171,7 @@ struct OrbitTasks {
 }
 
 impl OrbitTasks {
-    fn new(
-        ipfs_future: JoinHandle<()>,
-        behaviour_process: BehaviourProcess,
-    ) -> Self {
+    fn new(ipfs_future: JoinHandle<()>, behaviour_process: BehaviourProcess) -> Self {
         let ipfs = Arc::new(AbortOnDrop::new(ipfs_future));
         Self {
             _ipfs: ipfs,
