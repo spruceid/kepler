@@ -247,33 +247,34 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
         };
 
         // check action is authorized by blanket root ("." as relative path against "kepler://<orbit-id>/") auth
-        if !auth_token.delegation.resources.contains(&match auth_token
-            .invocation
-            .property_set
-            .capability_action
+        if !auth_token
+            .delegation
+            .resources
+            .iter()
+            .map(|uri| uri.to_absolute_and_fragment())
+            .map(|(abs, action)| {
+                Ok((
+                    abs.as_str()
+                        .strip_prefix("kepler://")
+                        .ok_or_else(|| anyhow!("resource uri did not begin with 'kepler://'"))
+                        .map(Cid::from_str)??,
+                    action.ok_or_else(|| anyhow!("resource uri did not have an action"))?,
+                ))
+            })
+            .try_fold(false, |authorised, cid_and_action: anyhow::Result<_>| {
+                let (target, action) = cid_and_action?;
+                Ok(
+                    (match &auth_token.invocation.property_set.capability_action {
+                        Action::Get(_) => action == "get",
+                        Action::List => action == "list",
+                        Action::Del(_) => action == "del",
+                        Action::Put(_) => action == "put",
+                        _ => return Err(anyhow!("Invalid Action")),
+                    } && target == auth_token.invocation.property_set.invocation_target)
+                        || authorised,
+                )
+            })?
         {
-            Action::List => format!(
-                "kepler://{}#list",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Put(_) => format!(
-                "kepler://{}#put",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Get(_) => format!(
-                "kepler://{}#get",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Del(_) => format!(
-                "kepler://{}#del",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            _ => return Err(anyhow!("Invalid Action")),
-        }) {
             return Err(anyhow!("Invoked action not authorized by delegation"));
         };
 

@@ -37,7 +37,6 @@ use tokio::spawn;
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
-    future::Future,
     ops::Deref,
     path::PathBuf,
     sync::{Arc, RwLock},
