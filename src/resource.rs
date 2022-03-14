@@ -20,7 +20,7 @@ impl OrbitId {
     }
 
     pub fn did(&self) -> String {
-        ["did", &self.suffix()].join(":")
+        ["did", self.suffix()].join(":")
     }
 
     pub fn suffix(&self) -> &str {
@@ -38,11 +38,11 @@ impl OrbitId {
 impl TryFrom<DIDURL> for OrbitId {
     type Error = ();
     fn try_from(did: DIDURL) -> Result<Self, Self::Error> {
-        match (did.did.strip_prefix("did:"), did.fragment) {
-            (Some(s), Some(i)) => Ok(Self {
-                suffix: s.into(),
-                id: i.into(),
-            }),
+        match (
+            did.did.strip_prefix("did:").map(|s| s.to_string()),
+            did.fragment,
+        ) {
+            (Some(suffix), Some(id)) => Ok(Self { suffix, id }),
             _ => Err(()),
         }
     }
@@ -106,7 +106,7 @@ impl FromStr for OrbitId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
-            _ => Err(Self::Err::IncorrectForm)?,
+            _ => return Err(Self::Err::IncorrectForm),
         };
         let uri = UriString::from_str(&s[p - 1..])?;
         match uri.authority_components().map(|a| {
@@ -131,7 +131,7 @@ impl FromStr for ResourceId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
-            _ => Err(Self::Err::IncorrectForm)?,
+            _ => return Err(Self::Err::IncorrectForm),
         };
         let uri = UriString::from_str(&s[p - 1..])?;
         match uri.authority_components().map(|a| {

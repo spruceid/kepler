@@ -71,7 +71,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         put_content,
         batch_put_content,
         delete_content,
-        // open_orbit_allowlist,
+        open_orbit_allowlist,
         open_orbit_authz,
         cors,
         s3_routes::put_content,

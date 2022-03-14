@@ -190,7 +190,7 @@ pub async fn open_orbit_authz(
     authz: CreateAuthWrapper,
 ) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    if &orbit_id.0 == &authz.0.id().get_cid() {
+    if orbit_id.0 == authz.0.id().get_cid() {
         Ok(authz.0.id().to_string())
     } else {
         Err((Status::BadRequest, "Path does not match authorization"))

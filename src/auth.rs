@@ -13,10 +13,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
-use ssi::did::DIDURL;
-use std::{collections::HashMap, fmt, str::FromStr, sync::RwLock};
-use thiserror::Error;
+use std::{collections::HashMap, sync::RwLock};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,7 +102,7 @@ macro_rules! impl_fromreq {
                     token.action(),
                     &oid == &match hash_same(&oid, token.target_orbit().to_string()) {
                         Ok(c) => c,
-                        Err(e) => {
+                        Err(_) => {
                             return Outcome::Failure((
                                 Status::BadRequest,
                                 anyhow!("Could not match orbit"),
@@ -197,7 +194,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                 };
 
                 match create_orbit(
-                    &md.id(),
+                    md.id(),
                     config.database.path.clone(),
                     &auth_data,
                     relay,

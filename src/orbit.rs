@@ -2,7 +2,6 @@ use crate::{
     auth::{Action, AuthorizationToken},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
-    config::ExternalApis,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::OrbitId,

@@ -3,14 +3,11 @@ use libp2p::{Multiaddr, PeerId};
 
 use crate::{auth::AuthorizationPolicy, orbit::AuthTokens, resource::OrbitId};
 use ssi::{
-    did::{Document, RelativeDIDURL, Service, ServiceEndpoint, VerificationMethod, DIDURL},
+    did::{Document, RelativeDIDURL, Service, VerificationMethod, DIDURL},
     did_resolve::DIDResolver,
     one_or_many::OneOrMany,
 };
-use std::{
-    convert::{TryFrom, TryInto},
-    str::FromStr,
-};
+use std::{convert::TryFrom, str::FromStr};
 use thiserror::Error;
 
 /// An implementation of an Orbit Manifest.
@@ -101,13 +98,13 @@ impl<'a> From<(Document, &'a str)> for Manifest {
         Self {
             delegators: capability_delegation
                 .or_else(|| verification_method.clone())
-                .unwrap_or_else(|| vec![])
+                .unwrap_or_default()
                 .into_iter()
                 .map(|vm| id_from_vm(&id, vm))
                 .collect(),
             invokers: capability_invocation
                 .or_else(|| verification_method.clone())
-                .unwrap_or_else(|| vec![])
+                .unwrap_or_default()
                 .into_iter()
                 .map(|vm| id_from_vm(&id, vm))
                 .collect(),
@@ -133,7 +130,7 @@ pub async fn resolve_dyn(
     resolver: Option<&dyn DIDResolver>,
 ) -> Result<Option<Manifest>, ResolutionError> {
     let (md, doc, doc_md) = resolver
-        .unwrap_or(didkit::DID_METHODS.to_resolver())
+        .unwrap_or_else(|| didkit::DID_METHODS.to_resolver())
         .resolve(&id.did(), &Default::default())
         .await;
 
