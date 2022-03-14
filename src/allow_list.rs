@@ -1,12 +1,12 @@
+use crate::resource::OrbitId;
 use anyhow::Result;
 use libipld::{cid::Cid, multibase::Base};
 use reqwest::get;
 use serde::{Deserialize, Serialize};
-use ssi::did::DIDURL;
 
 #[rocket::async_trait]
 pub trait OrbitAllowList {
-    async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>>;
+    async fn is_allowed(&self, oid: &Cid) -> Result<OrbitId>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -27,13 +27,14 @@ impl From<OrbitAllowListService> for String {
 
 #[rocket::async_trait]
 impl OrbitAllowList for OrbitAllowListService {
-    async fn is_allowed(&self, oid: &Cid) -> Result<Vec<DIDURL>> {
+    async fn is_allowed(&self, oid: &Cid) -> Result<OrbitId> {
         Ok(
             get([self.0.as_str(), &oid.to_string_of_base(Base::Base58Btc)?].join("/"))
                 .await?
                 .error_for_status()?
-                .json::<Vec<DIDURL>>()
-                .await?,
+                .text()
+                .await?
+                .parse()?,
         )
     }
 }

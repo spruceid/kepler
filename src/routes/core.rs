@@ -19,6 +19,7 @@ use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
+use crate::resource::OrbitId;
 use crate::routes::DotPathBuf;
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
@@ -210,15 +211,16 @@ pub async fn open_orbit_allowlist(
     relay: &State<RelayNode>,
     keys: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<(), (Status, &'static str)> {
+    let oid: OrbitId = params_str
+        .parse()
+        .map_err(|_| (Status::BadRequest, "Invalid Kepler URI in body"))?;
     // no auth token, use allowlist
     match config.orbits.allowlist.as_ref() {
         None => Err((Status::InternalServerError, "Allowlist Not Configured")),
         Some(list) => match list.is_allowed(&orbit_id.0).await {
-            Ok(_controllers) => {
+            Ok(orbit) if orbit == oid => {
                 create_orbit(
-                    // as long as we use a CID for this route, we cant actually make this work. we do not know
-                    // based on the CID what the actual Orbit ID is (to resolve the controllers and stuff)
-                    todo!(),
+                    &orbit,
                     config.database.path.clone(),
                     &[],
                     (relay.id, relay.internal()),
