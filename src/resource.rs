@@ -164,7 +164,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic() {
+    async fn basic() {
         let uri = "kepler:ens:example.eth://orbit0:s3/path/to/image.jpg";
     }
 }

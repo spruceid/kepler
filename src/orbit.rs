@@ -142,7 +142,7 @@ impl Orbit {
         manifest: Manifest,
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
-        let id = manifest.id().to_string();
+        let id = manifest.id().get_cid().to_string();
         let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id.clone(),
@@ -317,12 +317,16 @@ impl Deref for Orbit {
 mod tests {
     use super::*;
     use didkit::DID_METHODS;
-    use ssi::{did::Source, jwk::JWK};
+    use ssi::{
+        did::{Source, DIDURL},
+        jwk::JWK,
+    };
+    use std::convert::TryInto;
     use tempdir::TempDir;
 
     async fn op(md: Manifest) -> anyhow::Result<Orbit> {
         Orbit::new(
-            TempDir::new(&md.id().to_string()).unwrap(),
+            TempDir::new(&md.id().get_cid().to_string()).unwrap(),
             Ed25519Keypair::generate(),
             md,
         )
@@ -335,8 +339,16 @@ mod tests {
         let did = DID_METHODS
             .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
             .unwrap();
+        let oid = DIDURL {
+            did,
+            fragment: Some("dummy".into()),
+            query: None,
+            path_abempty: "".into(),
+        }
+        .try_into()
+        .unwrap();
 
-        let md = Manifest::resolve_dyn(&did, None).await.unwrap().unwrap();
+        let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
         let orbit = op(md).await.unwrap();
     }
