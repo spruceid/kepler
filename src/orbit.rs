@@ -33,6 +33,7 @@ use cached::proc_macro::cached;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use ssi::did::DIDURL;
+use tokio::spawn;
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
@@ -171,11 +172,11 @@ struct OrbitTasks {
 }
 
 impl OrbitTasks {
-    fn new<F: Future<Output = ()> + Send + 'static>(
-        ipfs_future: F,
+    fn new(
+        ipfs_future: JoinHandle<()>,
         behaviour_process: BehaviourProcess,
     ) -> Self {
-        let ipfs = Arc::new(AbortOnDrop::new(tokio::spawn(ipfs_future)));
+        let ipfs = Arc::new(AbortOnDrop::new(ipfs_future));
         Self {
             _ipfs: ipfs,
             _behaviour_process: behaviour_process,
@@ -293,13 +294,17 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     let id = md.id.to_string_of_base(Base::Base58Btc)?;
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let (ipfs, ipfs_task, receiver) = create_ipfs(
+    let (ipfs, ipfs_future, receiver) = create_ipfs(
         id.clone(),
         &dir,
         Keypair::Ed25519(kp),
         md.hosts.clone().into_keys(),
     )
     .await?;
+
+    let ipfs_task = spawn(ipfs_future);
+    ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
+        .await?;
 
     let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
 
@@ -309,9 +314,6 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
 
     let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
-
-    ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
-        .await?;
 
     tokio_stream::iter(
         md.hosts
