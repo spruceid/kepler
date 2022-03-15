@@ -114,7 +114,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             })
         }))
         .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new())))
+        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new())))
 }
 
 #[test]
