@@ -35,15 +35,16 @@ impl OrbitId {
         Cid::new_v1(0x55, Code::Blake2b256.digest(self.to_string().as_bytes()))
     }
 }
+
 impl TryFrom<DIDURL> for OrbitId {
-    type Error = ();
+    type Error = KRIParseError;
     fn try_from(did: DIDURL) -> Result<Self, Self::Error> {
         match (
             did.did.strip_prefix("did:").map(|s| s.to_string()),
             did.fragment,
         ) {
             (Some(suffix), Some(id)) => Ok(Self { suffix, id }),
-            _ => Err(()),
+            _ => Err(KRIParseError::IncorrectForm),
         }
     }
 }
@@ -138,20 +139,20 @@ impl FromStr for ResourceId {
             (
                 s[..p].strip_prefix("kepler:").map(|su| su.to_string()),
                 a.host(),
-                a.port(),
                 a.userinfo(),
+                uri.path_str().split_once('/').map(|(s, r)| match s {
+                    "" => r.split_once('/').unwrap_or((r, "")),
+                    _ => (s, r),
+                }),
             )
         }) {
-            Some((Some(suffix), name, service, None)) => Ok(Self {
+            Some((Some(suffix), host, None, p)) => Ok(Self {
                 orbit: OrbitId {
                     suffix,
-                    id: name.into(),
+                    id: host.into(),
                 },
-                service: service.map(|s| s.into()),
-                path: match uri.path_str() {
-                    "" => None,
-                    ps => Some(ps.to_string()),
-                },
+                service: p.map(|(s, _)| s.into()),
+                path: p.map(|(_, pa)| ["/", pa].join("")),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),
@@ -165,6 +166,25 @@ mod tests {
 
     #[test]
     async fn basic() {
-        let uri = "kepler:ens:example.eth://orbit0:s3/path/to/image.jpg";
+        let res: ResourceId = "kepler:ens:example.eth://orbit0/s3/path/to/image.jpg"
+            .parse()
+            .unwrap();
+
+        assert_eq!("ens:example.eth", res.orbit().suffix());
+        assert_eq!("did:ens:example.eth", res.orbit().did());
+        assert_eq!("orbit0", res.orbit().name());
+        assert_eq!("s3", res.service().as_ref().unwrap());
+        assert_eq!("/path/to/image.jpg", res.path().as_ref().unwrap());
+        assert_eq!(None, res.fragment().as_ref())
+    }
+
+    #[test]
+    async fn failures() {
+        let no_suffix: Result<ResourceId, _> = "kepler:://orbit0/s3/path/to/image.jpg".parse();
+        assert!(no_suffix.is_err());
+
+        let invalid_name: Result<ResourceId, _> =
+            "kepler:ens:example.eth://or:bit0/s3/path/to/image.jpg".parse();
+        assert!(invalid_name.is_err());
     }
 }
