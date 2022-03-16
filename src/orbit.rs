@@ -158,11 +158,11 @@ impl Orbit {
 
         let ipfs_task = spawn(ipfs_future);
         if let Some(r) = relay {
-            ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
+            ipfs.connect(MultiaddrWithoutPeerId::try_from(r.1)?.with(r.0))
                 .await?;
         };
 
-        let db = sled::open(path.join(&id).with_extension("ks3db"))?;
+        let db = sled::open(path.as_ref().join(&id).with_extension("ks3db"))?;
 
         let service_store = Store::new(id, ipfs.clone(), db)?;
         let service = Service::start(service_store).await?;
@@ -268,9 +268,6 @@ async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> 
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
     let orbit = Orbit::new(dir, kp, md, Some(relay)).await?;
-    orbit
-        .connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
-        .await?;
     Ok(orbit)
 }
 
@@ -328,6 +325,7 @@ mod tests {
             TempDir::new(&md.id().get_cid().to_string()).unwrap(),
             Ed25519Keypair::generate(),
             md,
+            None,
         )
         .await
     }

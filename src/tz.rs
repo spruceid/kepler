@@ -236,21 +236,21 @@ async fn string_encoding() {
 
 #[test]
 async fn simple_parse() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg kepler:did:pkh:tz:tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg://default PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
     let _: TezosAuthorizationString = auth_str.parse().unwrap();
 }
 
 #[test]
 #[should_panic]
 async fn simple_verify_fail() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg uAYAEHiB_A0nLzANfXNkW5WCju51Td_INJ6UacFK7qY6zejzKoA PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg kepler:did:pkh:tz:tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg://default PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
     tza.verify().unwrap();
 }
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: test 2021-08-16T12:00:52.699Z edpkuthnQ7YdexSxGEHYSbrweH31Zd75roc7W42Lgt8LJM8PX4sX6m tz1WWXeGFgtARRLPPzT2qcpeiQZ8oQb6rBZd z3v8BBKAxmb5DPsoCsaucZZ26FzPSbLWDAGtpHSiKjA4AJLQ3my GET z3v8BBKAGbGkuFU8TQq3J7k9XDs9udtMCic4KMS6HBxHczS1Tyv edsigtigutx55QVaLT3iC89yQnF5bnRecztiYbs1LtaMN84KXWtTxtRGBpkiz9eVZG6MqwHp1K7KGAhjHSyfJRQMs1EAyYBNTYZ";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkuKVBnFUDhXhkFuKy7ufEKRdJR3jTqsaS3Es864idKCvvuwzJwc tz1fRW28ZrgzkPwQPqcZP5oWhtcAicA63Zxc kepler:did:example://my-orbit PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtbGTq1J9A4YJsc2yUUnWNH1RdWs3RkqvfCRLuCEhRv7Y5UDKYiMABFkWLrW5BMdSxWnAdwzoWpzs83JPLVurFpbVWqycSB";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
     tza.verify().unwrap();
 }
