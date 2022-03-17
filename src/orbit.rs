@@ -195,7 +195,7 @@ impl Orbit {
         })
     }
 
-    async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
+    pub async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
         self.service.store.ipfs.connect(node).await
     }
 }

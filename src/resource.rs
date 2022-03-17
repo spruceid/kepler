@@ -107,7 +107,7 @@ impl FromStr for OrbitId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s
             .strip_prefix("kepler:")
-            .ok_or_else(|| KRIParseError::IncorrectForm)?;
+            .ok_or(KRIParseError::IncorrectForm)?;
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
             _ => return Err(Self::Err::IncorrectForm),
@@ -137,7 +137,7 @@ impl FromStr for ResourceId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s
             .strip_prefix("kepler:")
-            .ok_or_else(|| KRIParseError::IncorrectForm)?;
+            .ok_or(KRIParseError::IncorrectForm)?;
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
             _ => return Err(Self::Err::IncorrectForm),
