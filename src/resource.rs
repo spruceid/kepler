@@ -105,14 +105,16 @@ pub enum KRIParseError {
 impl FromStr for OrbitId {
     type Err = KRIParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s
+            .strip_prefix("kepler:")
+            .ok_or_else(|| KRIParseError::IncorrectForm)?;
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
             _ => return Err(Self::Err::IncorrectForm),
         };
-        let uri = UriString::from_str(&s[p - 1..])?;
+        let uri = UriString::from_str(&["dummy", &s[p..]].concat())?;
         match uri.authority_components().map(|a| {
             (
-                s[..p].strip_prefix("kepler:").map(|su| su.to_string()),
                 a.host().to_string(),
                 a.port(),
                 a.userinfo(),
@@ -121,7 +123,10 @@ impl FromStr for OrbitId {
                 uri.query_str(),
             )
         }) {
-            Some((Some(suffix), id, None, None, "", None, None)) => Ok(Self { suffix, id }),
+            Some((id, None, None, "", None, None)) => Ok(Self {
+                suffix: s[..p].to_string(),
+                id,
+            }),
             _ => Err(Self::Err::IncorrectForm),
         }
     }
@@ -130,14 +135,16 @@ impl FromStr for OrbitId {
 impl FromStr for ResourceId {
     type Err = KRIParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s
+            .strip_prefix("kepler:")
+            .ok_or_else(|| KRIParseError::IncorrectForm)?;
         let p = match s.find("://") {
             Some(p) if p > 0 => p,
             _ => return Err(Self::Err::IncorrectForm),
         };
-        let uri = UriString::from_str(&s[p - 1..])?;
+        let uri = UriString::from_str(&["dummy", &s[p..]].concat())?;
         match uri.authority_components().map(|a| {
             (
-                s[..p].strip_prefix("kepler:").map(|su| su.to_string()),
                 a.host(),
                 a.userinfo(),
                 uri.path_str().split_once('/').map(|(s, r)| match s {
@@ -146,13 +153,13 @@ impl FromStr for ResourceId {
                 }),
             )
         }) {
-            Some((Some(suffix), host, None, p)) => Ok(Self {
+            Some((host, None, path)) => Ok(Self {
                 orbit: OrbitId {
-                    suffix,
+                    suffix: s[..p].to_string(),
                     id: host.into(),
                 },
-                service: p.map(|(s, _)| s.into()),
-                path: p.map(|(_, pa)| ["/", pa].join("")),
+                service: path.map(|(s, _)| s.into()),
+                path: path.map(|(_, pa)| ["/", pa].join("")),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),
@@ -175,7 +182,16 @@ mod tests {
         assert_eq!("orbit0", res.orbit().name());
         assert_eq!("s3", res.service().as_ref().unwrap());
         assert_eq!("/path/to/image.jpg", res.path().as_ref().unwrap());
-        assert_eq!(None, res.fragment().as_ref())
+        assert_eq!(None, res.fragment().as_ref());
+
+        let res2: ResourceId = "kepler:ens:example.eth://orbit0#peer".parse().unwrap();
+
+        assert_eq!("ens:example.eth", res2.orbit().suffix());
+        assert_eq!("did:ens:example.eth", res2.orbit().did());
+        assert_eq!("orbit0", res2.orbit().name());
+        assert_eq!(None, res2.service().as_ref());
+        assert_eq!(None, res2.path().as_ref());
+        assert_eq!("peer", res2.fragment().as_ref().unwrap());
     }
 
     #[test]

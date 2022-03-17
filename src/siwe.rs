@@ -83,14 +83,8 @@ impl<'r> FromRequest<'r> for SIWEZcapTokens {
                 invocation,
                 delegation,
             }),
-            (Some(Err(e)), _) => {
-                tracing::debug!("{}", e);
-                Outcome::Failure((Status::Unauthorized, e))
-            }
-            (_, Some(Err(e))) => {
-                tracing::debug!("{}", e);
-                Outcome::Failure((Status::Unauthorized, e))
-            }
+            (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
+            (_, Some(Err(e))) => Outcome::Failure((Status::Unauthorized, e)),
             (_, _) => Outcome::Forward(()),
         }
     }
@@ -117,15 +111,10 @@ impl<'r> FromRequest<'r> for SIWETokens {
                 .transpose(),
         ) {
             (Some(Ok(i)), Ok(d)) => (i, d),
-            (Some(Err(e)), _) => {
-                tracing::debug!("{}", e);
-                return Outcome::Failure((Status::Unauthorized, e));
-            }
-            (_, Err(e)) => {
-                tracing::debug!("{}", e);
-                return Outcome::Failure((Status::Unauthorized, e));
-            }
-            (_, _) => return Outcome::Forward(()),
+            (Some(Ok(i)), _) => (i, None),
+            (Some(Err(e)), _) => return Outcome::Failure((Status::Unauthorized, e)),
+            (None, Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
+            (None, _) => return Outcome::Forward(()),
         };
         let (orbit, action) = match invocation
             .resources
@@ -140,7 +129,7 @@ impl<'r> FromRequest<'r> for SIWETokens {
                         r.path().as_deref(),
                         r.fragment().as_deref(),
                     ) {
-                        (None, None, Some("host")) => Action::Create { content: vec![] },
+                        (None, None, Some("peer")) => Action::Create { content: vec![] },
                         (Some("s3") | Some("ipfs"), p, Some(a)) => match (p, a) {
                             (None, "list") => Action::List,
                             (Some(path), "get") => Action::Get(vec![path.into()]),
@@ -333,8 +322,21 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
 }
 
 #[test]
-async fn basic() -> Result<()> {
-    let d = r#"["localhost wants you to sign in with your Ethereum account:\n0xA391f7adD776806c4dFf3886BBe6370be8F73683\n\nAllow localhost to access your orbit using their temporary session key: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\n\nURI: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\nVersion: 1\nChain ID: 1\nNonce: Ki63qhXvxk0LYfxRE\nIssued At: 2021-12-08T13:09:59.716Z\nExpiration Time: 2021-12-08T13:24:59.715Z\nResources:\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#put\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#del\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#get\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#list","0x3c79ff9c565939bc4d43ac45d92f685de61b756a1ba9c0a8a5a80d177f05f29b7b27df1dc1c331397eef837d96b95dd812ce78c1b29a05c2b0c0bdd901be72351b"]"#;
-    let _message: SIWEMessage = serde_json::from_str(d)?;
-    Ok(())
+async fn basic() {
+    use crate::tracing_try_init;
+    use rocket::{build, http::Header, local::asynchronous::Client};
+
+    tracing_try_init();
+    let d = base64::encode_config(
+        r#"["test.org wants you to sign in with your Ethereum account:\n0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79\n\nAuthorize this provider to host your Orbit\n\nURI: peer:12D3KooWSJT2PD5c1rEAD959q9kChGcWUnkkUzku28uY5pqegkuW\nVersion: 1\nChain ID: 1\nNonce: 3A9S4Ar7YibfspTb2\nIssued At: 2022-03-16T15:03:36.775Z\nExpiration Time: 2022-03-16T15:05:36.775Z\nResources:\n- kepler:pkh:eip155:1:0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79://default#peer","0x6909694c1afe49fbe9350da8f89333397657ae46d9898dccdef45a38cf39e8fd1527e81e79b52db3f2ad2239c07cab8888f4882faf453c032c0e4df3d9c4902d1b"]"#,
+        base64::URL_SAFE,
+    );
+
+    let client = Client::untracked(build().ignite().await.unwrap())
+        .await
+        .unwrap();
+    let mut req = client.post("/");
+    req.add_header(Header::new("x-siwe-invocation", d));
+    let t = SIWETokens::from_request(req.inner()).await;
+    assert!(t.is_success());
 }
