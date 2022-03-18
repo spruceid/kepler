@@ -8,6 +8,10 @@ Kepler is self-sovereign storage. It is architected as a decentralized storage s
 
 For a high-level project overview, see the [Product Requirements Document](./PRD.md).
 
+## Security Audits
+Kepler has undergone the following security reviews:
+- [March 14th, 2022 - Trail of Bits](https://github.com/trailofbits/publications/blob/master/reviews/SpruceID.pdf) | [Summary of Findings](https://blog.spruceid.com/spruce-completes-first-security-audit-from-trail-of-bits/)
+
 ## Configuration
 All configuration variables are documented in [kepler.toml](kepler.toml). You
 can either modify them in this file, or specify them through environment
