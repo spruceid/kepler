@@ -6,12 +6,11 @@ use std::{
     task::{Context, Poll},
 };
 
-use ipfs::{Multiaddr, PeerId};
+use ipfs::PeerId;
 use libp2p::{
     core::connection::ConnectionId,
     swarm::{
-        protocols_handler::DummyProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction,
-        PollParameters,
+        handler::DummyConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
     },
 };
 use void::Void;
@@ -32,37 +31,22 @@ impl Behaviour {
 }
 
 impl NetworkBehaviour for Behaviour {
-    type ProtocolsHandler = DummyProtocolsHandler;
+    type ConnectionHandler = DummyConnectionHandler;
 
     type OutEvent = ();
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        DummyConnectionHandler::default()
     }
 
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
-        Vec::new()
-    }
-
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(*peer_id)) {
-            tracing::error!("Behaviour process has shutdown.")
-        }
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(*peer_id)) {
-            tracing::error!("Behaviour process has shutdown.")
-        }
-    }
-
+    // Now that there is no inject_(dis)connected, now can we emit events??
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: Void) {}
 
     fn poll(
         &mut self,
         _cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Void, ()>> {
+    ) -> Poll<NetworkBehaviourAction<(), Self::ConnectionHandler, Void>> {
         Poll::Pending
     }
 }

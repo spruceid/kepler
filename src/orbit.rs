@@ -142,7 +142,7 @@ impl Orbit {
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid().to_string();
-        let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
+        let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id.clone(),
             path.as_ref(),

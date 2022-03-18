@@ -15,7 +15,7 @@ pub struct RelayNode {
 impl RelayNode {
     pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
         let local_public_key = keypair.public();
-        let id = local_public_key.into_peer_id();
+        let id = local_public_key.to_peer_id();
         let relay_tcp_addr = Self::_external(port);
         let relay_mem_addr = Self::_internal(port);
 
@@ -120,8 +120,8 @@ pub mod test {
         let mut bob_opts = IpfsOptions::inmemory_with_generated_keys();
         bob_opts.ipfs_path = bob_path;
 
-        let alice_peer_id = alice_opts.keypair.public().into_peer_id();
-        let bob_peer_id = bob_opts.keypair.public().into_peer_id();
+        let alice_peer_id = alice_opts.keypair.public().to_peer_id();
+        let bob_peer_id = bob_opts.keypair.public().to_peer_id();
 
         let (alice_builder, alice_relay) = TransportBuilder::new(alice_opts.keypair.clone())?
             .or(MemoryTransport::default())

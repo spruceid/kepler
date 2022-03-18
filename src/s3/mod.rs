@@ -39,7 +39,7 @@ impl Service {
                 Ok(kv_msg) => Ok((msg.source, kv_msg)),
                 Err(e) => Err(anyhow!(e)),
             });
-        let peer_id = store.ipfs.identity().await?.0.into_peer_id();
+        let peer_id = store.ipfs.identity().await?.0.to_peer_id();
         let task = tokio::spawn(kv_task(events, store.clone(), peer_id));
         store.request_heads().await?;
         Ok(Service::new(store, task))
@@ -173,9 +173,9 @@ mod test {
         let id = "test_id".to_string();
 
         let alice_keypair = Keypair::generate_ed25519();
-        let alice_peer_id = alice_keypair.public().into_peer_id();
+        let alice_peer_id = alice_keypair.public().to_peer_id();
         let bob_keypair = Keypair::generate_ed25519();
-        let bob_peer_id = bob_keypair.public().into_peer_id();
+        let bob_peer_id = bob_keypair.public().to_peer_id();
 
         let (alice_store, _alice_behaviour_process) =
             create_store(&id, tmp.path().join("alice"), alice_keypair, [bob_peer_id]).await?;

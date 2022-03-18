@@ -251,7 +251,7 @@ pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
     let keypair = Ed25519Keypair::generate();
-    let id = ipfs::PublicKey::Ed25519(keypair.public()).into_peer_id();
+    let id = ipfs::PublicKey::Ed25519(keypair.public()).to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);

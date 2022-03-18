@@ -53,10 +53,10 @@ mod test {
         let relay = test_relay().await?;
 
         let alice_keypair = Keypair::generate_ed25519();
-        let alice_peer_id = alice_keypair.public().into_peer_id();
+        let alice_peer_id = alice_keypair.public().to_peer_id();
         let alice_path = temp_dir.path().join("alice");
         let bob_keypair = Keypair::generate_ed25519();
-        let bob_peer_id = bob_keypair.public().into_peer_id();
+        let bob_peer_id = bob_keypair.public().to_peer_id();
         let bob_path = temp_dir.path().join("bob");
 
         let (alice, ipfs_task, _alice_behaviour_process) =
@@ -92,10 +92,10 @@ mod test {
         let relay = test_relay().await?;
 
         let alice_keypair = Keypair::generate_ed25519();
-        let alice_peer_id = alice_keypair.public().into_peer_id();
+        let alice_peer_id = alice_keypair.public().to_peer_id();
         let alice_path = temp_dir.path().join("alice");
         let bob_keypair = Keypair::generate_ed25519();
-        let _bob_peer_id = bob_keypair.public().into_peer_id();
+        let _bob_peer_id = bob_keypair.public().to_peer_id();
         let bob_path = temp_dir.path().join("bob");
 
         let (alice, ipfs_task, _alice_behaviour_process) =
