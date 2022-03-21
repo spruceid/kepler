@@ -197,8 +197,8 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
             .iter()
             .filter_map(|s| s.as_str().parse().ok())
             .any(|r| {
-                check_orbit_and_service(&target, &r).is_ok()
-                    && simple_prefix_check(&target, &r).is_ok()
+                check_orbit_and_service(target, &r).is_ok()
+                    && simple_prefix_check(target, &r).is_ok()
             })
         {
             return Err(anyhow!("Delegation semantics violated"));

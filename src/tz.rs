@@ -79,8 +79,8 @@ impl TezosAuthorizationString {
             &self.domain, &self.timestamp, &self.pk, &self.pkh, &self.target,
         );
         if let Some(d) = &self.delegate {
-            s.push_str(" ");
-            s.push_str(&d);
+            s.push(' ');
+            s.push_str(d);
         }
         Ok(s)
     }

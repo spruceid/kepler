@@ -19,7 +19,7 @@ pub trait AuthorizationToken {
     fn resource(&self) -> &ResourceId;
 }
 
-pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Result<(), ()> {
+pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
     // if #action is same
     // Ok if target.path => cap.path
     if target.service() == capability.service()
@@ -31,7 +31,7 @@ pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Resu
     {
         Ok(())
     } else {
-        Err(())
+        Err(anyhow!("Target Service and Path are not correct"))
     }
 }
 
