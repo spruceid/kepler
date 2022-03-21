@@ -9,7 +9,9 @@ use rocket::{
     State,
 };
 
-use crate::auth::{DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, PutAuthWrapper};
+use crate::auth::{
+    DelAuthWrapper, GetAuthWrapper, ListAuthWrapper, MetadataAuthWrapper, PutAuthWrapper,
+};
 use crate::cas::CidWrap;
 use crate::config;
 use crate::orbit::load_orbit;
@@ -116,7 +118,7 @@ pub async fn list_content(
 #[head("/<_orbit_id>/s3/<key..>")]
 pub async fn get_metadata(
     _orbit_id: CidWrap,
-    orbit: GetAuthWrapper,
+    orbit: MetadataAuthWrapper,
     key: DotPathBuf,
 ) -> Result<Option<Metadata>, (Status, String)> {
     let k = match key.to_str() {

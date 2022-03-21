@@ -3,7 +3,7 @@ use crate::config;
 use crate::manifest::Manifest;
 use crate::orbit::{create_orbit, hash_same, load_orbit, AuthTokens, Orbit};
 use crate::relay::RelayNode;
-use crate::resource::OrbitId;
+use crate::resource::ResourceId;
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use libipld::cid::Cid;
@@ -12,22 +12,49 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::RwLock};
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Action {
-    Put(Vec<String>),
-    Get(Vec<String>),
-    Del(Vec<String>),
-    Create { content: Vec<String> },
-    List,
-}
+use thiserror::Error;
 
 pub trait AuthorizationToken {
-    fn action(&self) -> &Action;
-    fn target_orbit(&self) -> &OrbitId;
+    fn resource(&self) -> &ResourceId;
+}
+
+pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Result<(), ()> {
+    // if #action is same
+    // Ok if target.path => cap.path
+    if target.service() == capability.service()
+        && match (target.path(), capability.path()) {
+            (Some(t), Some(c)) => t.starts_with(c),
+            (Some(_), None) => true,
+            _ => false,
+        }
+    {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum TargetCheckError {
+    #[error("Invocation and Capability Orbits do not match")]
+    IncorrectOrbit,
+    #[error("Invocation and Capability Services do not match")]
+    IncorrectService,
+}
+
+pub fn check_orbit_and_service(
+    target: &ResourceId,
+    capability: &ResourceId,
+) -> Result<(), TargetCheckError> {
+    tracing::debug!("{} {}", target, capability);
+    if target.orbit() != capability.orbit() {
+        Err(TargetCheckError::IncorrectOrbit)
+    } else if target.service() != capability.service() {
+        Err(TargetCheckError::IncorrectService)
+    } else {
+        Ok(())
+    }
 }
 
 #[rocket::async_trait]
@@ -37,6 +64,7 @@ pub trait AuthorizationPolicy<T> {
 
 pub struct PutAuthWrapper(pub Orbit);
 pub struct GetAuthWrapper(pub Orbit);
+pub struct MetadataAuthWrapper(pub Orbit);
 pub struct DelAuthWrapper(pub Orbit);
 pub struct CreateAuthWrapper(pub Orbit);
 pub struct ListAuthWrapper(pub Orbit);
@@ -99,8 +127,8 @@ macro_rules! impl_fromreq {
                     }
                 };
                 match (
-                    token.action(),
-                    &oid == &match hash_same(&oid, token.target_orbit().to_string()) {
+                    token.resource().fragment().as_ref().map(|s| s.as_str()),
+                    &oid == &match hash_same(&oid, token.resource().orbit().to_string()) {
                         Ok(c) => c,
                         Err(_) => {
                             return Outcome::Failure((
@@ -114,9 +142,9 @@ macro_rules! impl_fromreq {
                         Status::BadRequest,
                         anyhow!("Token target orbit not matching endpoint"),
                     )),
-                    (Action::$method { .. }, true) => {
+                    (Some($method), true) => {
                         let orbit = match load_orbit(
-                            token.target_orbit().get_cid(),
+                            token.resource().orbit().get_cid(),
                             config.database.path.clone(),
                             relay,
                         )
@@ -146,10 +174,11 @@ macro_rules! impl_fromreq {
     };
 }
 
-impl_fromreq!(PutAuthWrapper, Put);
-impl_fromreq!(GetAuthWrapper, Get);
-impl_fromreq!(DelAuthWrapper, Del);
-impl_fromreq!(ListAuthWrapper, List);
+impl_fromreq!(PutAuthWrapper, "put");
+impl_fromreq!(GetAuthWrapper, "get");
+impl_fromreq!(MetadataAuthWrapper, "metadata");
+impl_fromreq!(DelAuthWrapper, "del");
+impl_fromreq!(ListAuthWrapper, "list");
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for CreateAuthWrapper {
@@ -173,11 +202,15 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
             }
         };
 
-        match &token.action() {
+        match (
+            token.resource().fragment().as_ref().map(|s| s.as_str()),
+            token.resource().path(),
+            token.resource().service(),
+        ) {
             // Create actions dont have an existing orbit to authorize against, it's a node policy
             // TODO have policy config, for now just be very permissive :shrug:
-            Action::Create { .. } => {
-                let md = match Manifest::resolve_dyn(token.target_orbit(), None).await {
+            (Some("peer"), None, None) => {
+                let md = match Manifest::resolve_dyn(token.resource().orbit(), None).await {
                     Ok(Some(md)) => md,
                     Ok(None) => {
                         return Outcome::Failure((

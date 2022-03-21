@@ -1,13 +1,11 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
-    resource::OrbitId,
+    resource::ResourceId,
 };
 use anyhow::Result;
 use nom::{
-    branch::alt,
     bytes::complete::{tag, take_until},
-    multi::many1,
     sequence::{preceded, tuple},
     IResult,
 };
@@ -26,8 +24,8 @@ pub struct TezosAuthorizationString {
     pub pk: String,
     pub pkh: String,
     pub timestamp: String,
-    pub orbit: OrbitId,
-    pub action: Action,
+    pub target: ResourceId,
+    pub delegate: Option<String>,
 }
 
 impl FromStr for TezosAuthorizationString {
@@ -39,23 +37,22 @@ impl FromStr for TezosAuthorizationString {
             space_delimit,                // get timestamp
             space_delimit,                // get pk
             space_delimit,                // get pkh
-            space_delimit,                // get orbit
-            tag(" "),
-            parse_action, // get action
+            space_delimit,                // get target
+            parse_delegate,               // get delegate
             tag(" "),
         ))(s)
         {
             Ok((
                 sig_str,
-                (_, domain_str, timestamp_str, pk_str, pkh_str, orbit_str, _, action, _),
+                (_, domain_str, timestamp_str, pk_str, pkh_str, target_str, delegate_str, _),
             )) => Ok(TezosAuthorizationString {
                 sig: sig_str.into(),
                 domain: domain_str.into(),
                 pk: pk_str.into(),
                 pkh: pkh_str.into(),
                 timestamp: timestamp_str.into(),
-                orbit: orbit_str.parse()?,
-                action,
+                target: target_str.parse()?,
+                delegate: delegate_str.map(|s| s.to_string()),
             }),
             // TODO there is a lifetime issue which prevents using the nom error here
             Err(_) => Err(anyhow!("TzAuth Parsing Failed")),
@@ -63,81 +60,29 @@ impl FromStr for TezosAuthorizationString {
     }
 }
 
+fn parse_delegate(s: &str) -> IResult<&str, Option<&str>> {
+    if s.starts_with("did:") {
+        space_delimit(s).map(|(r, s)| (r, Some(s)))
+    } else {
+        Ok((s, None))
+    }
+}
+
 fn space_delimit(s: &str) -> IResult<&str, &str> {
     preceded(tag(" "), take_until(" "))(s)
 }
 
-fn parse_list(s: &str) -> IResult<&str, Action> {
-    tag("LIST")(s).map(|(_, rest)| (rest, Action::List))
-}
-
-fn parse_get(s: &str) -> IResult<&str, Action> {
-    tuple((tag("GET"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
-        (
-            rest,
-            Action::Get(content.iter().map(|s| String::from(*s)).collect()),
-        )
-    })
-}
-
-fn parse_put(s: &str) -> IResult<&str, Action> {
-    tuple((tag("PUT"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
-        (
-            rest,
-            Action::Put(content.iter().map(|s| String::from(*s)).collect()),
-        )
-    })
-}
-
-fn parse_del(s: &str) -> IResult<&str, Action> {
-    tuple((tag("DEL"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
-        (
-            rest,
-            Action::Del(content.iter().map(|s| String::from(*s)).collect()),
-        )
-    })
-}
-
-fn parse_create(s: &str) -> IResult<&str, Action> {
-    tuple((tag("CREATE"), many1(space_delimit)))(s).map(|(rest, (_, content))| {
-        (
-            rest,
-            Action::Create {
-                content: content.iter().map(|s| String::from(*s)).collect(),
-            },
-        )
-    })
-}
-
-fn parse_action(s: &str) -> IResult<&str, Action> {
-    alt((parse_get, parse_put, parse_del, parse_create, parse_list))(s)
-}
-
-fn serialize_action(action: &Action) -> Result<String> {
-    match action {
-        Action::Put(content) => serialize_content_action("PUT", content),
-        Action::Get(content) => serialize_content_action("GET", content),
-        Action::Del(content) => serialize_content_action("DEL", content),
-        Action::List => Ok("LIST".into()),
-        Action::Create { content } => Ok(["CREATE", &content.join(" ")].join(" ")),
-    }
-}
-
-fn serialize_content_action(action: &str, content: &[String]) -> Result<String> {
-    Ok([action, &content.join(" ")].join(" "))
-}
-
 impl TezosAuthorizationString {
     pub fn serialize(&self) -> Result<String> {
-        Ok(format!(
-            "Tezos Signed Message: {} {} {} {} {} {}",
-            &self.domain,
-            &self.timestamp,
-            &self.pk,
-            &self.pkh,
-            &self.orbit,
-            serialize_action(&self.action)?
-        ))
+        let mut s = format!(
+            "Tezos Signed Message: {} {} {} {} {}",
+            &self.domain, &self.timestamp, &self.pk, &self.pkh, &self.target,
+        );
+        if let Some(d) = &self.delegate {
+            s.push_str(" ");
+            s.push_str(&d);
+        }
+        Ok(s)
     }
 
     fn serialize_for_verification(&self) -> Result<Vec<u8>> {
@@ -173,11 +118,8 @@ impl<'r> FromRequest<'r> for TezosAuthorizationString {
 }
 
 impl AuthorizationToken for TezosAuthorizationString {
-    fn action(&self) -> &Action {
-        &self.action
-    }
-    fn target_orbit(&self) -> &OrbitId {
-        &self.orbit
+    fn resource(&self) -> &ResourceId {
+        &self.target
     }
 }
 
@@ -197,15 +139,13 @@ impl core::fmt::Display for TezosAuthorizationString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "Tezos Signed Message: {} {} {} {} {} {} {}",
-            &self.domain,
-            &self.timestamp,
-            &self.pk,
-            &self.pkh,
-            &self.orbit,
-            serialize_action(&self.action).map_err(|_| core::fmt::Error)?,
-            &self.sig
-        )
+            "Tezos Signed Message: {} {} {} {} {}",
+            &self.domain, &self.timestamp, &self.pk, &self.pkh, &self.target,
+        )?;
+        if let Some(d) = &self.delegate {
+            write!(f, " {}", &d)?;
+        }
+        write!(f, " {}", self.sig)
     }
 }
 
@@ -236,21 +176,21 @@ async fn string_encoding() {
 
 #[test]
 async fn simple_parse() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg kepler:did:pkh:tz:tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg://default PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkuyzsMxWoYepkwfkDesgc1QjQA6ND9VvRHGbjEPrBfuXRgwT4rv tz1VsijPb6UCRnrKUecDv8s8cKZAgJtyKyGc kepler:did:example://my-orbit/s3/my/file/path.jpg#get edsigtzNQz7kEhJjPj92fTYSazxsMgDJX5DH7s1DagAmZZqGfvgybhgmgZRsjcpVh9f84DjzpoVwTeGDw8H6GZqW8PHR5zeRGeU";
     let _: TezosAuthorizationString = auth_str.parse().unwrap();
 }
 
 #[test]
 #[should_panic]
 async fn simple_verify_fail() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:15:04Z edpkurFSehqm2HhLP9sZ4ZRW5nLZgyWErW8wYxgEUPHCMCy6Hk1tbm tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg kepler:did:pkh:tz:tz1Y6SXe4J9DBVuGM3GnWC2jnmDkA6fBVyjg://default PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtmZ5tgugBSKjBJgptkm523C9EtVWrBhLYtv9MTAE6qF6mii2mFapdQfcCMsVzRisgQ3Nx61qC9Ut3VigyEC1s19RLwgkog";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkuyzsMxWoYepkwfkDesgc1QjQA6ND9VvRHGbjEPrBfuXRgwT4rv tz1VsijPb6UCRnrKUecDv8s8cKZAgJtyKyGc kepler:did:example://my-orbit0/s3/my/file/path.jpg#get edsigtzNQz7kEhJjPj92fTYSazxsMgDJX5DH7s1DagAmZZqGfvgybhgmgZRsjcpVh9f84DjzpoVwTeGDw8H6GZqW8PHR5zeRGeU";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
     tza.verify().unwrap();
 }
 
 #[test]
 async fn simple_verify_succeed() {
-    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkuKVBnFUDhXhkFuKy7ufEKRdJR3jTqsaS3Es864idKCvvuwzJwc tz1fRW28ZrgzkPwQPqcZP5oWhtcAicA63Zxc kepler:did:example://my-orbit PUT uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ edsigtbGTq1J9A4YJsc2yUUnWNH1RdWs3RkqvfCRLuCEhRv7Y5UDKYiMABFkWLrW5BMdSxWnAdwzoWpzs83JPLVurFpbVWqycSB";
+    let auth_str = "Tezos Signed Message: kepler.net 2021-01-14T15:16:04Z edpkuyzsMxWoYepkwfkDesgc1QjQA6ND9VvRHGbjEPrBfuXRgwT4rv tz1VsijPb6UCRnrKUecDv8s8cKZAgJtyKyGc kepler:did:example://my-orbit/s3/my/file/path.jpg#get edsigtzNQz7kEhJjPj92fTYSazxsMgDJX5DH7s1DagAmZZqGfvgybhgmgZRsjcpVh9f84DjzpoVwTeGDw8H6GZqW8PHR5zeRGeU";
     let tza: TezosAuthorizationString = auth_str.parse().unwrap();
     tza.verify().unwrap();
 }
@@ -264,8 +204,7 @@ async fn round_trip() {
     };
 
     let ts = "2021-01-14T15:16:04Z";
-    let dummy_cid = "uAYAEHiB0uGRNPXEMdA9L-lXR2MKIZzKlgW1z6Ug4fSv3LRSPfQ";
-    let dummy_orbit = "kepler:did:example://my-orbit";
+    let dummy_resource = "kepler:did:example://my-orbit/s3/my/file/path.jpg#get";
     let j = JWK::generate_ed25519().unwrap();
     let did = DID_METHODS
         .generate(&Source::KeyAndPattern(&j, "tz"))
@@ -289,8 +228,8 @@ async fn round_trip() {
         pk,
         pkh: pkh.into(),
         timestamp: ts.into(),
-        orbit: dummy_orbit.parse().unwrap(),
-        action: Action::Put(vec![dummy_cid.to_string()]),
+        target: dummy_resource.parse().unwrap(),
+        delegate: None,
     };
     let message = tz_unsigned
         .serialize_for_verification()

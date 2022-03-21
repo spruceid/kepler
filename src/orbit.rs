@@ -1,10 +1,10 @@
 use crate::{
-    auth::{Action, AuthorizationToken},
+    auth::AuthorizationToken,
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     ipfs::create_ipfs,
     manifest::Manifest,
-    resource::OrbitId,
+    resource::{OrbitId, ResourceId},
     s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
@@ -70,20 +70,12 @@ impl<'r> FromRequest<'r> for AuthTokens {
 }
 
 impl AuthorizationToken for AuthTokens {
-    fn action(&self) -> &Action {
+    fn resource(&self) -> &ResourceId {
         match self {
-            Self::Tezos(token) => token.action(),
-            Self::ZCAP(token) => token.action(),
-            Self::SIWEDelegated(token) => token.action(),
-            Self::SIWEZcapDelegated(token) => token.action(),
-        }
-    }
-    fn target_orbit(&self) -> &OrbitId {
-        match self {
-            Self::Tezos(token) => token.target_orbit(),
-            Self::ZCAP(token) => token.target_orbit(),
-            Self::SIWEDelegated(token) => token.target_orbit(),
-            Self::SIWEZcapDelegated(token) => token.target_orbit(),
+            Self::Tezos(token) => token.resource(),
+            Self::ZCAP(token) => token.resource(),
+            Self::SIWEDelegated(token) => token.resource(),
+            Self::SIWEZcapDelegated(token) => token.resource(),
         }
     }
 }

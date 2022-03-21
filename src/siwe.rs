@@ -1,7 +1,7 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
-    resource::{OrbitId, ResourceId},
+    resource::ResourceId,
     zcap::KeplerInvocation,
 };
 use anyhow::Result;
@@ -58,9 +58,7 @@ pub struct SIWEZcapTokens {
 pub struct SIWETokens {
     pub invocation: SIWEMessage,
     pub delegation: Option<SIWEMessage>,
-    // kinda weird
-    pub orbit: OrbitId,
-    pub invoked_action: Action,
+    pub invoked_action: ResourceId,
 }
 
 #[rocket::async_trait]
@@ -116,59 +114,32 @@ impl<'r> FromRequest<'r> for SIWETokens {
             (None, Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
             (None, _) => return Outcome::Forward(()),
         };
-        let (orbit, action) = match invocation
-            .resources
-            .iter()
-            .filter_map(|r| r.as_str().parse().ok())
-            .next()
-            .map(|r: ResourceId| {
-                Ok((
-                    r.orbit().clone(),
-                    match (
-                        r.service().as_deref(),
-                        r.path().as_deref(),
-                        r.fragment().as_deref(),
-                    ) {
-                        (None, None, Some("peer")) => Action::Create { content: vec![] },
-                        (Some("s3") | Some("ipfs"), p, Some(a)) => match (p, a) {
-                            (None, "list") => Action::List,
-                            (Some(path), "get") => Action::Get(vec![path.into()]),
-                            (Some(path), "put") => Action::Put(vec![path.into()]),
-                            (Some(path), "del") => Action::Del(vec![path.into()]),
-                            _ => return Err((Status::Unauthorized, anyhow!("Invalid Action"))),
-                        },
-                        _ => return Err((Status::Unauthorized, anyhow!("Invalid Resource"))),
-                    },
-                ))
-            }) {
-            Some(Ok(o)) => o,
-            Some(Err(e)) => return Outcome::Failure(e),
-            None => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Resource"))),
-        };
         Outcome::Success(Self {
+            invoked_action: match invocation
+                .resources
+                .iter()
+                .find_map(|r| r.as_str().parse().ok())
+            {
+                Some(o) => o,
+                None => {
+                    return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Resource")))
+                }
+            },
             invocation,
             delegation,
-            orbit,
-            invoked_action: action,
         })
     }
 }
 
 impl AuthorizationToken for SIWEZcapTokens {
-    fn action(&self) -> &Action {
-        &self.invocation.property_set.capability_action
-    }
-    fn target_orbit(&self) -> &OrbitId {
+    fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
     }
 }
 
 impl AuthorizationToken for SIWETokens {
-    fn action(&self) -> &Action {
+    fn resource(&self) -> &ResourceId {
         &self.invoked_action
-    }
-    fn target_orbit(&self) -> &OrbitId {
-        &self.orbit
     }
 }
 
@@ -218,36 +189,20 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
             return Err(anyhow!("Delegation has Expired"));
         };
 
-        // check action is authorized by blanket root ("." as relative path against "kepler://<orbit-id>/") auth
-        if !auth_token.delegation.resources.contains(&match auth_token
-            .invocation
-            .property_set
-            .capability_action
+        let target = &auth_token.invocation.property_set.invocation_target;
+
+        if !auth_token
+            .delegation
+            .resources
+            .iter()
+            .filter_map(|s| s.as_str().parse().ok())
+            .any(|r| {
+                check_orbit_and_service(&target, &r).is_ok()
+                    && simple_prefix_check(&target, &r).is_ok()
+            })
         {
-            Action::List => format!(
-                "kepler:{}#list",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Put(_) => format!(
-                "kepler:{}#put",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Get(_) => format!(
-                "kepler:{}#get",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            Action::Del(_) => format!(
-                "kepler:{}#del",
-                &auth_token.invocation.property_set.invocation_target
-            )
-            .parse()?,
-            _ => return Err(anyhow!("Invalid Action")),
-        }) {
-            return Err(anyhow!("Invoked action not authorized by delegation"));
-        };
+            return Err(anyhow!("Delegation semantics violated"));
+        }
 
         auth_token
             .delegation
@@ -269,7 +224,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
 #[rocket::async_trait]
 impl AuthorizationPolicy<SIWETokens> for Manifest {
     async fn authorize(&self, t: &SIWETokens) -> Result<()> {
-        if &t.orbit != self.id() {
+        if t.invoked_action.orbit() != self.id() {
             return Err(anyhow!("Incorrect Orbit ID"));
         };
 
@@ -299,6 +254,18 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
                         && invoker.starts_with(&d.uri.as_str()[..&d.uri.as_str().len() - 1]))
                 {
                     return Err(anyhow!("Invoker not authorized"));
+                };
+
+                if !d
+                    .resources
+                    .iter()
+                    .filter_map(|s| s.as_str().parse().ok())
+                    .any(|r| {
+                        check_orbit_and_service(&t.invoked_action, &r).is_ok()
+                            && simple_prefix_check(&t.invoked_action, &r).is_ok()
+                    })
+                {
+                    return Err(anyhow!("Delegation semantics violated"));
                 };
             }
             None => {

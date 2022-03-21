@@ -1,7 +1,7 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
-    resource::OrbitId,
+    resource::ResourceId,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -23,7 +23,7 @@ use std::{collections::HashMap as Map, str::FromStr};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DelProps {
-    pub capability_action: Vec<String>,
+    pub capability_action: Vec<ResourceId>,
     pub expiration: Option<DateTime<Utc>>,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,8 +35,7 @@ pub struct DelProps {
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
     #[serde_as(as = "DisplayFromStr")]
-    pub invocation_target: OrbitId,
-    pub capability_action: Action,
+    pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_fields: Option<Map<String, Value>>,
@@ -83,10 +82,7 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 }
 
 impl AuthorizationToken for ZCAPTokens {
-    fn action(&self) -> &Action {
-        &self.invocation.property_set.capability_action
-    }
-    fn target_orbit(&self) -> &OrbitId {
+    fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
     }
 }
@@ -111,11 +107,7 @@ impl AuthorizationPolicy<ZCAPTokens> for Manifest {
                     .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
                 if !self.delegators().contains(&delegator_vm) {
                     return Err(anyhow!("Delegator not authorized"));
-                } else if let Action::Create { .. } =
-                    auth_token.invocation.property_set.capability_action
-                {
-                    return Err(anyhow!("Invalid Action"));
-                }
+                };
                 if let Some(ref authorized_invoker) = d.invoker {
                     if authorized_invoker != &URI::String(invoker_vm.to_string()) {
                         return Err(anyhow!("Invoker not authorized"));
@@ -126,19 +118,16 @@ impl AuthorizationPolicy<ZCAPTokens> for Manifest {
                         return Err(anyhow!("Delegation has Expired"));
                     }
                 };
-                if !d.property_set.capability_action.contains(&match auth_token
-                    .invocation
-                    .property_set
-                    .capability_action
-                {
-                    Action::List => "list".into(),
-                    Action::Put(_) => "put".into(),
-                    Action::Get(_) => "get".into(),
-                    Action::Del(_) => "del".into(),
-                    _ => return Err(anyhow!("Invalid Action")),
+
+                let target = &auth_token.invocation.property_set.invocation_target;
+
+                if !d.property_set.capability_action.iter().any(|r| {
+                    check_orbit_and_service(&target, r).is_ok()
+                        && simple_prefix_check(&target, r).is_ok()
                 }) {
-                    return Err(anyhow!("Invoked action not authorized by delegation"));
-                };
+                    return Err(anyhow!("Delegation semantics violated"));
+                }
+
                 let mut res = d
                     .verify(Default::default(), DID_METHODS.to_resolver())
                     .await;

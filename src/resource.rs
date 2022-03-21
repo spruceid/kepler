@@ -3,12 +3,13 @@ use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use ssi::did::DIDURL;
 
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
-#[derive(Clone, Hash, PartialEq, Debug, Eq)]
+#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
 pub struct OrbitId {
     suffix: String,
     id: String,
@@ -49,7 +50,7 @@ impl TryFrom<DIDURL> for OrbitId {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Debug)]
+#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
 pub struct ResourceId {
     orbit: OrbitId,
     service: Option<String>,
@@ -82,7 +83,7 @@ impl fmt::Display for ResourceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.orbit)?;
         if let Some(s) = &self.service {
-            write!(f, ":{}", s)?
+            write!(f, "/{}", s)?
         };
         if let Some(p) = &self.path {
             write!(f, "{}", p)?
