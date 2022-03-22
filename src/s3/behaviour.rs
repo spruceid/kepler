@@ -6,11 +6,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use ipfs::PeerId;
+use ipfs::{Multiaddr, PeerId};
 use libp2p::{
-    core::connection::ConnectionId,
+    core::{connection::ConnectionId, ConnectedPoint},
     swarm::{
-        handler::DummyConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+        handler::DummyConnectionHandler, IntoConnectionHandler, NetworkBehaviour,
+        NetworkBehaviourAction, PollParameters,
     },
 };
 use void::Void;
@@ -39,7 +40,6 @@ impl NetworkBehaviour for Behaviour {
         DummyConnectionHandler::default()
     }
 
-    // Now that there is no inject_(dis)connected, now can we emit events??
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: Void) {}
 
     fn poll(
@@ -48,6 +48,32 @@ impl NetworkBehaviour for Behaviour {
         _params: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<(), Self::ConnectionHandler, Void>> {
         Poll::Pending
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _connection: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
+    ) {
+        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(*peer_id)) {
+            tracing::error!("Behaviour process has shutdown.")
+        }
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _connection: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        _remaining_established: usize,
+    ) {
+        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(*peer_id)) {
+            tracing::error!("Behaviour process has shutdown.")
+        }
     }
 }
 
