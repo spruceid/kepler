@@ -1,3 +1,4 @@
+use crate::codec::SupportedCodecs;
 use iri_string::{types::UriString, validate::Error as UriError};
 use libipld::cid::{
     multihash::{Code, MultihashDigest},
@@ -33,7 +34,10 @@ impl OrbitId {
     }
 
     pub fn get_cid(&self) -> Cid {
-        Cid::new_v1(0x55, Code::Blake2b256.digest(self.to_string().as_bytes()))
+        Cid::new_v1(
+            SupportedCodecs::Raw as u64,
+            Code::Blake2b256.digest(self.to_string().as_bytes()),
+        )
     }
 }
 
