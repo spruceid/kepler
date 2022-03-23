@@ -3,6 +3,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
+    heads::SledHeadStore,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
@@ -123,7 +124,7 @@ impl OrbitTasks {
 
 #[derive(Clone)]
 pub struct Orbit {
-    pub service: Service,
+    pub service: Service<SledHeadStore>,
     _tasks: OrbitTasks,
     manifest: Manifest,
 }
@@ -162,7 +163,8 @@ impl Orbit {
         };
         let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id.to_string(), ipfs.clone(), db)?;
+        let heads = SledHeadStore::new(&db)?;
+        let service_store = Store::new(id, ipfs.clone(), db, heads)?;
         let service = Service::start(service_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);

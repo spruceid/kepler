@@ -1,14 +1,12 @@
+use crate::heads::{u642v, v2u64, HeadStore};
 use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
-use sled::{Batch, Db, IVec, Tree};
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-};
+use sled::{Db, IVec, Tree};
+use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::debug;
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
@@ -61,25 +59,23 @@ impl LinkedDelta {
 }
 
 #[derive(Clone)]
-pub struct Store {
+pub struct Store<H> {
     pub id: String,
     pub ipfs: Ipfs,
     elements: Tree,
     tombs: Tree,
     priorities: Tree,
-    heads: Heads,
+    heads: H,
 }
 
-impl Store {
-    pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
+impl<H> Store<H> {
+    pub fn new(id: String, ipfs: Ipfs, db: Db, heads: H) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
         // map key to element cid
         let tombs = db.open_tree("tombs")?;
         // map key to current max priority for key
         let priorities = db.open_tree("priorities")?;
-        // map current DAG head cids to their priority
-        let heads = Heads::new(db)?;
         Ok(Self {
             id,
             ipfs,
@@ -89,7 +85,7 @@ impl Store {
             heads,
         })
     }
-    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + '_ {
+    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + '_ {
         self.elements
             .iter()
             .map(|r| match r {
@@ -145,7 +141,27 @@ impl Store {
             Err(_) => Ok(None),
         }
     }
+    pub(crate) async fn request_heads(&self) -> Result<()> {
+        debug!("requesting heads");
+        self.ipfs
+            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
+            .await?;
+        Ok(())
+    }
 
+    fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
+        [key.as_ref(), &cid.to_bytes()].concat()
+    }
+
+    fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
+        Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
+    }
+}
+
+impl<H> Store<H>
+where
+    H: 'static + HeadStore + Clone + Send + Sync,
+{
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
@@ -181,7 +197,7 @@ impl Store {
         N: AsRef<[u8]>,
         M: AsRef<[u8]>,
     {
-        let (heads, height) = self.heads.state()?;
+        let (heads, height) = self.heads.get_heads()?;
         let height = if heads.is_empty() && height == 0 {
             0
         } else {
@@ -220,7 +236,7 @@ impl Store {
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let (heads, height) = self.heads.state()?;
+        let (heads, height) = self.heads.get_heads()?;
         if !heads.is_empty() {
             debug!(
                 "broadcasting {} heads at maxheight {} on {}",
@@ -287,8 +303,9 @@ impl Store {
         }
         // find redundant heads and remove them
         // add new head
-        self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
-        self.heads.new_head(block.cid(), delta.prev.clone())?;
+        self.heads
+            .set_heights([(*block.cid(), delta.delta.priority)])?;
+        self.heads.new_heads([*block.cid()], delta.prev.clone())?;
         self.ipfs.put_block(block.clone()).await?;
 
         Ok(())
@@ -311,7 +328,7 @@ impl Store {
                     .iter()
                     .filter_map(|p| {
                         self.heads
-                            .get(p)
+                            .get_height(p)
                             .map(|o| match o {
                                 Some(_) => None,
                                 None => Some(*p),
@@ -343,108 +360,12 @@ impl Store {
             debug!("syncing head {}", head);
 
             self.ipfs.insert_pin(&head, true).await?;
-
-            // Can't find sync method in rust-ipfs.
-            // Does bitswap syncing happen automatically behind the scenes?
-
-            //match self.ipfs.sync(&head, self.ipfs.peers()).await {
-            //    Ok(_) => {
-            //        debug!("synced head {}", head);
-            //        Ok(())
-            //    }
-            //    Err(e) => {
-            //        error!("failed sync head {}", e);
-            //        Err(anyhow!(e))
-            //    }
-            //}
             Ok(()) as Result<()>
         }))
         .await?;
         Ok(())
     }
-
-    pub(crate) async fn request_heads(&self) -> Result<()> {
-        debug!("requesting heads");
-        self.ipfs
-            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
-            .await?;
-        Ok(())
-    }
-
-    fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
-        [key.as_ref(), &cid.to_bytes()].concat()
-    }
-
-    pub async fn start_service(self) -> Result<Service> {
+    pub async fn start_service(self) -> Result<Service<H>> {
         Service::start(self).await
     }
-
-    fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
-        Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
-    }
-}
-
-#[derive(Clone)]
-pub struct Heads {
-    heights: Tree,
-    heads: Tree,
-}
-
-impl Heads {
-    pub fn new(db: Db) -> Result<Self> {
-        Ok(Self {
-            heights: db.open_tree("heights")?,
-            heads: db.open_tree("heads")?,
-        })
-    }
-
-    pub fn state(&self) -> Result<(Vec<Cid>, u64)> {
-        self.heads.iter().try_fold(
-            (vec![], 0),
-            |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
-                let (head, _) = r?;
-                let height = v2u64(
-                    self.heights
-                        .get(&head)?
-                        .ok_or_else(|| anyhow!("Failed to find head height"))?,
-                )?;
-                heads.push(head[..].try_into()?);
-                Ok((heads, u64::max(max_height, height)))
-            },
-        )
-    }
-
-    pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
-        self.heights.get(head.to_bytes())?.map(v2u64).transpose()
-    }
-
-    pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
-        let mut batch = Batch::default();
-        for (op, height) in heights.into_iter() {
-            if !self.heights.contains_key(op.to_bytes())? {
-                debug!("setting head height {} {}", op, height);
-                batch.insert(op.to_bytes(), &u642v(height));
-            }
-        }
-        self.heights.apply_batch(batch)?;
-        Ok(())
-    }
-
-    pub fn new_head(&self, head: &Cid, prev: impl IntoIterator<Item = Cid>) -> Result<()> {
-        let mut batch = Batch::default();
-        batch.insert(head.to_bytes(), &[]);
-        for p in prev {
-            batch.remove(p.to_bytes());
-        }
-        self.heads.apply_batch(batch)?;
-        Ok(())
-    }
-}
-
-fn v2u64<V: AsRef<[u8]>>(v: V) -> Result<u64> {
-    Ok(u64::from_be_bytes(v.as_ref().try_into()?))
-}
-
-fn u642v(n: u64) -> [u8; 8] {
-    n.to_be_bytes()
 }

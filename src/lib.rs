@@ -13,6 +13,7 @@ pub mod auth;
 pub mod cas;
 pub mod codec;
 pub mod config;
+pub mod heads;
 pub mod ipfs;
 pub mod manifest;
 pub mod orbit;
