@@ -1,11 +1,11 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::OrbitMetadata,
+    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
+    manifest::Manifest,
+    resource::ResourceId,
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use didkit::DID_METHODS;
-use libipld::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -23,7 +23,7 @@ use std::{collections::HashMap as Map, str::FromStr};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DelProps {
-    pub capability_action: Vec<String>,
+    pub capability_action: Vec<ResourceId>,
     pub expiration: Option<DateTime<Utc>>,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,8 +35,7 @@ pub struct DelProps {
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
     #[serde_as(as = "DisplayFromStr")]
-    pub invocation_target: Cid,
-    pub capability_action: Action,
+    pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_fields: Option<Map<String, Value>>,
@@ -83,16 +82,13 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 }
 
 impl AuthorizationToken for ZCAPTokens {
-    fn action(&self) -> &Action {
-        &self.invocation.property_set.capability_action
-    }
-    fn target_orbit(&self) -> &Cid {
+    fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
     }
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
+impl AuthorizationPolicy<ZCAPTokens> for Manifest {
     async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
         let invoker_vm = auth_token
             .invocation
@@ -109,23 +105,8 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                     .and_then(|proof| proof.verification_method.as_ref())
                     .ok_or_else(|| anyhow!("Missing delegation verification method"))
                     .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
-                match auth_token.invocation.property_set.capability_action {
-                    Action::List | Action::Get(_) => {
-                        if !self.read_delegators.contains(&delegator_vm)
-                            && !self.write_delegators.contains(&delegator_vm)
-                            && !self.controllers.contains(&delegator_vm)
-                        {
-                            return Err(anyhow!("Delegator not authorized"));
-                        }
-                    }
-                    Action::Put(_) | Action::Del(_) => {
-                        if !self.write_delegators.contains(&delegator_vm)
-                            && !self.controllers.contains(&delegator_vm)
-                        {
-                            return Err(anyhow!("Delegator not write-authorized"));
-                        }
-                    }
-                    _ => return Err(anyhow!("Invalid Action")),
+                if !self.delegators().contains(&delegator_vm) {
+                    return Err(anyhow!("Delegator not authorized"));
                 };
                 if let Some(ref authorized_invoker) = d.invoker {
                     if authorized_invoker != &URI::String(invoker_vm.to_string()) {
@@ -137,19 +118,16 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                         return Err(anyhow!("Delegation has Expired"));
                     }
                 };
-                if !d.property_set.capability_action.contains(&match auth_token
-                    .invocation
-                    .property_set
-                    .capability_action
-                {
-                    Action::List => "list".into(),
-                    Action::Put(_) => "put".into(),
-                    Action::Get(_) => "get".into(),
-                    Action::Del(_) => "del".into(),
-                    _ => return Err(anyhow!("Invalid Action")),
+
+                let target = &auth_token.invocation.property_set.invocation_target;
+
+                if !d.property_set.capability_action.iter().any(|r| {
+                    check_orbit_and_service(target, r).is_ok()
+                        && simple_prefix_check(target, r).is_ok()
                 }) {
-                    return Err(anyhow!("Invoked action not authorized by delegation"));
-                };
+                    return Err(anyhow!("Delegation semantics violated"));
+                }
+
                 let mut res = d
                     .verify(Default::default(), DID_METHODS.to_resolver())
                     .await;
@@ -161,7 +139,7 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
                 res
             }
             None => {
-                if !self.controllers.contains(&invoker_vm) {
+                if !self.invokers().contains(&invoker_vm) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
                 auth_token
@@ -180,9 +158,9 @@ impl AuthorizationPolicy<ZCAPTokens> for OrbitMetadata {
 
 #[test]
 async fn basic() -> Result<()> {
-    let del_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:bac4da68-eb75-446b-8f9f-87608cbf872b","parentCapability":"kepler://zCT5htkeDnBhDwQ9JsPnZKuzzQG6fSe3U44oCjZ5tkAPyNvPVXvg","invoker":"did:key:z6MkmhGnWtb1bo18Z3QfvKXFxRp6e3LHmG7i8z7ZkAa39tKA#z6MkmhGnWtb1bo18Z3QfvKXFxRp6e3LHmG7i8z7ZkAa39tKA","capabilityAction":["get","list","put","del"],"expiration":"2021-09-08T17:01:13.991Z","proof":{"@context":{"TezosMethod2021":"https://w3id.org/security#TezosMethod2021","TezosSignature2021":{"@context":{"@protected":true,"@version":1.1,"challenge":"https://w3id.org/security#challenge","created":{"@id":"http://purl.org/dc/terms/created","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"domain":"https://w3id.org/security#domain","expires":{"@id":"https://w3id.org/security#expiration","@type":"http://www.w3.org/2001/XMLSchema#dateTime"},"id":"@id","nonce":"https://w3id.org/security#nonce","proofPurpose":{"@context":{"@protected":true,"@version":1.1,"assertionMethod":{"@container":"@set","@id":"https://w3id.org/security#assertionMethod","@type":"@id"},"authentication":{"@container":"@set","@id":"https://w3id.org/security#authenticationMethod","@type":"@id"},"id":"@id","type":"@type"},"@id":"https://w3id.org/security#proofPurpose","@type":"@vocab"},"proofValue":"https://w3id.org/security#proofValue","publicKeyJwk":{"@id":"https://w3id.org/security#publicKeyJwk","@type":"@json"},"type":"@type","verificationMethod":{"@id":"https://w3id.org/security#verificationMethod","@type":"@id"}},"@id":"https://w3id.org/security#TezosSignature2021"}},"type":"TezosSignature2021","proofPurpose":"capabilityDelegation","proofValue":"edsigtXsZpmWpUqm5eNgFehmnpRbFVuJsLTTwDvrYkK8pmswpTxKFCUhDyfjjs13Gw6oGtBkgJxSMECdfvpN49pCruyokvQrg41","verificationMethod":"did:pkh:tz:tz1auyCb6BDGYqZL38UqpazAoHrztt197Tfr#TezosMethod2021","created":"2021-09-08T17:00:13.995Z","publicKeyJwk":{"alg":"EdBlake2b","crv":"Ed25519","kty":"OKP","x":"aEofZ76eliz8VX4ys9XsR1q3HXQ4sGsPT9p00kx-SLU"},"capabilityChain":[]}}"#;
-    let del: KeplerDelegation = serde_json::from_str(del_str)?;
-    let res = del.verify(None, DID_METHODS.to_resolver()).await;
+    let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:8097ab5c-ebd6-4924-b659-5f8009429e4d","invocationTarget":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default/ipfs/#list","proof":{"type":"Ed25519Signature2018","proofPurpose":"capabilityInvocation","verificationMethod":"did:key:z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj#z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj","created":"2022-03-21T13:59:14.455Z","jws":"eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..ybqGJAhCtAPE97cZTLLvX5f5IzJtZLaCmrYAGosckwt9MT5A-ZRQfcZsdwrDUGND5lSTAIAvxWjCOvtMA1RVCw","capability":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default"}}"#;
+    let inv: KeplerInvocation = serde_json::from_str(inv_str)?;
+    let res = inv.verify_signature(None, DID_METHODS.to_resolver()).await;
     assert!(res.errors.is_empty());
     Ok(())
 }

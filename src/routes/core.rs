@@ -17,8 +17,9 @@ use crate::auth::{
 use crate::cas::{CidWrap, ContentAddressedStorage};
 use crate::codec::{PutContent, SupportedCodecs};
 use crate::config;
-use crate::orbit::{create_orbit, get_metadata, load_orbit, Orbit};
+use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
+use crate::resource::OrbitId;
 use crate::routes::DotPathBuf;
 
 // TODO need to check for every relevant endpoint that the orbit ID in the URL matches the one in the auth token
@@ -190,7 +191,7 @@ pub async fn open_orbit_authz(
     authz: CreateAuthWrapper,
 ) -> Result<String, (Status, &'static str)> {
     // create auth success, return OK
-    if &orbit_id.0 == authz.0.id() {
+    if orbit_id.0 == authz.0.id().get_cid() {
         Ok(authz.0.id().to_string())
     } else {
         Err((Status::BadRequest, "Path does not match authorization"))
@@ -210,16 +211,16 @@ pub async fn open_orbit_allowlist(
     relay: &State<RelayNode>,
     keys: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<(), (Status, &'static str)> {
+    let oid: OrbitId = params_str
+        .parse()
+        .map_err(|_| (Status::BadRequest, "Invalid Kepler URI in body"))?;
     // no auth token, use allowlist
-    match (
-        get_metadata(&orbit_id.0, params_str, &config.chains).await,
-        config.orbits.allowlist.as_ref(),
-    ) {
-        (_, None) => Err((Status::InternalServerError, "Allowlist Not Configured")),
-        (Ok(md), Some(list)) => match list.is_allowed(&orbit_id.0).await {
-            Ok(_controllers) => {
+    match config.orbits.allowlist.as_ref() {
+        None => Err((Status::InternalServerError, "Allowlist Not Configured")),
+        Some(list) => match list.is_allowed(&orbit_id.0).await {
+            Ok(orbit) if orbit == oid => {
                 create_orbit(
-                    &md,
+                    &orbit,
                     config.database.path.clone(),
                     &[],
                     (relay.id, relay.internal()),
@@ -231,7 +232,6 @@ pub async fn open_orbit_allowlist(
             }
             _ => Err((Status::Unauthorized, "Orbit not allowed")),
         },
-        (Err(_), _) => Err((Status::BadRequest, "Invalid Orbit Params")),
     }
 }
 
@@ -251,7 +251,7 @@ pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
     let keypair = Ed25519Keypair::generate();
-    let id = ipfs::PublicKey::Ed25519(keypair.public()).into_peer_id();
+    let id = ipfs::PublicKey::Ed25519(keypair.public()).to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);

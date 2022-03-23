@@ -1,19 +1,18 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
+    auth::AuthorizationToken,
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
-    config::ExternalApis,
     ipfs::create_ipfs,
+    manifest::Manifest,
+    resource::{OrbitId, ResourceId},
     s3::{behaviour::BehaviourProcess, Service, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
-    tz_orbit::params_to_tz_orbit,
     zcap::ZCAPTokens,
 };
 use anyhow::{anyhow, Result};
-use ipfs::MultiaddrWithoutPeerId;
+use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use libipld::cid::{
-    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -30,55 +29,14 @@ use rocket::{
 };
 
 use cached::proc_macro::cached;
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
-use ssi::did::DIDURL;
 use std::{
     collections::HashMap as Map,
     convert::TryFrom,
     ops::Deref,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 use tokio::spawn;
-
-#[serde_as]
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct OrbitMetadata {
-    // NOTE This will always serialize in b58check
-    #[serde_as(as = "DisplayFromStr")]
-    pub id: Cid,
-    pub controllers: Vec<DIDURL>,
-    pub read_delegators: Vec<DIDURL>,
-    pub write_delegators: Vec<DIDURL>,
-    #[serde(default)]
-    #[serde_as(as = "Map<DisplayFromStr, _>")]
-    pub hosts: Map<PeerId, Vec<Multiaddr>>,
-    // TODO placeholder type
-    pub revocations: Vec<String>,
-}
-
-impl OrbitMetadata {
-    pub fn id(&self) -> &Cid {
-        &self.id
-    }
-
-    pub fn hosts(&self) -> impl Iterator<Item = &PeerId> {
-        self.hosts.keys()
-    }
-
-    pub fn controllers(&self) -> &[DIDURL] {
-        &self.controllers
-    }
-
-    pub fn make_uri(&self, cid: &Cid) -> Result<String> {
-        Ok(format!(
-            "kepler://{}/{}",
-            self.id().to_string_of_base(Base::Base58Btc)?,
-            cid.to_string_of_base(Base::Base58Btc)?
-        ))
-    }
-}
 
 pub enum AuthTokens {
     Tezos(Box<TezosAuthorizationString>),
@@ -112,31 +70,12 @@ impl<'r> FromRequest<'r> for AuthTokens {
 }
 
 impl AuthorizationToken for AuthTokens {
-    fn action(&self) -> &Action {
+    fn resource(&self) -> &ResourceId {
         match self {
-            Self::Tezos(token) => token.action(),
-            Self::ZCAP(token) => token.action(),
-            Self::SIWEDelegated(token) => token.action(),
-            Self::SIWEZcapDelegated(token) => token.action(),
-        }
-    }
-    fn target_orbit(&self) -> &Cid {
-        match self {
-            Self::Tezos(token) => token.target_orbit(),
-            Self::ZCAP(token) => token.target_orbit(),
-            Self::SIWEDelegated(token) => token.target_orbit(),
-            Self::SIWEZcapDelegated(token) => token.target_orbit(),
-        }
-    }
-}
-#[rocket::async_trait]
-impl AuthorizationPolicy<AuthTokens> for OrbitMetadata {
-    async fn authorize(&self, auth_token: &AuthTokens) -> Result<()> {
-        match auth_token {
-            AuthTokens::Tezos(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
+            Self::Tezos(token) => token.resource(),
+            Self::ZCAP(token) => token.resource(),
+            Self::SIWEDelegated(token) => token.resource(),
+            Self::SIWEZcapDelegated(token) => token.resource(),
         }
     }
 }
@@ -183,65 +122,89 @@ impl OrbitTasks {
 #[derive(Clone)]
 pub struct Orbit {
     pub service: Service,
-    metadata: OrbitMetadata,
     _tasks: OrbitTasks,
+    manifest: Manifest,
 }
 
-fn get_params_vm(method: &str, params: &Map<String, String>) -> Option<DIDURL> {
-    match method {
-        "tz" => match (params.get("address"), params.get("contract")) {
-            (_, Some(_contract)) => None,
-            (Some(address), None) => Some(DIDURL {
-                did: format!("did:pkh:tz:{}", &address),
-                fragment: Some("TezosMethod2021".to_string()),
-                ..Default::default()
-            }),
-            _ => None,
-        },
-        "did" => match (params.get("did"), params.get("vm")) {
-            (Some(did), Some(vm_id)) => Some(DIDURL {
-                did: did.into(),
-                fragment: Some(vm_id.into()),
-                ..Default::default()
-            }),
-            _ => None,
-        },
-        _ => None,
+impl Orbit {
+    async fn new<P: AsRef<Path>>(
+        path: P,
+        kp: Ed25519Keypair,
+        manifest: Manifest,
+        relay: Option<(PeerId, Multiaddr)>,
+    ) -> anyhow::Result<Self> {
+        let id = manifest.id().get_cid().to_string();
+        let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
+        let (ipfs, ipfs_future, receiver) = create_ipfs(
+            id.clone(),
+            path.as_ref(),
+            Keypair::Ed25519(kp),
+            manifest
+                .bootstrap_peers()
+                .peers
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<PeerId>>(),
+        )
+        .await?;
+
+        let ipfs_task = spawn(ipfs_future);
+        if let Some(r) = relay {
+            ipfs.connect(MultiaddrWithoutPeerId::try_from(r.1)?.with(r.0))
+                .await?;
+        };
+
+        let db = sled::open(path.as_ref().join(&id).with_extension("ks3db"))?;
+
+        let service_store = Store::new(id, ipfs.clone(), db)?;
+        let service = Service::start(service_store).await?;
+
+        let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
+
+        let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
+
+        tokio_stream::iter(
+            manifest
+                .bootstrap_peers()
+                .peers
+                .iter()
+                .filter(|p| p.id != local_peer_id)
+                .flat_map(|peer| {
+                    peer.addrs
+                        .clone()
+                        .into_iter()
+                        .zip(std::iter::repeat(peer.id))
+                })
+                .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
+        )
+        .try_for_each(|multiaddr| ipfs.connect(multiaddr))
+        .await?;
+
+        Ok(Orbit {
+            service,
+            manifest,
+            _tasks: tasks,
+        })
     }
-}
 
-pub async fn get_metadata(
-    oid: &Cid,
-    param_str: &str,
-    chains: &ExternalApis,
-) -> Result<OrbitMetadata> {
-    let (method, params) = verify_oid(oid, param_str)?;
-    Ok(match (method.as_str(), &chains) {
-        ("tz", ExternalApis { tzkt, .. }) => params_to_tz_orbit(*oid, &params, tzkt).await?,
-        _ => OrbitMetadata {
-            id: *oid,
-            controllers: vec![get_params_vm(method.as_ref(), &params)
-                .ok_or_else(|| anyhow!("Missing Implicit Controller Params"))?],
-            read_delegators: vec![],
-            write_delegators: vec![],
-            revocations: vec![],
-            hosts: params
-                .get("hosts")
-                .map(|hs| parse_hosts_str(hs))
-                .unwrap_or_else(|| Ok(Default::default()))?,
-        },
-    })
+    pub async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
+        self.service.store.ipfs.connect(node).await
+    }
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
-    md: &OrbitMetadata,
+    id: &OrbitId,
     path: PathBuf,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(md.id.to_string_of_base(Base::Base58Btc)?);
+    let md = match Manifest::resolve_dyn(id, None).await? {
+        Some(m) => m,
+        _ => return Ok(None),
+    };
+    let dir = path.join(&id.get_cid().to_string());
 
     // fails if DIR exists, this is Create, not Open
     if dir.exists() {
@@ -253,26 +216,30 @@ pub async fn create_orbit(
 
     let kp = {
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
-        md.hosts()
-            .find_map(|h| keys.remove(h))
+        md.bootstrap_peers()
+            .peers
+            .iter()
+            .find_map(|p| keys.remove(&p.id))
             .unwrap_or_else(Ed25519Keypair::generate)
     };
 
-    fs::write(dir.join("metadata"), serde_json::to_vec_pretty(md)?).await?;
     fs::write(dir.join("access_log"), auth).await?;
     fs::write(dir.join("kp"), kp.encode()).await?;
+    fs::write(dir.join("id"), id.to_string()).await?;
 
-    Ok(Some(load_orbit(md.id, path, relay).await.map(|o| {
-        o.ok_or_else(|| anyhow!("Couldn't find newly created orbit"))
-    })??))
+    Ok(Some(
+        load_orbit(md.id().get_cid(), path, relay)
+            .await
+            .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
+    ))
 }
 
 pub async fn load_orbit(
-    oid: Cid,
+    id_cid: Cid,
     path: PathBuf,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(oid.to_string_of_base(Base::Base58Btc)?);
+    let dir = path.join(&id_cid.to_string());
     if !dir.exists() {
         return Ok(None);
     }
@@ -283,80 +250,17 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
-    let local_peer_id = PeerId::from_public_key(ipfs::PublicKey::Ed25519(kp.public()));
+    let id: OrbitId = String::from_utf8(fs::read(dir.join("id")).await?)?.parse()?;
+    let md = Manifest::resolve_dyn(&id, None)
+        .await?
+        .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
 
-    let md: OrbitMetadata = serde_json::from_slice(&fs::read(dir.join("metadata")).await?)?;
-    let id = md.id.to_string_of_base(Base::Base58Btc)?;
+    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
+
     tracing::debug!("loading orbit {}, {:?}", &id, &dir);
 
-    let (ipfs, ipfs_future, receiver) = create_ipfs(
-        id.clone(),
-        &dir,
-        Keypair::Ed25519(kp),
-        md.hosts.clone().into_keys(),
-    )
-    .await?;
-
-    let ipfs_task = spawn(ipfs_future);
-    ipfs.connect(MultiaddrWithoutPeerId::try_from(relay.1)?.with(relay.0))
-        .await?;
-
-    let db = sled::open(dir.join(&id).with_extension("ks3db"))?;
-
-    let service_store = Store::new(id, ipfs.clone(), db)?;
-    let service = Service::start(service_store).await?;
-
-    let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
-
-    let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
-
-    tokio_stream::iter(
-        md.hosts
-            .clone()
-            .into_iter()
-            .filter(|(p, _)| p != &local_peer_id)
-            .flat_map(|(peer, addrs)| addrs.into_iter().zip(std::iter::repeat(peer)))
-            .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
-    )
-    .try_for_each(|multiaddr| ipfs.connect(multiaddr))
-    .await?;
-
-    Ok(Orbit {
-        service,
-        metadata: md,
-        _tasks: tasks,
-    })
-}
-
-pub fn parse_hosts_str(s: &str) -> Result<Map<PeerId, Vec<Multiaddr>>> {
-    s.split('|')
-        .map(|hs| {
-            hs.split_once(':')
-                .ok_or_else(|| anyhow!("missing host:addrs map"))
-                .and_then(|(id, s)| {
-                    Ok((
-                        id.parse()?,
-                        s.split(',')
-                            .map(|a| Ok(a.parse()?))
-                            .collect::<Result<Vec<Multiaddr>>>()?,
-                    ))
-                })
-        })
-        .collect()
-}
-
-pub fn get_params(matrix_params: &str) -> Result<Map<String, String>> {
-    matrix_params
-        .split(';')
-        .map(|pair_str| match pair_str.split_once('=') {
-            Some((key, value)) => Ok((
-                urlencoding::decode(key)?.into_owned(),
-                urlencoding::decode(value)?.into_owned(),
-            )),
-            _ => Err(anyhow!("Invalid matrix param")),
-        })
-        .collect::<Result<Map<String, String>>>()
+    let orbit = Orbit::new(dir, kp, md, Some(relay)).await?;
+    Ok(orbit)
 }
 
 pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
@@ -364,24 +268,6 @@ pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
         c.codec(),
         Code::try_from(c.hash().code())?.digest(b.as_ref()),
     ))
-}
-
-pub fn verify_oid(oid: &Cid, uri_str: &str) -> Result<(String, Map<String, String>)> {
-    // try to parse as a URI with matrix params
-    if &hash_same(oid, uri_str)? == oid && oid.codec() == 0x55 {
-        let first_sc = uri_str.find(';').unwrap_or(uri_str.len());
-        Ok((
-            // method name
-            uri_str
-                .get(..first_sc)
-                .ok_or_else(|| anyhow!("Missing Orbit Method"))?
-                .into(),
-            // matrix parameters
-            get_params(uri_str.get(first_sc + 1..).unwrap_or(""))?,
-        ))
-    } else {
-        Err(anyhow!("Failed to verify Orbit ID"))
-    }
 }
 
 #[rocket::async_trait]
@@ -409,46 +295,50 @@ impl ContentAddressedStorage for Orbit {
 }
 
 impl Deref for Orbit {
-    type Target = OrbitMetadata;
+    type Target = Manifest;
     fn deref(&self) -> &Self::Target {
-        &self.metadata
+        &self.manifest
     }
 }
 
-impl Orbit {
-    pub fn read_delegators(&self) -> &[DIDURL] {
-        &self.metadata.read_delegators
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use didkit::DID_METHODS;
+    use ssi::{
+        did::{Source, DIDURL},
+        jwk::JWK,
+    };
+    use std::convert::TryInto;
+    use tempdir::TempDir;
+
+    async fn op(md: Manifest) -> anyhow::Result<Orbit> {
+        Orbit::new(
+            TempDir::new(&md.id().get_cid().to_string()).unwrap(),
+            Ed25519Keypair::generate(),
+            md,
+            None,
+        )
+        .await
     }
 
-    pub fn write_delegators(&self) -> &[DIDURL] {
-        &self.metadata.write_delegators
-    }
-
-    // async fn update(&self, _update: Self::UpdateMessage) -> Result<(), <Self as Orbit>::Error> {
-    //     todo!()
-    // }
-}
-
-#[test]
-async fn oid_verification() {
-    let oid: Cid = "zCT5htkeBtA6Qu5YF4vPkQcfeqy3pY4m8zxGdUKUiPgtPEbY3rHy"
-        .parse()
+    #[test]
+    async fn did_orbit() {
+        let j = JWK::generate_secp256k1().unwrap();
+        let did = DID_METHODS
+            .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
+            .unwrap();
+        let oid = DIDURL {
+            did,
+            fragment: Some("dummy".into()),
+            query: None,
+            path_abempty: "".into(),
+        }
+        .try_into()
         .unwrap();
-    let pkh = "tz1YSb7gXhgBw46nSXthhoSzhJdbQf9h92Gy";
-    let domain = "kepler.tzprofiles.com";
-    let index = 0;
-    let uri = format!("tz;address={};domain={};index={}", pkh, domain, index);
-    let (method, params) = verify_oid(&oid, &uri).unwrap();
-    assert_eq!(method, "tz");
-    assert_eq!(params.get("address").unwrap(), pkh);
-    assert_eq!(params.get("domain").unwrap(), domain);
-    assert_eq!(params.get("index").unwrap(), "0");
-}
 
-#[test]
-async fn parameters() -> Result<()> {
-    let params = r#"did;did=did%3Akey%3Az6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom;hosts=12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly%3A%2Fip4%2F127.0.0.1%2Ftcp%2F8081%2Fp2p%2F12D3KooWG4GKKKocGcX9pfdcdQncaLM73mY4X6TwB6tT48g1ijTY%2Fp2p-circuit%2Fp2p%2F12D3KooWNmUKqU9EhKKyWdHTyZud8Yj3HWFyf7wSdAe6JudGg4Ly;vm=z6MkqAhhDfRhP8eMWUtk3FjG2nMiXNUGNU5Evsnq89uKNdom"#;
-    let oid: Cid = "zCT5htkeCSu7WefuBKYUidQJkRgEvEGZQrFVqYS6ZJVM6zwLCRcF".parse()?;
-    let _md = get_metadata(&oid, params, &Default::default()).await?;
-    Ok(())
+        let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
+
+        let orbit = op(md).await.unwrap();
+    }
 }

@@ -5,7 +5,7 @@
 ## Example of nest config variable: KEPLER_DATABASE_PATH
 [global.database]
 ## Directory where the database will be stored.
-# path = "/tmp"
+# path = "./tmp"
 
 [global.orbits]
 ## allow unauthorized get requests

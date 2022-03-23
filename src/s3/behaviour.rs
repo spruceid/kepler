@@ -8,10 +8,10 @@ use std::{
 
 use ipfs::{Multiaddr, PeerId};
 use libp2p::{
-    core::connection::ConnectionId,
+    core::{connection::ConnectionId, ConnectedPoint},
     swarm::{
-        protocols_handler::DummyProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction,
-        PollParameters,
+        handler::DummyConnectionHandler, IntoConnectionHandler, NetworkBehaviour,
+        NetworkBehaviourAction, PollParameters,
     },
 };
 use void::Void;
@@ -32,28 +32,12 @@ impl Behaviour {
 }
 
 impl NetworkBehaviour for Behaviour {
-    type ProtocolsHandler = DummyProtocolsHandler;
+    type ConnectionHandler = DummyConnectionHandler;
 
     type OutEvent = ();
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
-    }
-
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
-        Vec::new()
-    }
-
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(*peer_id)) {
-            tracing::error!("Behaviour process has shutdown.")
-        }
-    }
-
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
-        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(*peer_id)) {
-            tracing::error!("Behaviour process has shutdown.")
-        }
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        DummyConnectionHandler::default()
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: Void) {}
@@ -62,8 +46,34 @@ impl NetworkBehaviour for Behaviour {
         &mut self,
         _cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Void, ()>> {
+    ) -> Poll<NetworkBehaviourAction<(), Self::ConnectionHandler, Void>> {
         Poll::Pending
+    }
+
+    fn inject_connection_established(
+        &mut self,
+        peer_id: &PeerId,
+        _connection: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
+    ) {
+        if let Err(_e) = self.sender.send(Event::ConnectionEstablished(*peer_id)) {
+            tracing::error!("Behaviour process has shutdown.")
+        }
+    }
+
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _connection: &ConnectionId,
+        _endpoint: &ConnectedPoint,
+        _handler: <Self::ConnectionHandler as IntoConnectionHandler>::Handler,
+        _remaining_established: usize,
+    ) {
+        if let Err(_e) = self.sender.send(Event::ConnectionTerminated(*peer_id)) {
+            tracing::error!("Behaviour process has shutdown.")
+        }
     }
 }
 

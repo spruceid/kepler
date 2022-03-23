@@ -1,11 +1,11 @@
 use crate::{
-    auth::{Action, AuthorizationPolicy, AuthorizationToken},
-    orbit::OrbitMetadata,
+    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
+    manifest::Manifest,
+    resource::ResourceId,
     zcap::KeplerInvocation,
 };
 use anyhow::Result;
 use didkit::DID_METHODS;
-use libipld::cid::Cid;
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -58,9 +58,7 @@ pub struct SIWEZcapTokens {
 pub struct SIWETokens {
     pub invocation: SIWEMessage,
     pub delegation: Option<SIWEMessage>,
-    // kinda weird
-    pub orbit: Cid,
-    pub invoked_action: Action,
+    pub invoked_action: ResourceId,
 }
 
 #[rocket::async_trait]
@@ -83,14 +81,8 @@ impl<'r> FromRequest<'r> for SIWEZcapTokens {
                 invocation,
                 delegation,
             }),
-            (Some(Err(e)), _) => {
-                tracing::debug!("{}", e);
-                Outcome::Failure((Status::Unauthorized, e))
-            }
-            (_, Some(Err(e))) => {
-                tracing::debug!("{}", e);
-                Outcome::Failure((Status::Unauthorized, e))
-            }
+            (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
+            (_, Some(Err(e))) => Outcome::Failure((Status::Unauthorized, e)),
             (_, _) => Outcome::Forward(()),
         }
     }
@@ -117,94 +109,45 @@ impl<'r> FromRequest<'r> for SIWETokens {
                 .transpose(),
         ) {
             (Some(Ok(i)), Ok(d)) => (i, d),
-            (Some(Err(e)), _) => {
-                tracing::debug!("{}", e);
-                return Outcome::Failure((Status::Unauthorized, e));
-            }
-            (_, Err(e)) => {
-                tracing::debug!("{}", e);
-                return Outcome::Failure((Status::Unauthorized, e));
-            }
-            (_, _) => return Outcome::Forward(()),
-        };
-        let (orbit, action) = match invocation
-            .resources
-            .first()
-            .and_then(|u| u.as_str().strip_prefix("kepler://"))
-            .and_then(|p| p.split_once('#'))
-            .map(|(op, a)| match op.rsplit_once('/') {
-                Some((o, p)) => Ok((
-                    Cid::from_str(o)?,
-                    Some(p.strip_prefix("s3/").unwrap_or(p)),
-                    a,
-                )),
-                _ => Ok((Cid::from_str(op)?, None, a)),
-            }) {
-            Some(Ok((o, _, "host"))) => (
-                o,
-                Action::Create {
-                    parameters: invocation
-                        .uri
-                        .as_str()
-                        .strip_prefix("kepler://")
-                        .unwrap_or("")
-                        .into(),
-                    content: vec![],
-                },
-            ),
-            Some(Ok((o, _, "list"))) => (o, Action::List),
-            Some(Ok((o, Some(p), a))) => (
-                o,
-                match a {
-                    "get" => Action::Get(vec![p.into()]),
-                    "put" => Action::Put(vec![p.into()]),
-                    "del" => Action::Del(vec![p.into()]),
-                    x => {
-                        return Outcome::Failure((
-                            Status::Unauthorized,
-                            anyhow!("Invalid Action: {}", x),
-                        ))
-                    }
-                },
-            ),
-            Some(Ok(_)) => {
-                return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Path")))
-            }
-            Some(Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
-            _ => return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Action"))),
+            (Some(Ok(i)), _) => (i, None),
+            (Some(Err(e)), _) => return Outcome::Failure((Status::Unauthorized, e)),
+            (None, Err(e)) => return Outcome::Failure((Status::Unauthorized, e)),
+            (None, _) => return Outcome::Forward(()),
         };
         Outcome::Success(Self {
+            invoked_action: match invocation
+                .resources
+                .iter()
+                .find_map(|r| r.as_str().parse().ok())
+            {
+                Some(o) => o,
+                None => {
+                    return Outcome::Failure((Status::Unauthorized, anyhow!("Missing Resource")))
+                }
+            },
             invocation,
             delegation,
-            orbit,
-            invoked_action: action,
         })
     }
 }
 
 impl AuthorizationToken for SIWEZcapTokens {
-    fn action(&self) -> &Action {
-        &self.invocation.property_set.capability_action
-    }
-    fn target_orbit(&self) -> &Cid {
+    fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
     }
 }
 
 impl AuthorizationToken for SIWETokens {
-    fn action(&self) -> &Action {
+    fn resource(&self) -> &ResourceId {
         &self.invoked_action
-    }
-    fn target_orbit(&self) -> &Cid {
-        &self.orbit
     }
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
+impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
     async fn authorize(&self, auth_token: &SIWEZcapTokens) -> Result<()> {
         // check delegator is controller
-        if !self.controllers().contains(
+        if !self.delegators().contains(
             &format!(
                 "did:pkh:eip155:{}:{}#blockchainAccountId",
                 &auth_token.delegation.0.chain_id,
@@ -246,37 +189,20 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
             return Err(anyhow!("Delegation has Expired"));
         };
 
-        // check action is authorized by blanket root ("." as relative path against "kepler://<orbit-id>/") auth
+        let target = &auth_token.invocation.property_set.invocation_target;
+
         if !auth_token
             .delegation
             .resources
             .iter()
-            .map(|uri| uri.to_absolute_and_fragment())
-            .map(|(abs, action)| {
-                Ok((
-                    abs.as_str()
-                        .strip_prefix("kepler://")
-                        .ok_or_else(|| anyhow!("resource uri did not begin with 'kepler://'"))
-                        .map(Cid::from_str)??,
-                    action.ok_or_else(|| anyhow!("resource uri did not have an action"))?,
-                ))
+            .filter_map(|s| s.as_str().parse().ok())
+            .any(|r| {
+                check_orbit_and_service(target, &r).is_ok()
+                    && simple_prefix_check(target, &r).is_ok()
             })
-            .try_fold(false, |authorised, cid_and_action: anyhow::Result<_>| {
-                let (target, action) = cid_and_action?;
-                Ok(
-                    (match &auth_token.invocation.property_set.capability_action {
-                        Action::Get(_) => action == "get",
-                        Action::List => action == "list",
-                        Action::Del(_) => action == "del",
-                        Action::Put(_) => action == "put",
-                        _ => return Err(anyhow!("Invalid Action")),
-                    } && target == auth_token.invocation.property_set.invocation_target)
-                        || authorised,
-                )
-            })?
         {
-            return Err(anyhow!("Invoked action not authorized by delegation"));
-        };
+            return Err(anyhow!("Delegation semantics violated"));
+        }
 
         auth_token
             .delegation
@@ -296,9 +222,9 @@ impl AuthorizationPolicy<SIWEZcapTokens> for OrbitMetadata {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
+impl AuthorizationPolicy<SIWETokens> for Manifest {
     async fn authorize(&self, t: &SIWETokens) -> Result<()> {
-        if &t.orbit != self.id() {
+        if t.invoked_action.orbit() != self.id() {
             return Err(anyhow!("Incorrect Orbit ID"));
         };
 
@@ -311,7 +237,7 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
         match &t.delegation {
             Some(d) => {
                 // check delegator is controller
-                if !self.controllers().contains(
+                if !self.delegators().contains(
                     &format!(
                         "did:pkh:eip155:{}:{}#blockchainAccountId",
                         &d.chain_id,
@@ -329,10 +255,22 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
                 {
                     return Err(anyhow!("Invoker not authorized"));
                 };
+
+                if !d
+                    .resources
+                    .iter()
+                    .filter_map(|s| s.as_str().parse().ok())
+                    .any(|r| {
+                        check_orbit_and_service(&t.invoked_action, &r).is_ok()
+                            && simple_prefix_check(&t.invoked_action, &r).is_ok()
+                    })
+                {
+                    return Err(anyhow!("Delegation semantics violated"));
+                };
             }
             None => {
                 // check invoker is controller
-                if !self.controllers().contains(&invoker.parse()?) {
+                if !self.invokers().contains(&invoker.parse()?) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
             }
@@ -351,8 +289,21 @@ impl AuthorizationPolicy<SIWETokens> for OrbitMetadata {
 }
 
 #[test]
-async fn basic() -> Result<()> {
-    let d = r#"["localhost wants you to sign in with your Ethereum account:\n0xA391f7adD776806c4dFf3886BBe6370be8F73683\n\nAllow localhost to access your orbit using their temporary session key: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\n\nURI: did:key:z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh#z6MksaFv5D1zYGCvDt2fEvDQWhVcMcaSieMmCSc54DDq3Rwh\nVersion: 1\nChain ID: 1\nNonce: Ki63qhXvxk0LYfxRE\nIssued At: 2021-12-08T13:09:59.716Z\nExpiration Time: 2021-12-08T13:24:59.715Z\nResources:\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#put\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#del\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#get\n- kepler://bafk2bzacedmmmpdngsjom66fob3gy3727fvc7dqqirlec3uyei7v2edmueazk#list","0x3c79ff9c565939bc4d43ac45d92f685de61b756a1ba9c0a8a5a80d177f05f29b7b27df1dc1c331397eef837d96b95dd812ce78c1b29a05c2b0c0bdd901be72351b"]"#;
-    let _message: SIWEMessage = serde_json::from_str(d)?;
-    Ok(())
+async fn basic() {
+    use crate::tracing_try_init;
+    use rocket::{build, http::Header, local::asynchronous::Client};
+
+    tracing_try_init();
+    let d = base64::encode_config(
+        r#"["test.org wants you to sign in with your Ethereum account:\n0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79\n\nAuthorize this provider to host your Orbit\n\nURI: peer:12D3KooWSJT2PD5c1rEAD959q9kChGcWUnkkUzku28uY5pqegkuW\nVersion: 1\nChain ID: 1\nNonce: 3A9S4Ar7YibfspTb2\nIssued At: 2022-03-16T15:03:36.775Z\nExpiration Time: 2022-03-16T15:05:36.775Z\nResources:\n- kepler:pkh:eip155:1:0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79://default#peer","0x6909694c1afe49fbe9350da8f89333397657ae46d9898dccdef45a38cf39e8fd1527e81e79b52db3f2ad2239c07cab8888f4882faf453c032c0e4df3d9c4902d1b"]"#,
+        base64::URL_SAFE,
+    );
+
+    let client = Client::untracked(build().ignite().await.unwrap())
+        .await
+        .unwrap();
+    let mut req = client.post("/");
+    req.add_header(Header::new("x-siwe-invocation", d));
+    let t = SIWETokens::from_request(req.inner()).await;
+    assert!(t.is_success());
 }

@@ -14,14 +14,15 @@ pub mod cas;
 pub mod codec;
 pub mod config;
 pub mod ipfs;
+pub mod manifest;
 pub mod orbit;
 pub mod relay;
+pub mod resource;
 pub mod routes;
 pub mod s3;
 pub mod siwe;
 pub mod transport;
 pub mod tz;
-pub mod tz_orbit;
 pub mod zcap;
 
 use libp2p::{
