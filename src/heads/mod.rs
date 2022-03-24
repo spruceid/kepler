@@ -1,5 +1,6 @@
+use crate::ipfs::Ipfs;
 use anyhow::Result;
-use libipld::cid::Cid;
+use libipld::{cbor::DagCborCodec, cid::Cid, codec::Decode};
 use sled::{Batch, Db, Tree};
 use std::convert::TryInto;
 
@@ -7,6 +8,48 @@ use std::convert::TryInto;
 pub struct SledHeadStore {
     heights: Tree,
     heads: Tree,
+}
+
+pub struct Heads<S> {
+    store: S,
+    ipfs: Ipfs,
+}
+
+pub trait Head: Decode<DagCborCodec> {
+    fn priority(&self) -> u64;
+    fn previous_heads(&self) -> &[Cid];
+}
+
+pub struct Merge {
+    new: Vec<Cid>,
+    obsoleted: Vec<Cid>,
+}
+
+impl<S: HeadStore> Heads<S> {
+    async fn get_height<H: Head>(&self, c: &Cid) -> Result<Option<u64>> {
+        Ok(match self.store.get_height(c)? {
+            Some(h) => Some(h),
+            None => {
+                let head: H = self.ipfs.get_block(c).await?.decode()?;
+                Some(head.priority())
+            }
+        })
+    }
+    pub async fn greater_than<H1: Head, H2: Head>(&self, a: &Cid, b: &Cid) -> Result<Option<bool>> {
+        Ok(
+            match (
+                self.get_height::<H1>(a).await?,
+                self.get_height::<H2>(b).await?,
+            ) {
+                (Some(ah), Some(bh)) if ah != bh => Some(ah > bh),
+                (Some(_), Some(_)) => Some(a > b),
+                _ => None,
+            },
+        )
+    }
+    pub fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
+        self.store.set_heights(heights)
+    }
 }
 
 pub trait HeadStore {
@@ -53,7 +96,7 @@ impl HeadStore for SledHeadStore {
     fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
         let mut batch = Batch::default();
         for (op, height) in heights.into_iter() {
-            if !self.heights.contains_key(op.to_bytes())? {
+            if self.get_height(&op)?.map(|h| height > h).unwrap_or(true) {
                 debug!("setting head height {} {}", op, height);
                 batch.insert(op.to_bytes(), &u642v(height));
             }

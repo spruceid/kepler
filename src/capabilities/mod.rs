@@ -1,12 +1,14 @@
 use libipld::{cid::Cid, DagCbor};
 
-pub struct Capabilities;
+pub struct Capabilities {
+    pub ipfs: Ipfs,
+}
 
 #[derive(DagCbor)]
 pub struct Event {
     pub prev: Vec<Cid>,
     pub priority: u64,
-    pub delegate: Vec<LinkedUpdate>
+    pub delegate: Vec<LinkedUpdate>,
     pub revoke: Vec<LinkedUpdate>,
 }
 
@@ -28,10 +30,10 @@ pub struct Delegation {
 }
 
 impl Delegation {
-    pub fn id(&self) -> &str { "" };
-    pub fn delegate(&self) -> &str { "" };
-    pub fn delegator(&self) -> &str { "" };
-    pub fn parent(&self) -> &str { "" };
+    pub fn id(&self) -> &str { "" }
+    pub fn delegate(&self) -> &str { "" }
+    pub fn delegator(&self) -> &str { "" }
+    pub fn parent(&self) -> &str { "" }
     pub fn resources(&self) -> &[ResourceId] { &[] }
 }
 
@@ -39,19 +41,19 @@ impl Delegation {
 pub struct Invocation;
 
 impl Invocation {
-    pub fn id(&self) -> &str { "" };
-    pub fn invoker(&self) -> &str { "" };
-    pub fn target(&self) -> &ResourceId;
-    pub fn parent(&self) -> &str { "" };
+    pub fn id(&self) -> &str { "" }
+    pub fn invoker(&self) -> &str { "" }
+    pub fn target(&self) -> &ResourceId
+    pub fn parent(&self) -> &str { "" }
 }
 
 #[derive(PartialEq)]
 pub struct Revocation;
 
 impl Revocation {
-    pub fn id(&self) -> &str { "" };
-    pub fn revoker(&self) -> &str { "" };
-    pub fn revoked(&self) -> &str { "" };
+    pub fn id(&self) -> &str { "" }
+    pub fn revoker(&self) -> &str { "" }
+    pub fn revoked(&self) -> &str { "" }
 }
 
 #[derive(Default)]
