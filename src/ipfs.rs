@@ -98,7 +98,7 @@ impl ContentAddressedStorage for Ipfs {
     }
     async fn list(&self) -> Result<Vec<Cid>, Self::Error> {
         // return a list of all CIDs which are aliased/pinned
-        self.list_pins(Some(PinMode::Recursive))
+        self.list_pins(Some(PinMode::Direct))
             .await
             .map_ok(|(cid, _pin_mode)| cid)
             .try_collect()
