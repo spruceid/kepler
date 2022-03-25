@@ -60,7 +60,6 @@ pub fn check_orbit_and_service(
     target: &ResourceId,
     capability: &ResourceId,
 ) -> Result<(), TargetCheckError> {
-    tracing::debug!("{} {}", target, capability);
     if target.orbit() != capability.orbit() {
         Err(TargetCheckError::IncorrectOrbit)
     } else if target.service() != capability.service() {

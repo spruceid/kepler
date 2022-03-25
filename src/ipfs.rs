@@ -81,7 +81,7 @@ impl ContentAddressedStorage for Ipfs {
         // TODO find a way to stream this better? (use .take with max block size?)
         let block: Block = Block::encode(RawCodec, Code::Blake3_256, content)?;
         let cid = self.put_block(block).await?;
-        self.insert_pin(&cid, false).await?;
+        self.insert_pin(&cid, true).await?;
         Ok(cid)
     }
     async fn get(&self, address: &Cid) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -92,13 +92,13 @@ impl ContentAddressedStorage for Ipfs {
 
     async fn delete(&self, address: &Cid) -> Result<(), Self::Error> {
         // TODO: does not recursively remove blocks, some cleanup will need to happen.
-        self.remove_pin(address, false).await?;
+        self.remove_pin(address, true).await?;
         self.remove_block(*address).await?;
         Ok(())
     }
     async fn list(&self) -> Result<Vec<Cid>, Self::Error> {
         // return a list of all CIDs which are aliased/pinned
-        self.list_pins(Some(PinMode::Direct))
+        self.list_pins(Some(PinMode::Recursive))
             .await
             .map_ok(|(cid, _pin_mode)| cid)
             .try_collect()
