@@ -2,6 +2,7 @@ use crate::{
     auth::AuthorizationToken,
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
+    config,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
@@ -25,7 +26,7 @@ use rocket::{
     futures::TryStreamExt,
     http::Status,
     request::{FromRequest, Outcome, Request},
-    tokio::{fs, task::JoinHandle},
+    tokio::task::JoinHandle,
 };
 
 use cached::proc_macro::cached;
@@ -33,10 +34,11 @@ use std::{
     collections::HashMap as Map,
     convert::TryFrom,
     ops::Deref,
-    path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 use tokio::spawn;
+
+use super::storage::StorageUtils;
 
 pub enum AuthTokens {
     Tezos(Box<TezosAuthorizationString>),
@@ -127,17 +129,17 @@ pub struct Orbit {
 }
 
 impl Orbit {
-    async fn new<P: AsRef<Path>>(
-        path: P,
+    async fn new(
+        config: &config::Config,
         kp: Ed25519Keypair,
         manifest: Manifest,
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
-        let id = manifest.id().get_cid().to_string();
+        let id = manifest.id().get_cid();
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
-            id.clone(),
-            path.as_ref(),
+            id,
+            config,
             Keypair::Ed25519(kp),
             manifest
                 .bootstrap_peers()
@@ -154,9 +156,13 @@ impl Orbit {
                 .await?;
         };
 
-        let db = sled::open(path.as_ref().join(&id).with_extension("ks3db"))?;
+        let path = match &config.storage.indexes {
+            config::IndexStorage::Local(r) => &r.path,
+            _ => panic!("To be refactored."),
+        };
+        let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id, ipfs.clone(), db)?;
+        let service_store = Store::new(id.to_string(), ipfs.clone(), db)?;
         let service = Service::start(service_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
@@ -195,7 +201,7 @@ impl Orbit {
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
     id: &OrbitId,
-    path: PathBuf,
+    config: &config::Config,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
     keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
@@ -204,15 +210,12 @@ pub async fn create_orbit(
         Some(m) => m,
         _ => return Ok(None),
     };
-    let dir = path.join(&id.get_cid().to_string());
 
     // fails if DIR exists, this is Create, not Open
-    if dir.exists() {
+    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
+    if storage_utils.exists(id.get_cid()).await? {
         return Ok(None);
     }
-    fs::create_dir(&dir)
-        .await
-        .map_err(|e| anyhow!("Couldn't create dir: {}", e))?;
 
     let kp = {
         let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
@@ -223,12 +226,10 @@ pub async fn create_orbit(
             .unwrap_or_else(Ed25519Keypair::generate)
     };
 
-    fs::write(dir.join("access_log"), auth).await?;
-    fs::write(dir.join("kp"), kp.encode()).await?;
-    fs::write(dir.join("id"), id.to_string()).await?;
+    storage_utils.setup_orbit(id.clone(), kp, auth).await?;
 
     Ok(Some(
-        load_orbit(md.id().get_cid(), path, relay)
+        load_orbit(md.id().get_cid(), config, relay)
             .await
             .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
     ))
@@ -236,30 +237,42 @@ pub async fn create_orbit(
 
 pub async fn load_orbit(
     id_cid: Cid,
-    path: PathBuf,
+    config: &config::Config,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit>> {
-    let dir = path.join(&id_cid.to_string());
-    if !dir.exists() {
+    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
+    if !storage_utils.exists(id_cid).await? {
         return Ok(None);
     }
-    load_orbit_inner(dir, relay).await.map(Some)
+    load_orbit_inner(id_cid, config.clone(), relay)
+        .await
+        .map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
-async fn load_orbit_inner(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
-    let id: OrbitId = String::from_utf8(fs::read(dir.join("id")).await?)?.parse()?;
+async fn load_orbit_inner(
+    orbit: Cid,
+    config: config::Config,
+    relay: (PeerId, Multiaddr),
+) -> Result<Orbit> {
+    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
+    let id = storage_utils
+        .orbit_id(orbit)
+        .await?
+        .ok_or_else(|| anyhow!("Orbit `{}` doesn't have its orbit URL stored.", orbit))?;
+
     let md = Manifest::resolve_dyn(&id, None)
         .await?
         .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
 
-    let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
+    // let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
+    let kp = storage_utils.key_pair(orbit).await?.unwrap();
 
-    tracing::debug!("loading orbit {}, {:?}", &id, &dir);
+    debug!("loading orbit {}", &id);
 
-    let orbit = Orbit::new(dir, kp, md, Some(relay)).await?;
+    let orbit = Orbit::new(&config, kp, md, Some(relay)).await?;
     Ok(orbit)
 }
 
@@ -313,13 +326,22 @@ mod tests {
     use tempdir::TempDir;
 
     async fn op(md: Manifest) -> anyhow::Result<Orbit> {
-        Orbit::new(
-            TempDir::new(&md.id().get_cid().to_string()).unwrap(),
-            Ed25519Keypair::generate(),
-            md,
-            None,
-        )
-        .await
+        let dir = TempDir::new(&md.id().get_cid().to_string())
+            .unwrap()
+            .path()
+            .to_path_buf();
+        let config = config::Config {
+            storage: config::Storage {
+                blocks: config::BlockStorage::Local(config::LocalBlockStorage {
+                    path: dir.clone(),
+                }),
+                indexes: config::IndexStorage::Local(config::LocalIndexStorage {
+                    path: dir.clone(),
+                }),
+            },
+            ..Default::default()
+        };
+        Orbit::new(&config, Ed25519Keypair::generate(), md, None).await
     }
 
     #[test]

@@ -62,13 +62,7 @@ pub async fn list_content_no_auth(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
+    let orbit = match load_orbit(orbit_id.0, config, (relay.id, relay.internal())).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -96,13 +90,7 @@ pub async fn get_content_no_auth(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Option<Vec<u8>>, (Status, String)> {
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
+    let orbit = match load_orbit(orbit_id.0, config, (relay.id, relay.internal())).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -219,15 +207,9 @@ pub async fn open_orbit_allowlist(
         None => Err((Status::InternalServerError, "Allowlist Not Configured")),
         Some(list) => match list.is_allowed(&orbit_id.0).await {
             Ok(orbit) if orbit == oid => {
-                create_orbit(
-                    &orbit,
-                    config.database.path.clone(),
-                    &[],
-                    (relay.id, relay.internal()),
-                    keys,
-                )
-                .await
-                .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
+                create_orbit(&orbit, config, &[], (relay.id, relay.internal()), keys)
+                    .await
+                    .map_err(|_| (Status::InternalServerError, "Failed to create Orbit"))?;
                 Ok(())
             }
             _ => Err((Status::Unauthorized, "Orbit not allowed")),

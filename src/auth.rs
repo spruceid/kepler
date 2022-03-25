@@ -155,22 +155,21 @@ macro_rules! impl_fromreq {
                         anyhow!("Token target orbit not matching endpoint"),
                     )),
                     (Some($method), true) => {
-                        let orbit = match load_orbit(
-                            token.resource().orbit().get_cid(),
-                            config.database.path.clone(),
-                            relay,
-                        )
-                        .await
-                        {
-                            Ok(Some(o)) => o,
-                            Ok(None) => {
-                                return Outcome::Failure((
-                                    Status::NotFound,
-                                    anyhow!("No Orbit found"),
-                                ))
-                            }
-                            Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
-                        };
+                        let orbit =
+                            match load_orbit(token.resource().orbit().get_cid(), &config, relay)
+                                .await
+                            {
+                                Ok(Some(o)) => o,
+                                Ok(None) => {
+                                    return Outcome::Failure((
+                                        Status::NotFound,
+                                        anyhow!("No Orbit found"),
+                                    ))
+                                }
+                                Err(e) => {
+                                    return Outcome::Failure((Status::InternalServerError, e))
+                                }
+                            };
                         match orbit.authorize(&token).await {
                             Ok(_) => Outcome::Success(Self(orbit)),
                             Err(e) => Outcome::Failure((Status::Unauthorized, e)),
@@ -238,21 +237,13 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
 
-                match create_orbit(
-                    md.id(),
-                    config.database.path.clone(),
-                    &auth_data,
-                    relay,
-                    keys,
-                )
-                .await
-                {
+                match create_orbit(md.id(), &config, &auth_data, relay, keys).await {
                     Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
                     Ok(None) => {
                         return Outcome::Failure((
                             Status::Conflict,
                             anyhow!("Orbit already exists"),
-                        ))
+                        ));
                     }
                     Err(e) => Outcome::Failure((Status::InternalServerError, e)),
                 }
