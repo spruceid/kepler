@@ -1,5 +1,5 @@
 use crate::{
-    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
+    auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
     resource::ResourceId,
     zcap::KeplerInvocation,
@@ -196,10 +196,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
             .resources
             .iter()
             .filter_map(|s| s.as_str().parse().ok())
-            .any(|r| {
-                check_orbit_and_service(target, &r).is_ok()
-                    && simple_prefix_check(target, &r).is_ok()
-            })
+            .any(|r| simple_check(target, &r).is_ok())
         {
             return Err(anyhow!("Delegation semantics violated"));
         }
@@ -260,10 +257,7 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
                     .resources
                     .iter()
                     .filter_map(|s| s.as_str().parse().ok())
-                    .any(|r| {
-                        check_orbit_and_service(&t.invoked_action, &r).is_ok()
-                            && simple_prefix_check(&t.invoked_action, &r).is_ok()
-                    })
+                    .any(|r| simple_check(&t.invoked_action, &r).is_ok())
                 {
                     return Err(anyhow!("Delegation semantics violated"));
                 };

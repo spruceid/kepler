@@ -19,6 +19,19 @@ pub trait AuthorizationToken {
     fn resource(&self) -> &ResourceId;
 }
 
+pub fn simple_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
+    check_orbit_and_service(target, capability)?;
+    simple_prefix_check(target, capability)?;
+    simple_check_fragments(target, capability)
+}
+
+pub fn simple_check_fragments(target: &ResourceId, capability: &ResourceId) -> Result<()> {
+    match (target.fragment(), capability.fragment()) {
+        (Some(t), Some(c)) if t == c => Ok(()),
+        _ => Err(anyhow!("Target Action does not match Capability")),
+    }
+}
+
 pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
     // if #action is same
     // Ok if target.path => cap.path
