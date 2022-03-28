@@ -1,5 +1,5 @@
 use crate::{
-    auth::{check_orbit_and_service, simple_prefix_check, AuthorizationPolicy, AuthorizationToken},
+    auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
     manifest::Manifest,
     resource::ResourceId,
 };
@@ -121,10 +121,12 @@ impl AuthorizationPolicy<ZCAPTokens> for Manifest {
 
                 let target = &auth_token.invocation.property_set.invocation_target;
 
-                if !d.property_set.capability_action.iter().any(|r| {
-                    check_orbit_and_service(target, r).is_ok()
-                        && simple_prefix_check(target, r).is_ok()
-                }) {
+                if !d
+                    .property_set
+                    .capability_action
+                    .iter()
+                    .any(|r| simple_check(target, r).is_ok())
+                {
                     return Err(anyhow!("Delegation semantics violated"));
                 }
 
