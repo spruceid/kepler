@@ -243,13 +243,13 @@ pub async fn load_orbit(
     if !dir.exists() {
         return Ok(None);
     }
-    load_orbit_(dir, relay).await.map(Some)
+    load_orbit_inner(dir, relay).await.map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
-async fn load_orbit_(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
+async fn load_orbit_inner(dir: PathBuf, relay: (PeerId, Multiaddr)) -> Result<Orbit> {
     let id: OrbitId = String::from_utf8(fs::read(dir.join("id")).await?)?.parse()?;
     let md = Manifest::resolve_dyn(&id, None)
         .await?

@@ -3,12 +3,14 @@ use ipfs::{p2p::transport::TransportBuilder, Ipfs, IpfsOptions, TestTypes, Unini
 use libp2p::core::{
     identity::Keypair, multiaddr::multiaddr, transport::MemoryTransport, Multiaddr, PeerId,
 };
-use rocket::tokio::{spawn, task::JoinHandle};
+use rocket::tokio::spawn;
+
+use crate::orbit::AbortOnDrop;
 
 pub struct RelayNode {
     pub port: u16,
     pub id: PeerId,
-    task: JoinHandle<()>,
+    _task: AbortOnDrop<()>,
     _ipfs: Ipfs<TestTypes>,
 }
 
@@ -49,7 +51,7 @@ impl RelayNode {
         let task = spawn(ipfs_task);
         Ok(Self {
             port,
-            task,
+            _task: AbortOnDrop::new(task),
             id,
             _ipfs,
         })
@@ -69,12 +71,6 @@ impl RelayNode {
 
     pub fn external(&self) -> Multiaddr {
         Self::_external(self.port)
-    }
-}
-
-impl Drop for RelayNode {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 
