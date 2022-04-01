@@ -9,24 +9,27 @@ pub mod behaviour;
 mod entries;
 mod store;
 
-use super::ipfs::{Block, Ipfs};
+use super::{
+    ipfs::{Block, Ipfs},
+    orbit::AbortOnDrop,
+};
 
 pub use entries::{Object, ObjectBuilder, ObjectReader};
 pub use store::Store;
 
-type TaskHandle = tokio::task::JoinHandle<()>;
+type TaskHandle = AbortOnDrop<()>;
 
 #[derive(Clone)]
 pub struct Service {
     pub store: Store,
-    task: Arc<TaskHandle>,
+    _task: Arc<TaskHandle>,
 }
 
 impl Service {
     pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
         Self {
             store,
-            task: Arc::new(task),
+            _task: Arc::new(task),
         }
     }
 
@@ -40,15 +43,9 @@ impl Service {
                 Err(e) => Err(anyhow!(e)),
             });
         let peer_id = store.ipfs.identity().await?.0.to_peer_id();
-        let task = tokio::spawn(kv_task(events, store.clone(), peer_id));
+        let task = AbortOnDrop::new(tokio::spawn(kv_task(events, store.clone(), peer_id)));
         store.request_heads().await?;
         Ok(Service::new(store, task))
-    }
-}
-
-impl Drop for Service {
-    fn drop(&mut self) {
-        self.task.abort();
     }
 }
 
