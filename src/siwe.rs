@@ -1,5 +1,6 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
+    capabilities::store::{Delegation, Invocation, Updates},
     orbit::Orbit,
     resource::ResourceId,
     zcap::KeplerInvocation,
@@ -16,7 +17,7 @@ use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use siwe::Message;
-use std::{ops::Deref, str::FromStr};
+use std::{convert::TryInto, ops::Deref, str::FromStr};
 
 #[derive(Clone)]
 pub struct SIWESignature([u8; 65]);
@@ -206,16 +207,27 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Orbit {
             .delegation
             .verify_eip191(&auth_token.delegation.1 .0)?;
 
-        match auth_token
+        if let Some(e) = auth_token
             .invocation
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
             .await
             .errors
             .pop()
         {
-            Some(e) => Err(anyhow!(e)),
-            None => Ok(()),
-        }
+            return Err(anyhow!(e));
+        };
+
+        let delegation: Delegation =
+            (self.capabilities.id.clone(), auth_token.delegation.clone()).try_into()?;
+
+        self.capabilities
+            .transact(Updates::new([delegation], []))
+            .await?;
+
+        self.capabilities
+            .invoke([auth_token.invocation.clone().try_into()?])
+            .await?;
+        Ok(())
     }
 }
 
@@ -231,8 +243,16 @@ impl AuthorizationPolicy<SIWETokens> for Orbit {
             &t.invocation.chain_id,
             &to_checksum(&H160(t.invocation.address), None)
         );
+        // check time validity
+        if !t.invocation.valid_now()
+            || !t.delegation.as_ref().map(|s| s.valid_now()).unwrap_or(true)
+        {
+            return Err(anyhow!("Message has Expired"));
+        };
 
-        match &t.delegation {
+        t.invocation.verify_eip191(&t.invocation.1 .0)?;
+
+        let parent = match &t.delegation {
             Some(d) => {
                 // check delegator is controller
                 if !self.delegators().contains(
@@ -262,23 +282,26 @@ impl AuthorizationPolicy<SIWETokens> for Orbit {
                 {
                     return Err(anyhow!("Delegation semantics violated"));
                 };
+                let delegation: Delegation =
+                    (self.capabilities.id.clone(), d.clone()).try_into()?;
+                let id = delegation.id().clone();
+                self.capabilities
+                    .transact(Updates::new([delegation], []))
+                    .await?;
+                id
             }
             None => {
                 // check invoker is controller
                 if !self.invokers().contains(&invoker.parse()?) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
+                self.capabilities.id.clone()
             }
         };
-        // check time validity
-        if !t.invocation.valid_now()
-            || !t.delegation.as_ref().map(|s| s.valid_now()).unwrap_or(true)
-        {
-            return Err(anyhow!("Message has Expired"));
-        };
 
-        t.invocation.verify_eip191(&t.invocation.1 .0)?;
-
+        self.capabilities
+            .invoke([(parent, t.invocation.clone()).try_into()?])
+            .await?;
         Ok(())
     }
 }

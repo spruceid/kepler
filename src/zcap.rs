@@ -17,7 +17,7 @@ use ssi::{
     vc::URI,
     zcap::{Delegation, Invocation},
 };
-use std::{collections::HashMap as Map, str::FromStr};
+use std::{collections::HashMap as Map, convert::TryInto, str::FromStr};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -94,7 +94,7 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
             .and_then(|proof| proof.verification_method.as_ref())
             .ok_or_else(|| anyhow!("Missing delegation verification method"))
             .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
-        let res = match &auth_token.delegation {
+        match &auth_token.delegation {
             Some(d) => {
                 let delegator_vm = d
                     .proof
@@ -135,7 +135,15 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
                     .verify(Default::default(), DID_METHODS.to_resolver(), d)
                     .await;
                 res.append(&mut res2);
-                res
+
+                res.errors
+                    .first()
+                    .map(|e| Err(anyhow!(e.clone())))
+                    .unwrap_or(Ok(()))?;
+
+                self.capabilities
+                    .transact(Updates::new([d.clone().try_into()?], []))
+                    .await?;
             }
             None => {
                 if !self.invokers().contains(&invoker_vm) {
@@ -144,14 +152,14 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
                 auth_token
                     .invocation
                     .verify_signature(Default::default(), DID_METHODS.to_resolver())
-                    .await
+                    .await;
             }
         };
 
-        res.errors
-            .first()
-            .map(|e| Err(anyhow!(e.clone())))
-            .unwrap_or(Ok(()))
+        self.capabilities
+            .invoke([auth_token.invocation.clone().try_into()?])
+            .await?;
+        Ok(())
     }
 }
 
