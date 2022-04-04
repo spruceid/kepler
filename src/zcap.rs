@@ -1,6 +1,6 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
-    manifest::Manifest,
+    orbit::Orbit,
     resource::ResourceId,
 };
 use anyhow::Result;
@@ -12,7 +12,6 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_with::{serde_as, DisplayFromStr};
 use ssi::{
     did::DIDURL,
     vc::URI,
@@ -30,11 +29,9 @@ pub struct DelProps {
     pub extra_fields: Option<Map<String, Value>>,
 }
 
-#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
-    #[serde_as(as = "DisplayFromStr")]
     pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,7 +85,7 @@ impl AuthorizationToken for ZCAPTokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPTokens> for Manifest {
+impl AuthorizationPolicy<ZCAPTokens> for Orbit {
     async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
         let invoker_vm = auth_token
             .invocation

@@ -1,6 +1,6 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
-    manifest::Manifest,
+    orbit::Orbit,
     resource::ResourceId,
     zcap::KeplerInvocation,
 };
@@ -18,6 +18,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use siwe::Message;
 use std::{ops::Deref, str::FromStr};
 
+#[derive(Clone)]
 pub struct SIWESignature([u8; 65]);
 
 impl core::fmt::Display for SIWESignature {
@@ -37,7 +38,7 @@ impl FromStr for SIWESignature {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SIWEMessage(
     #[serde_as(as = "DisplayFromStr")] Message,
     #[serde_as(as = "DisplayFromStr")] SIWESignature,
@@ -144,7 +145,7 @@ impl AuthorizationToken for SIWETokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
+impl AuthorizationPolicy<SIWEZcapTokens> for Orbit {
     async fn authorize(&self, auth_token: &SIWEZcapTokens) -> Result<()> {
         // check delegator is controller
         if !self.delegators().contains(
@@ -219,7 +220,7 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWETokens> for Manifest {
+impl AuthorizationPolicy<SIWETokens> for Orbit {
     async fn authorize(&self, t: &SIWETokens) -> Result<()> {
         if t.invoked_action.orbit() != self.id() {
             return Err(anyhow!("Incorrect Orbit ID"));
