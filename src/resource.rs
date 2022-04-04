@@ -1,12 +1,18 @@
 use crate::codec::SupportedCodecs;
 use iri_string::{types::UriString, validate::Error as UriError};
-use libipld::cid::{
-    multihash::{Code, MultihashDigest},
-    Cid,
+use libipld::{
+    cbor::DagCborCodec,
+    cid::{
+        multihash::{Code, MultihashDigest},
+        Cid,
+    },
+    codec::{Decode, Encode},
+    error::Error as IpldError,
 };
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use ssi::did::DIDURL;
 
+use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
@@ -66,15 +72,44 @@ impl ResourceId {
     pub fn orbit(&self) -> &OrbitId {
         &self.orbit
     }
-    pub fn service(&self) -> &Option<String> {
-        &self.service
+    pub fn service(&self) -> Option<&str> {
+        self.service.as_ref().map(|s| s.as_ref())
     }
-    pub fn path(&self) -> &Option<String> {
-        &self.path
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_ref().map(|s| s.as_ref())
     }
-    pub fn fragment(&self) -> &Option<String> {
-        &self.fragment
+    pub fn fragment(&self) -> Option<&str> {
+        self.fragment.as_ref().map(|s| s.as_ref())
     }
+    pub fn extends(&self, base: &ResourceId) -> Result<(), ResourceCheckError> {
+        if base.orbit() != self.orbit() {
+            Err(ResourceCheckError::IncorrectOrbit)
+        } else if base.service() != self.service() {
+            Err(ResourceCheckError::IncorrectService)
+        } else if base.fragment() != self.fragment() {
+            Err(ResourceCheckError::IncorrectFragment)
+        } else if self
+            .path()
+            .unwrap_or("")
+            .starts_with(base.path().unwrap_or(""))
+        {
+            Err(ResourceCheckError::DoesNotExtendPath)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ResourceCheckError {
+    #[error("Base and Extension Orbits do not match")]
+    IncorrectOrbit,
+    #[error("Base and Extension Services do not match")]
+    IncorrectService,
+    #[error("Base and Extension Fragments do not match")]
+    IncorrectFragment,
+    #[error("Extension does not extend path of Base")]
+    DoesNotExtendPath,
 }
 
 impl fmt::Display for OrbitId {
@@ -169,6 +204,24 @@ impl FromStr for ResourceId {
             }),
             _ => Err(Self::Err::IncorrectForm),
         }
+    }
+}
+
+impl Encode<DagCborCodec> for ResourceId {
+    fn encode<W>(&self, c: DagCborCodec, w: &mut W) -> Result<(), IpldError>
+    where
+        W: Write,
+    {
+        self.to_string().encode(c, w)
+    }
+}
+
+impl Decode<DagCborCodec> for ResourceId {
+    fn decode<R>(c: DagCborCodec, r: &mut R) -> Result<Self, IpldError>
+    where
+        R: Read + Seek,
+    {
+        Ok(String::decode(c, r)?.parse()?)
     }
 }
 

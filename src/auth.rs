@@ -139,7 +139,7 @@ macro_rules! impl_fromreq {
                     }
                 };
                 match (
-                    token.resource().fragment().as_ref().map(|s| s.as_str()),
+                    token.resource().fragment(),
                     &oid == &match hash_same(&oid, token.resource().orbit().to_string()) {
                         Ok(c) => c,
                         Err(_) => {
@@ -214,7 +214,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
         };
 
         match (
-            token.resource().fragment().as_ref().map(|s| s.as_str()),
+            token.resource().fragment(),
             token.resource().path(),
             token.resource().service(),
         ) {
