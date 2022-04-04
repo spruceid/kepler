@@ -51,6 +51,38 @@ impl<H> Store<H> {
     }
 }
 
+#[derive(Default)]
+pub struct Updates {
+    pub delegations: Vec<Delegation>,
+    pub revocations: Vec<Revocation>,
+}
+
+impl Updates {
+    pub fn new<D, R>(d: D, r: R) -> Self
+    where
+        D: IntoIterator<Item = Delegation>,
+        R: IntoIterator<Item = Revocation>,
+    {
+        Self {
+            delegations: d.into_iter().collect(),
+            revocations: r.into_iter().collect(),
+        }
+    }
+}
+
+trait ToBlock {
+    fn to_block(&self) -> Result<Block>;
+}
+
+impl<T> ToBlock for T
+where
+    T: Encode<DagCborCodec>,
+{
+    fn to_block(&self) -> Result<Block> {
+        Ok(Block::encode(DagCborCodec, Code::Blake3_256, self)?)
+    }
+}
+
 #[derive(DagCbor)]
 pub struct Event {
     pub prev: Vec<Cid>,
@@ -61,8 +93,11 @@ pub struct Event {
 
 /// References a Policy Event and it's Parent LinkedUpdate
 #[derive(DagCbor)]
-pub struct LinkedUpdate {
-    pub update: Cid,
+struct LinkedUpdate<U>
+where
+    U: DagCbor,
+{
+    pub update: U,
     pub parent: Cid,
 }
 
