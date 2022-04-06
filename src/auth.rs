@@ -1,3 +1,4 @@
+use crate::capabilities::{store::AuthRef, Invoke};
 use crate::cas::CidWrap;
 use crate::config;
 use crate::manifest::Manifest;

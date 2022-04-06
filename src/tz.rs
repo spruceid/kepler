@@ -1,7 +1,9 @@
 use crate::{
     auth::{AuthorizationPolicy, AuthorizationToken},
+    orbit::Orbit,
     manifest::Manifest,
     resource::ResourceId,
+    capabilities::{Invoke, AuthRef}
 };
 use anyhow::Result;
 use nom::{
@@ -165,6 +167,14 @@ impl AuthorizationPolicy<TezosAuthorizationString> for Manifest {
         }
     }
 }
+
+#[rocket::async_trait]
+impl Invoke<TezosAuthorizationString> for Orbit {
+    async fn invoke(&self, invocation: &TezosAuthorizationString) -> Result<AuthRef> {
+        unimplemented!()
+    }
+}
+
 
 #[test]
 async fn string_encoding() {

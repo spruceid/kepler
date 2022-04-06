@@ -1,5 +1,10 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
+    capabilities::{
+        store::{IndexReferences, Invocation as CapInvocation, Updates},
+        AuthRef, Invoke,
+    },
+    manifest::Manifest,
     orbit::Orbit,
     resource::ResourceId,
 };
@@ -85,7 +90,28 @@ impl AuthorizationToken for ZCAPTokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPTokens> for Orbit {
+impl Invoke<ZCAPTokens> for Orbit {
+    async fn invoke(&self, invocation: &ZCAPTokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+
+        let inv: CapInvocation = invocation.invocation.clone().try_into()?;
+
+        match &invocation.delegation {
+            Some(d) => {
+                self.capabilities
+                    .transact(Updates::new([d.clone().try_into()?], []))
+                    .await?
+            }
+            None => (),
+        };
+        let id = inv.id().to_vec();
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
+    }
+}
+
+#[rocket::async_trait]
+impl AuthorizationPolicy<ZCAPTokens> for Manifest {
     async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
         let invoker_vm = auth_token
             .invocation
@@ -94,7 +120,7 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
             .and_then(|proof| proof.verification_method.as_ref())
             .ok_or_else(|| anyhow!("Missing delegation verification method"))
             .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
-        match &auth_token.delegation {
+        let res = match &auth_token.delegation {
             Some(d) => {
                 let delegator_vm = d
                     .proof
@@ -135,15 +161,7 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
                     .verify(Default::default(), DID_METHODS.to_resolver(), d)
                     .await;
                 res.append(&mut res2);
-
-                res.errors
-                    .first()
-                    .map(|e| Err(anyhow!(e.clone())))
-                    .unwrap_or(Ok(()))?;
-
-                self.capabilities
-                    .transact(Updates::new([d.clone().try_into()?], []))
-                    .await?;
+                res
             }
             None => {
                 if !self.invokers().contains(&invoker_vm) {
@@ -152,14 +170,13 @@ impl AuthorizationPolicy<ZCAPTokens> for Orbit {
                 auth_token
                     .invocation
                     .verify_signature(Default::default(), DID_METHODS.to_resolver())
-                    .await;
+                    .await
             }
         };
-
-        self.capabilities
-            .invoke([auth_token.invocation.clone().try_into()?])
-            .await?;
-        Ok(())
+        res.errors
+            .first()
+            .map(|e| Err(anyhow!(e.clone())))
+            .unwrap_or(Ok(()))
     }
 }
 

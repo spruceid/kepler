@@ -194,23 +194,24 @@ where
         Ok(())
     }
 
-    pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<()> {
-        self.apply_invocations(Invocations {
-            // TODO we need a separate heads tracker for invocations
-            prev: todo!(),
-            invoke: try_join_all(invocations.into_iter().map(|i| async move {
-                i.verify().await?;
-                self.link_update(i)
-            }))
-            .await?,
-        })
-        .await?;
+    pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
+        let cid = self
+            .apply_invocations(Invocations {
+                // TODO we need a separate heads tracker for invocations
+                prev: vec![],
+                invoke: try_join_all(invocations.into_iter().map(|i| async move {
+                    i.verify().await?;
+                    self.link_update(i)
+                }))
+                .await?,
+            })
+            .await?;
         // TODO broadcast now
         //
-        Ok(())
+        Ok(cid)
     }
 
-    async fn apply_invocations(&self, event: Invocations) -> Result<()> {
+    async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
         let cid = self.ipfs.put_block(event.to_block()?).await?;
 
         for e in event.invoke.iter() {
@@ -219,7 +220,7 @@ where
 
         // TODO commit heads
         //
-        Ok(())
+        Ok(cid)
     }
 
     fn make_event(
@@ -389,24 +390,24 @@ impl TryFrom<KeplerDelegation> for Delegation {
 // HACK have to inject parent delegation ID
 impl TryFrom<(Vec<u8>, SIWEMessage)> for Delegation {
     type Error = DelegationConversionError<serde_json::Error>;
-    fn try_from(d: (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
+    fn try_from((parent_id, message): (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
         Ok(Self {
-            message: serde_json::to_vec(&d.1)?,
+            message: serde_json::to_vec(&message)?,
             // TODO calculate ID
-            id: d.1.nonce.into(),
-            parent: d.0,
-            resources: d
-                .1
+            id: message.0.nonce.into_bytes(),
+            parent: parent_id,
+            resources: message
+                .0
                 .resources
-                .into_iter()
+                .iter()
                 .map(|u| {
                     u.as_str()
                         .parse()
                         .map_err(|_| DelegationConversionError::MissingResources)
                 })
                 .collect::<Result<Vec<ResourceId>, Self::Error>>()?,
-            delegator: d.1.address.into(),
-            delegate: d.1.uri.as_str().into(),
+            delegator: message.0.address.into(),
+            delegate: message.0.uri.as_str().into(),
         })
     }
 }
@@ -464,46 +465,49 @@ pub enum InvocationConversionError<S> {
 impl TryFrom<KeplerInvocation> for Invocation {
     type Error = InvocationConversionError<serde_json::Error>;
     fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
-        Ok(Self {
-            message: serde_json::to_vec(&i)?,
-            // TODO verify ID binding if we have
-            id: match i.id {
-                URI::String(s) => s.into(),
-            },
-            parent: i
-                .proof
-                .and_then(|p| p.property_set.as_ref())
-                .and_then(|ps| ps.get("capability").cloned())
-                .and_then(|v| match v {
-                    serde_json::Value::String(s) => Some(s.into()),
-                    _ => None,
-                })
-                .ok_or(InvocationConversionError::MissingParent)?,
-            target: i.property_set.invocation_target,
-            invoker: i
-                .proof
-                .and_then(|p| p.verification_method)
-                .ok_or(InvocationConversionError::MissingInvoker)?
-                .into(),
-        })
+        let message = serde_json::to_vec(&i)?;
+        match i.proof {
+            Some(p) => Ok(Self {
+                message,
+                // TODO verify ID binding if we have
+                id: match i.id {
+                    URI::String(s) => s.into(),
+                },
+                parent: p
+                    .property_set
+                    .as_ref()
+                    .and_then(|ps| ps.get("capability").cloned())
+                    .and_then(|v| match v {
+                        serde_json::Value::String(s) => Some(s.into()),
+                        _ => None,
+                    })
+                    .ok_or(InvocationConversionError::MissingParent)?,
+                target: i.property_set.invocation_target,
+                invoker: p
+                    .verification_method
+                    .ok_or(InvocationConversionError::MissingInvoker)?
+                    .into(),
+            }),
+            None => Err(InvocationConversionError::MissingInvoker),
+        }
     }
 }
 
 impl TryFrom<(Vec<u8>, SIWEMessage)> for Invocation {
     type Error = InvocationConversionError<serde_json::Error>;
-    fn try_from(i: (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
+    fn try_from((parent_id, message): (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
         Ok(Self {
-            message: serde_json::to_vec(&i.1)?,
+            message: serde_json::to_vec(&message)?,
             // TODO calculate ID
-            id: i.1.nonce.into(),
-            parent: i.0,
-            target: i
-                .1
+            id: message.0.nonce.into(),
+            parent: parent_id,
+            target: message
+                .0
                 .uri
                 .as_str()
                 .parse()
                 .map_err(|_| Self::Error::MissingResource)?,
-            invoker: i.1.address.into(),
+            invoker: message.0.address.into(),
         })
     }
 }

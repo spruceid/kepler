@@ -330,6 +330,18 @@ impl Deref for Orbit {
     }
 }
 
+#[rocket::async_trait]
+impl Invoke<AuthTokens> for Orbit {
+    async fn invoke(&self, invocation: &AuthTokens) -> anyhow::Result<AuthRef> {
+        match invocation {
+            AuthTokens::Tezos(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::ZCAP(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::SIWEDelegated(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.invoke(token.as_ref()).await,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

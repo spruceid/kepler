@@ -1,6 +1,10 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
-    capabilities::store::{Delegation, Invocation, Updates},
+    capabilities::{
+        store::{AuthRef, Delegation, IndexReferences, Invocation, Updates},
+        Invoke,
+    },
+    manifest::Manifest,
     orbit::Orbit,
     resource::ResourceId,
     zcap::KeplerInvocation,
@@ -41,8 +45,8 @@ impl FromStr for SIWESignature {
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SIWEMessage(
-    #[serde_as(as = "DisplayFromStr")] Message,
-    #[serde_as(as = "DisplayFromStr")] SIWESignature,
+    #[serde_as(as = "DisplayFromStr")] pub Message,
+    #[serde_as(as = "DisplayFromStr")] pub SIWESignature,
 );
 
 impl Deref for SIWEMessage {
@@ -146,7 +150,26 @@ impl AuthorizationToken for SIWETokens {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWEZcapTokens> for Orbit {
+impl Invoke<SIWEZcapTokens> for Orbit {
+    async fn invoke(&self, invocation: &SIWEZcapTokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+
+        let delegation =
+            (self.capabilities.id.clone(), invocation.delegation.clone()).try_into()?;
+
+        let inv: Invocation = invocation.invocation.clone().try_into()?;
+        let id = inv.id().to_vec();
+
+        self.capabilities
+            .transact(Updates::new([delegation], []))
+            .await?;
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
+    }
+}
+
+#[rocket::async_trait]
+impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
     async fn authorize(&self, auth_token: &SIWEZcapTokens) -> Result<()> {
         // check delegator is controller
         if !self.delegators().contains(
@@ -217,22 +240,36 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Orbit {
             return Err(anyhow!(e));
         };
 
-        let delegation: Delegation =
-            (self.capabilities.id.clone(), auth_token.delegation.clone()).try_into()?;
-
-        self.capabilities
-            .transact(Updates::new([delegation], []))
-            .await?;
-
-        self.capabilities
-            .invoke([auth_token.invocation.clone().try_into()?])
-            .await?;
         Ok(())
     }
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<SIWETokens> for Orbit {
+impl Invoke<SIWETokens> for Orbit {
+    async fn invoke(&self, invocation: &SIWETokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+        let id = match invocation.delegation.as_ref() {
+            Some(d) => {
+                let delegation: Delegation =
+                    (self.capabilities.id.clone(), d.clone()).try_into()?;
+
+                let id = delegation.id().to_vec();
+                self.capabilities
+                    .transact(Updates::new([delegation], []))
+                    .await?;
+                id
+            }
+            None => self.capabilities.id.clone(),
+        };
+        let inv: Invocation = (id, invocation.invocation.clone()).try_into()?;
+        let id = inv.id().to_vec();
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
+    }
+}
+
+#[rocket::async_trait]
+impl AuthorizationPolicy<SIWETokens> for Manifest {
     async fn authorize(&self, t: &SIWETokens) -> Result<()> {
         if t.invoked_action.orbit() != self.id() {
             return Err(anyhow!("Incorrect Orbit ID"));
@@ -252,7 +289,7 @@ impl AuthorizationPolicy<SIWETokens> for Orbit {
 
         t.invocation.verify_eip191(&t.invocation.1 .0)?;
 
-        let parent = match &t.delegation {
+        match &t.delegation {
             Some(d) => {
                 // check delegator is controller
                 if !self.delegators().contains(
@@ -282,26 +319,15 @@ impl AuthorizationPolicy<SIWETokens> for Orbit {
                 {
                     return Err(anyhow!("Delegation semantics violated"));
                 };
-                let delegation: Delegation =
-                    (self.capabilities.id.clone(), d.clone()).try_into()?;
-                let id = delegation.id().clone();
-                self.capabilities
-                    .transact(Updates::new([delegation], []))
-                    .await?;
-                id
             }
             None => {
                 // check invoker is controller
                 if !self.invokers().contains(&invoker.parse()?) {
                     return Err(anyhow!("Invoker not authorized as Controller"));
                 };
-                self.capabilities.id.clone()
             }
         };
 
-        self.capabilities
-            .invoke([(parent, t.invocation.clone()).try_into()?])
-            .await?;
         Ok(())
     }
 }
