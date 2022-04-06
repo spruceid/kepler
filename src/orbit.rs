@@ -4,7 +4,7 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
-    heads::SledHeadStore,
+    heads::HeadStore,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
@@ -125,10 +125,10 @@ impl OrbitTasks {
 
 #[derive(Clone)]
 pub struct Orbit {
-    pub service: KVService<SledHeadStore>,
+    pub service: KVService,
     _tasks: OrbitTasks,
     pub manifest: Manifest,
-    pub capabilities: CapService<SledHeadStore>,
+    pub capabilities: CapService,
 }
 
 impl Orbit {
@@ -164,14 +164,14 @@ impl Orbit {
             _ => panic!("To be refactored."),
         };
         let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
+        let heads = HeadStore::new(&db, "kv-store")?;
 
-        let heads = SledHeadStore::new(&db)?;
         let service_store = Store::new(id, ipfs.clone(), db, heads)?;
         let service = KVService::start(service_store).await?;
 
         // TODO hmmm
         let cap_db = sled::open(path.as_ref().join(&id).with_extension("capdb"))?;
-        let cap_heads = SledHeadStore::new(&cap_db)?;
+        let cap_heads = HeadStore::new(&cap_db, "caps-store")?;
         let cap_store = CapStore::new(
             manifest.id().to_string().into_bytes(),
             ipfs.clone(),

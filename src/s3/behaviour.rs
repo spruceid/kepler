@@ -81,7 +81,7 @@ impl NetworkBehaviour for Behaviour {
 pub struct BehaviourProcess(Arc<AbortOnDrop<()>>);
 
 impl BehaviourProcess {
-    pub fn new<H: 'static + Send + Sync>(store: Store<H>, mut receiver: Receiver<Event>) -> Self {
+    pub fn new(store: Store, mut receiver: Receiver<Event>) -> Self {
         Self(Arc::new(AbortOnDrop::new(tokio::spawn(async move {
             while let Ok(Ok((event, returned_receiver))) =
                 tokio::task::spawn_blocking(move || receiver.recv().map(|ev| (ev, receiver))).await

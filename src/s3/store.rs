@@ -60,17 +60,17 @@ impl LinkedDelta {
 }
 
 #[derive(Clone)]
-pub struct Store<H> {
+pub struct Store {
     pub id: String,
     pub ipfs: Ipfs,
     elements: Tree,
     tombs: Tree,
     priorities: Tree,
-    heads: H,
+    heads: HeadStore,
 }
 
-impl<H> Store<H> {
-    pub fn new(id: String, ipfs: Ipfs, db: Db, heads: H) -> Result<Self> {
+impl Store {
+    pub fn new(id: String, ipfs: Ipfs, db: Db, heads: HeadStore) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
         // map key to element cid
@@ -157,12 +157,7 @@ impl<H> Store<H> {
     fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
         Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
     }
-}
 
-impl<H> Store<H>
-where
-    H: 'static + HeadStore + Clone + Send + Sync,
-{
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
@@ -367,7 +362,7 @@ where
         .await?;
         Ok(())
     }
-    pub async fn start_service(self) -> Result<Service<H>> {
+    pub async fn start_service(self) -> Result<Service> {
         Service::start(self).await
     }
 }

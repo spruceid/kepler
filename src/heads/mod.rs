@@ -1,79 +1,22 @@
-use crate::ipfs::Ipfs;
 use anyhow::Result;
-use libipld::{cbor::DagCborCodec, cid::Cid, codec::Decode};
+use libipld::cid::Cid;
 use sled::{Batch, Db, Tree};
 use std::convert::TryInto;
 
 #[derive(Clone)]
-pub struct SledHeadStore {
+pub struct HeadStore {
     heights: Tree,
     heads: Tree,
 }
 
-pub struct Heads<S> {
-    store: S,
-    ipfs: Ipfs,
-}
-
-pub trait Head: Decode<DagCborCodec> {
-    fn priority(&self) -> u64;
-    fn previous_heads(&self) -> &[Cid];
-}
-
-pub struct Merge {
-    new: Vec<Cid>,
-    obsoleted: Vec<Cid>,
-}
-
-impl<S: HeadStore> Heads<S> {
-    async fn get_height<H: Head>(&self, c: &Cid) -> Result<Option<u64>> {
-        Ok(match self.store.get_height(c)? {
-            Some(h) => Some(h),
-            None => {
-                let head: H = self.ipfs.get_block(c).await?.decode()?;
-                Some(head.priority())
-            }
-        })
-    }
-    pub async fn greater_than<H1: Head, H2: Head>(&self, a: &Cid, b: &Cid) -> Result<Option<bool>> {
-        Ok(
-            match (
-                self.get_height::<H1>(a).await?,
-                self.get_height::<H2>(b).await?,
-            ) {
-                (Some(ah), Some(bh)) if ah != bh => Some(ah > bh),
-                (Some(_), Some(_)) => Some(a > b),
-                _ => None,
-            },
-        )
-    }
-    pub fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
-        self.store.set_heights(heights)
-    }
-}
-
-pub trait HeadStore {
-    fn get_height(&self, c: &Cid) -> Result<Option<u64>>;
-    fn get_heads(&self) -> Result<(Vec<Cid>, u64)>;
-    fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()>;
-    fn new_heads(
-        &self,
-        new_heads: impl IntoIterator<Item = Cid>,
-        removed_heads: impl IntoIterator<Item = Cid>,
-    ) -> Result<()>;
-}
-
-impl SledHeadStore {
-    pub fn new(db: &Db) -> Result<Self> {
+impl HeadStore {
+    pub fn new<N: AsRef<[u8]>>(db: &Db, name: N) -> Result<Self> {
         Ok(Self {
-            heights: db.open_tree("heights")?,
-            heads: db.open_tree("heads")?,
+            heights: db.open_tree([name.as_ref(), ".heights".as_bytes()].concat())?,
+            heads: db.open_tree([name.as_ref(), ".heads".as_bytes()].concat())?,
         })
     }
-}
-
-impl HeadStore for SledHeadStore {
-    fn get_heads(&self) -> Result<(Vec<Cid>, u64)> {
+    pub fn get_heads(&self) -> Result<(Vec<Cid>, u64)> {
         self.heads.iter().try_fold(
             (vec![], 0),
             |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
@@ -89,11 +32,11 @@ impl HeadStore for SledHeadStore {
         )
     }
 
-    fn get_height(&self, c: &Cid) -> Result<Option<u64>> {
+    pub fn get_height(&self, c: &Cid) -> Result<Option<u64>> {
         self.heights.get(c.to_bytes())?.map(v2u64).transpose()
     }
 
-    fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
+    pub fn set_heights(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
         let mut batch = Batch::default();
         for (op, height) in heights.into_iter() {
             if self.get_height(&op)?.map(|h| height > h).unwrap_or(true) {
@@ -105,7 +48,7 @@ impl HeadStore for SledHeadStore {
         Ok(())
     }
 
-    fn new_heads(
+    pub fn new_heads(
         &self,
         new_heads: impl IntoIterator<Item = Cid>,
         removed_heads: impl IntoIterator<Item = Cid>,

@@ -21,25 +21,20 @@ pub use store::Store;
 type TaskHandle = AbortOnDrop<()>;
 
 #[derive(Clone)]
-pub struct Service<H> {
+pub struct Service {
     pub store: Store,
     _task: Arc<TaskHandle>,
 }
 
-impl<H: HeadStore> Service<H> {
-    pub(crate) fn new(store: Store<H>, task: TaskHandle) -> Self {
+impl Service {
+    pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
         Self {
             store,
             _task: Arc::new(task),
         }
     }
-}
 
-impl<H> Service<H>
-where
-    H: 'static + HeadStore + Send + Sync + Clone,
-{
-    pub async fn start(store: Store<H>) -> Result<Self> {
+    pub async fn start(store: Store) -> Result<Self> {
         let events = store
             .ipfs
             .pubsub_subscribe(store.id.clone())
@@ -55,8 +50,8 @@ where
     }
 }
 
-impl<H> std::ops::Deref for Service<H> {
-    type Target = Store<H>;
+impl std::ops::Deref for Service {
+    type Target = Store;
     fn deref(&self) -> &Self::Target {
         &self.store
     }
@@ -102,13 +97,11 @@ enum KVMessage {
     StateReq,
 }
 
-async fn kv_task<H>(
+async fn kv_task(
     events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
-    store: Store<H>,
+    store: Store,
     peer_id: PeerId,
-) where
-    H: 'static + HeadStore + Send + Sync + Clone,
-{
+) {
     debug!("starting KV task");
     events
         .for_each_concurrent(None, |ev| async {
@@ -144,7 +137,7 @@ mod test {
 
     use super::*;
     use crate::{
-        config, heads::SledHeadStore, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init,
+        config, heads::HeadStore, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init,
     };
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
@@ -155,7 +148,7 @@ mod test {
         path: PathBuf,
         keypair: Keypair,
         allowed_peers: I,
-    ) -> Result<(Store<SledHeadStore>, behaviour::BehaviourProcess), anyhow::Error>
+    ) -> Result<(Store, behaviour::BehaviourProcess), anyhow::Error>
     where
         I: IntoIterator<Item = PeerId> + 'static,
     {
@@ -173,7 +166,7 @@ mod test {
         };
         let (ipfs, ipfs_task, receiver) = create_ipfs(*id, &config, keypair, allowed_peers).await?;
         let db = sled::open(path.join("db.sled"))?;
-        let heads = SledHeadStore::new(db)?;
+        let heads = HeadStore::new(&db, "test")?;
         tokio::spawn(ipfs_task);
         let store = Store::new(id.to_string(), ipfs, db, heads)?;
         Ok((

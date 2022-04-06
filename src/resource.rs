@@ -238,8 +238,8 @@ mod tests {
         assert_eq!("ens:example.eth", res.orbit().suffix());
         assert_eq!("did:ens:example.eth", res.orbit().did());
         assert_eq!("orbit0", res.orbit().name());
-        assert_eq!("s3", res.service().as_ref().unwrap());
-        assert_eq!("/path/to/image.jpg", res.path().as_ref().unwrap());
+        assert_eq!("s3", res.service().unwrap());
+        assert_eq!("/path/to/image.jpg", res.path().unwrap());
         assert_eq!(None, res.fragment().as_ref());
 
         let res2: ResourceId = "kepler:ens:example.eth://orbit0#peer".parse().unwrap();
@@ -247,9 +247,9 @@ mod tests {
         assert_eq!("ens:example.eth", res2.orbit().suffix());
         assert_eq!("did:ens:example.eth", res2.orbit().did());
         assert_eq!("orbit0", res2.orbit().name());
-        assert_eq!(None, res2.service().as_ref());
-        assert_eq!(None, res2.path().as_ref());
-        assert_eq!("peer", res2.fragment().as_ref().unwrap());
+        assert_eq!(None, res2.service());
+        assert_eq!(None, res2.path());
+        assert_eq!("peer", res2.fragment().unwrap());
     }
 
     #[test]

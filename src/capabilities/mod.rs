@@ -1,6 +1,5 @@
 pub mod store;
 
-use crate::{heads::HeadStore, resource::OrbitId};
 use anyhow::Result;
 use std::str::FromStr;
 pub use store::AuthRef;
@@ -12,22 +11,19 @@ pub trait Invoke<T> {
 }
 
 #[derive(Clone)]
-pub struct Service<H> {
-    pub store: Store<H>,
+pub struct Service {
+    pub store: Store,
 }
 
-impl<H> std::ops::Deref for Service<H> {
-    type Target = Store<H>;
+impl std::ops::Deref for Service {
+    type Target = Store;
     fn deref(&self) -> &Self::Target {
         &self.store
     }
 }
 
-impl<H> Service<H>
-where
-    H: 'static + HeadStore + Send + Sync + Clone,
-{
-    pub async fn start(store: Store<H>) -> Result<Self> {
+impl Service {
+    pub async fn start(store: Store) -> Result<Self> {
         // let id = OrbitId::from_str(&String::from_utf8(store.id)?)?
         //     .get_cid()
         //     .to_string();

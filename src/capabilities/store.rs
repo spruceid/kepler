@@ -27,16 +27,16 @@ impl AuthRef {
 }
 
 #[derive(Clone)]
-pub struct Store<H> {
+pub struct Store {
     pub id: Vec<u8>,
     pub ipfs: Ipfs,
     elements: Tree,
     tombs: Tree,
-    heads: H,
+    heads: HeadStore,
 }
 
-impl<H> Store<H> {
-    pub fn new(id: Vec<u8>, ipfs: Ipfs, db: Db, heads: H) -> Result<Self> {
+impl Store {
+    pub fn new(id: Vec<u8>, ipfs: Ipfs, db: Db, heads: HeadStore) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
         // map key to element cid
@@ -143,12 +143,7 @@ impl<H> Store<H> {
             update,
         })
     }
-}
 
-impl<H> Store<H>
-where
-    H: HeadStore,
-{
     pub async fn transact(&self, updates: Updates) -> Result<()> {
         self.apply(self.make_event(updates)?).await?;
         // TODO broadcast now
@@ -616,65 +611,65 @@ impl EndVerifiable for Revocation {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::heads::SledHeadStore;
-    fn get_store() -> Store<SledHeadStore> {
-        todo!()
-    }
-    #[test]
-    async fn invoke() {
-        let caps = get_store();
-        let inv = Invocation;
+    // use super::*;
+    // use crate::heads::SledHeadStore;
+    // fn get_store() -> Store {
+    //     todo!()
+    // }
+    // #[test]
+    // async fn invoke() {
+    //     let caps = get_store();
+    //     let inv = Invocation;
 
-        let res = caps.invoke(vec![inv]).unwrap();
-        assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
-    }
+    //     let res = caps.invoke(vec![inv]).unwrap();
+    //     assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
+    // }
 
-    #[test]
-    async fn delegate() {
-        let caps = get_store();
+    // #[test]
+    // async fn delegate() {
+    //     let caps = get_store();
 
-        let del = Delegation;
-        let del_res = caps.transact(del.into()).await.unwrap();
-        assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
+    //     let del = Delegation;
+    //     let del_res = caps.transact(del.into()).await.unwrap();
+    //     assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
 
-        let inv = Invocation;
-        let inv_res = caps.invoke(vec![inv]).unwrap();
-        assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-    }
+    //     let inv = Invocation;
+    //     let inv_res = caps.invoke(vec![inv]).unwrap();
+    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
+    // }
 
-    #[test]
-    async fn revoke() {
-        let caps = get_store();
+    // #[test]
+    // async fn revoke() {
+    //     let caps = get_store();
 
-        let del = Delegation;
-        let del_res = caps.transact(del.into()).unwrap();
-        assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
+    //     let del = Delegation;
+    //     let del_res = caps.transact(del.into()).unwrap();
+    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
 
-        let inv = Invocation;
-        let inv_res = caps.invoke(vec![inv]).unwrap();
-        assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
+    //     let inv = Invocation;
+    //     let inv_res = caps.invoke(vec![inv]).unwrap();
+    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
 
-        let rev = Revocation;
-        let rev_res = caps.transact(rev.into()).unwrap();
-        assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
+    //     let rev = Revocation;
+    //     let rev_res = caps.transact(rev.into()).unwrap();
+    //     assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
 
-        let inv2 = Invocation;
-        let inv_res2 = caps.invoke(vec![inv2]);
+    //     let inv2 = Invocation;
+    //     let inv_res2 = caps.invoke(vec![inv2]);
 
-        assert!(inv_res2.is_err());
-        assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
-    }
+    //     assert!(inv_res2.is_err());
+    //     assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
+    // }
 
-    #[test]
-    async fn get_caps() {
-        let caps = get_store();
+    // #[test]
+    // async fn get_caps() {
+    //     let caps = get_store();
 
-        let dels = vec![Delegation, Delegation, Delegation];
-        let del_res = caps.transact(dels.into()).unwrap();
-        assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
+    //     let dels = vec![Delegation, Delegation, Delegation];
+    //     let del_res = caps.transact(dels.into()).unwrap();
+    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
 
-        let delegated = caps.capabilities_for("").unwrap().unwrap();
-        assert_eq!(dels, delegated);
-    }
+    //     let delegated = caps.capabilities_for("").unwrap().unwrap();
+    //     assert_eq!(dels, delegated);
+    // }
 }
