@@ -2,6 +2,7 @@ use crate::{
     heads::HeadStore,
     ipfs::{Block, Ipfs},
     resource::ResourceId,
+    s3::to_block_raw,
     siwe::SIWEMessage,
     zcap::{KeplerDelegation, KeplerInvocation},
 };
@@ -46,14 +47,19 @@ impl Store {
         let delegation_heads = HeadStore::new(&db, [&id, "delegations".as_bytes()].concat())?;
         // heads tracking for invocations
         let invocation_heads = HeadStore::new(&db, [&id, "invocations".as_bytes()].concat())?;
-        Ok(Self {
+        let (cid, n) = to_block_raw(&id)?.into_inner();
+        let store = Self {
             id,
             ipfs,
             elements,
             tombs,
             delegation_heads,
             invocation_heads,
-        })
+        };
+        if store.element_cid(&n)? != Some(cid) {
+            store.set_element(&n, &cid)?;
+        };
+        Ok(store)
     }
     pub fn is_revoked(&self, d: &[u8]) -> Result<Option<bool>> {
         Ok(
@@ -159,6 +165,7 @@ impl Store {
 
     async fn apply(&self, event: Event) -> Result<()> {
         let block = event.to_block()?;
+        let cid = self.ipfs.put_block(block).await?;
 
         // verify everything
         self.verify(&event).await?;
@@ -171,17 +178,18 @@ impl Store {
             // with the same uuid, associating the uuid with a different cid.
             // when the partition heals, they will have diverging capability indexes.
             // If we embed or commit to the cid in the uuid, we will never have this conflict
-            self.set_element(e.update.id(), block.cid())?;
+            self.set_element(e.update.id(), &cid)?;
+            tracing::debug!("applied delegation {:?}", e.update.id());
         }
         for e in event.revoke.iter() {
             // revoke
-            self.set_element(e.update.id(), block.cid())?;
+            self.set_element(e.update.id(), &cid)?;
             self.tombstone(e.update.revoked())?;
         }
 
         // commit heads
-        let cid = self.ipfs.put_block(block).await?;
-        let (heads, _) = self.delegation_heads.get_heads()?;
+        let (heads, h) = self.delegation_heads.get_heads()?;
+        self.delegation_heads.set_heights([(cid, h + 1)])?;
         self.delegation_heads.new_heads([cid], heads)?;
         Ok(())
     }
@@ -202,6 +210,7 @@ impl Store {
                 prev: self.invocation_heads.get_heads()?.0,
                 invoke: try_join_all(invocations.into_iter().map(|i| async move {
                     i.verify().await?;
+                    tracing::debug!("invoking {:?}", i.parent());
                     self.link_update(i)
                 }))
                 .await?,
@@ -219,7 +228,8 @@ impl Store {
             self.set_element(e.update.id(), &cid)?;
         }
 
-        let (heads, _) = self.delegation_heads.get_heads()?;
+        let (heads, h) = self.delegation_heads.get_heads()?;
+        self.invocation_heads.set_heights([(cid, h + 1)])?;
         self.invocation_heads.new_heads([cid], heads)?;
         Ok(cid)
     }
@@ -277,7 +287,7 @@ where
     }
 }
 
-#[derive(DagCbor)]
+#[derive(DagCbor, Debug)]
 struct Event {
     pub prev: Vec<Cid>,
     pub delegate: Vec<LinkedUpdate<Delegation>>,
@@ -285,7 +295,7 @@ struct Event {
 }
 
 /// References a Policy Event and it's Parent LinkedUpdate
-#[derive(DagCbor)]
+#[derive(DagCbor, Debug)]
 struct LinkedUpdate<U>
 where
     U: DagCbor,
@@ -305,13 +315,13 @@ trait EndVerifiable {
     async fn verify(&self) -> Result<()>;
 }
 
-#[derive(DagCbor)]
+#[derive(DagCbor, Debug)]
 struct Invocations {
     pub prev: Vec<Cid>,
     pub invoke: Vec<LinkedUpdate<Invocation>>,
 }
 
-#[derive(PartialEq, DagCbor)]
+#[derive(PartialEq, DagCbor, Debug)]
 pub struct Delegation {
     id: Vec<u8>,
     parent: Vec<u8>,
@@ -395,7 +405,7 @@ impl TryFrom<(Vec<u8>, SIWEMessage)> for Delegation {
         Ok(Self {
             message: serde_json::to_vec(&message)?,
             // TODO calculate ID
-            id: message.0.nonce.into_bytes(),
+            id: ["urn:siwe:kepler:", &message.0.nonce].concat().into_bytes(),
             parent: parent_id,
             resources: message
                 .0
@@ -420,7 +430,7 @@ impl EndVerifiable for Delegation {
     }
 }
 
-#[derive(PartialEq, DagCbor)]
+#[derive(PartialEq, DagCbor, Debug)]
 pub struct Invocation {
     id: Vec<u8>,
     parent: Vec<u8>,
@@ -500,14 +510,14 @@ impl TryFrom<(Vec<u8>, SIWEMessage)> for Invocation {
         Ok(Self {
             message: serde_json::to_vec(&message)?,
             // TODO calculate ID
-            id: message.0.nonce.into(),
+            id: ["urn:siwe:kepler:", &message.0.nonce].concat().into_bytes(),
             parent: parent_id,
             target: message
                 .0
-                .uri
-                .as_str()
-                .parse()
-                .map_err(|_| Self::Error::MissingResource)?,
+                .resources
+                .iter()
+                .find_map(|r| r.as_str().parse().ok())
+                .ok_or(Self::Error::MissingResource)?,
             invoker: message.0.address.into(),
         })
     }
@@ -520,7 +530,7 @@ impl EndVerifiable for Invocation {
     }
 }
 
-#[derive(PartialEq, DagCbor)]
+#[derive(PartialEq, DagCbor, Debug)]
 pub struct Revocation {
     id: Vec<u8>,
     parent: Vec<u8>,
