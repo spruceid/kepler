@@ -1,6 +1,6 @@
 use crate::{
     auth::AuthorizationToken,
-    capabilities::store::Service as CapabilitiesService,
+    capabilities::{store::Store as CapStore, AuthRef, Invoke, Service as CapService},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
@@ -127,8 +127,8 @@ impl OrbitTasks {
 pub struct Orbit {
     pub service: KVService<SledHeadStore>,
     _tasks: OrbitTasks,
-    manifest: Manifest,
-    pub capabilities: CapabilitiesService<SledHeadStore>,
+    pub manifest: Manifest,
+    pub capabilities: CapService<SledHeadStore>,
 }
 
 impl Orbit {
@@ -169,6 +169,17 @@ impl Orbit {
         let service_store = Store::new(id, ipfs.clone(), db, heads)?;
         let service = KVService::start(service_store).await?;
 
+        // TODO hmmm
+        let cap_db = sled::open(path.as_ref().join(&id).with_extension("capdb"))?;
+        let cap_heads = SledHeadStore::new(&cap_db)?;
+        let cap_store = CapStore::new(
+            manifest.id().to_string().into_bytes(),
+            ipfs.clone(),
+            cap_db,
+            cap_heads,
+        )?;
+        let capabilities = CapService::start(cap_store).await?;
+
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
 
         let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
@@ -194,7 +205,7 @@ impl Orbit {
             service,
             manifest,
             _tasks: tasks,
-            capabilities: todo!(),
+            capabilities,
         })
     }
 

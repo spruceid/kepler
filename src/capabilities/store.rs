@@ -17,8 +17,14 @@ use sled::{Db, Tree};
 use ssi::vc::URI;
 use std::convert::TryFrom;
 
-#[derive(DagCbor)]
+#[derive(DagCbor, PartialEq, Debug, Clone)]
 pub struct AuthRef(Cid, Vec<u8>);
+
+impl AuthRef {
+    pub fn new(event_cid: Cid, invocation_id: Vec<u8>) -> Self {
+        Self(event_cid, invocation_id)
+    }
+}
 
 #[derive(Clone)]
 pub struct Store<H> {
@@ -27,18 +33,6 @@ pub struct Store<H> {
     elements: Tree,
     tombs: Tree,
     heads: H,
-}
-
-#[derive(Clone)]
-pub struct Service<H> {
-    pub store: Store<H>,
-}
-
-impl<H> std::ops::Deref for Service<H> {
-    type Target = Store<H>;
-    fn deref(&self) -> &Self::Target {
-        &self.store
-    }
 }
 
 impl<H> Store<H> {
