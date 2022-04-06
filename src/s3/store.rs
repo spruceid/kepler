@@ -203,7 +203,8 @@ impl Store {
         };
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
-        let rmvs: (Vec<(M, Cid)>, Vec<(Cid, AuthRef)>) = remove
+        type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, AuthRef)>);
+        let rmvs: Rmvs<M> = remove
             .into_iter()
             .map(|(key, version, auth)| {
                 Ok(match version {

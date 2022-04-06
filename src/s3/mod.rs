@@ -13,7 +13,6 @@ use super::{
     ipfs::{Block, Ipfs},
     orbit::AbortOnDrop,
 };
-use crate::heads::HeadStore;
 
 pub use entries::{Object, ObjectBuilder, ObjectReader};
 pub use store::Store;

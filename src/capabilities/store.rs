@@ -44,9 +44,9 @@ impl Store {
         // map key to element cid
         let tombs = db.open_tree([&id, ".cap-tombs".as_bytes()].concat())?;
         // heads tracking for delegations
-        let delegation_heads = HeadStore::new(&db, [&id, "delegations".as_bytes()].concat())?;
+        let delegation_heads = HeadStore::new(db, [&id, "delegations".as_bytes()].concat())?;
         // heads tracking for invocations
-        let invocation_heads = HeadStore::new(&db, [&id, "invocations".as_bytes()].concat())?;
+        let invocation_heads = HeadStore::new(db, [&id, "invocations".as_bytes()].concat())?;
         let (cid, n) = to_block_raw(&id)?.into_inner();
         let store = Self {
             id,
@@ -283,7 +283,7 @@ where
     T: Encode<DagCborCodec>,
 {
     fn to_block(&self) -> Result<Block> {
-        Ok(Block::encode(DagCborCodec, Code::Blake3_256, self)?)
+        Block::encode(DagCborCodec, Code::Blake3_256, self)
     }
 }
 
@@ -566,7 +566,7 @@ fn check_target_is_delegation<S>(
     ) {
         // TODO what exactly do we expect here
         (Some("capabilities"), Some(p)) => Ok(p.into()),
-        _ => return Err(RevocationConversionError::InvalidTarget),
+        _ => Err(RevocationConversionError::InvalidTarget),
     }
 }
 
