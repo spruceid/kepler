@@ -53,8 +53,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     if let config::IndexStorage::Local(c) = kepler_config.storage.indexes.clone() {
         if !c.path.is_dir() {
             return Err(anyhow!(
-                "KEPLER_STORAGE_PATH does not exist or is not a directory: {}",
-                c.path.to_str().unwrap()
+                "KEPLER_STORAGE_PATH does not exist or is not a directory: {:?}",
+                c.path.to_str()
             ));
         }
     }
