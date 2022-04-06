@@ -15,7 +15,7 @@ use ipfs::{
     refs::IpldRefsError,
     repo::{PinKind, PinMode, PinStore},
 };
-use libipld::cid::Cid;
+use libipld::cid::{multibase::Base, Cid};
 use rocket::async_trait;
 use std::{collections::BTreeSet, str::FromStr};
 
@@ -80,7 +80,11 @@ impl PinStore for DynamoPinStore {
             .table_name(self.table.clone())
             .key(
                 CID_ATTRIBUTE,
-                AttributeValue::S(format!("{}/{}", self.orbit, cid)),
+                AttributeValue::S(format!(
+                    "{}/{}",
+                    self.orbit.to_string_of_base(Base::Base58Btc)?,
+                    cid
+                )),
             )
             .send()
             .await
@@ -116,7 +120,11 @@ impl PinStore for DynamoPinStore {
             .table_name(self.table.clone())
             .key(
                 CID_ATTRIBUTE,
-                AttributeValue::S(format!("{}/{}", self.orbit, target)),
+                AttributeValue::S(format!(
+                    "{}/{}",
+                    self.orbit.to_string_of_base(Base::Base58Btc)?,
+                    target
+                )),
             )
             .update_expression(format!(
                 "SET {} = :pin, {p} = {p} + :increment",
@@ -135,7 +143,11 @@ impl PinStore for DynamoPinStore {
                 .table_name(self.table.clone())
                 .key(
                     CID_ATTRIBUTE,
-                    AttributeValue::S(format!("{}/{}", self.orbit, cid)),
+                    AttributeValue::S(format!(
+                        "{}/{}",
+                        self.orbit.to_string_of_base(Base::Base58Btc)?,
+                        cid
+                    )),
                 )
                 .update_expression(format!("SET {p} = {p} + :increment", p = PARENTS_ATTRIBUTE))
                 .expression_attribute_values(":increment", AttributeValue::N(1.to_string()))
@@ -161,7 +173,11 @@ impl PinStore for DynamoPinStore {
             .table_name(self.table.clone())
             .key(
                 CID_ATTRIBUTE,
-                AttributeValue::S(format!("{}/{}", self.orbit, target)),
+                AttributeValue::S(format!(
+                    "{}/{}",
+                    self.orbit.to_string_of_base(Base::Base58Btc)?,
+                    target
+                )),
             )
             .update_expression(format!(
                 "SET {} = :pin, {p} = {p} - :increment",
@@ -186,7 +202,11 @@ impl PinStore for DynamoPinStore {
                         .table_name(self.table.clone())
                         .key(
                             CID_ATTRIBUTE,
-                            AttributeValue::S(format!("{}/{}", self.orbit, target)),
+                            AttributeValue::S(format!(
+                                "{}/{}",
+                                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                                target
+                            )),
                         )
                         .send()
                         .await?;
@@ -202,7 +222,11 @@ impl PinStore for DynamoPinStore {
                 .table_name(self.table.clone())
                 .key(
                     CID_ATTRIBUTE,
-                    AttributeValue::S(format!("{}/{}", self.orbit, cid)),
+                    AttributeValue::S(format!(
+                        "{}/{}",
+                        self.orbit.to_string_of_base(Base::Base58Btc)?,
+                        cid
+                    )),
                 )
                 .update_expression(format!("SET {p} = {p} - :increment", p = PARENTS_ATTRIBUTE))
                 .expression_attribute_values(":increment", AttributeValue::N(1.to_string()))
@@ -218,7 +242,11 @@ impl PinStore for DynamoPinStore {
                             .table_name(self.table.clone())
                             .key(
                                 CID_ATTRIBUTE,
-                                AttributeValue::S(format!("{}/{}", self.orbit, target)),
+                                AttributeValue::S(format!(
+                                    "{}/{}",
+                                    self.orbit.to_string_of_base(Base::Base58Btc)?,
+                                    target
+                                )),
                             )
                             .send()
                             .await?;
@@ -299,8 +327,12 @@ impl PinStore for DynamoPinStore {
                 ":ids",
                 AttributeValue::Ns(
                     ids.iter()
-                        .map(|id| format!("{}/{}", self.orbit, id))
-                        .collect(),
+                        .map(|id| {
+                            self.orbit
+                                .to_string_of_base(Base::Base58Btc)
+                                .map(|c| format!("{}/{}", c, id))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                 ),
             );
         // TODO handle pagination

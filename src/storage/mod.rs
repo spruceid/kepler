@@ -8,7 +8,7 @@ use ipfs::{
     },
     Block, RepoTypes,
 };
-use libipld::cid::Cid;
+use libipld::cid::{multibase::Base, Cid};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
 use std::{path::PathBuf, str::FromStr};
@@ -74,7 +74,7 @@ impl StorageUtils {
         match &self.config {
             config::BlockStorage::S3(_) => Ok(self.key_pair(orbit).await?.is_some()),
             config::BlockStorage::Local(r) => {
-                let dir = r.path.join(&orbit.to_string());
+                let dir = r.path.join(&orbit.to_string_of_base(Base::Base58Btc)?);
                 Ok(dir.exists())
             }
         }
@@ -91,7 +91,7 @@ impl StorageUtils {
                     .transpose()?)
             }
             config::BlockStorage::Local(r) => {
-                let dir = r.path.join(&orbit.to_string());
+                let dir = r.path.join(&orbit.to_string_of_base(Base::Base58Btc)?);
                 match fs::read(dir.join("kp")).await {
                     Ok(mut k) => Ok(Some(Ed25519Keypair::decode(&mut k)?)),
                     Err(e) => match e.kind() {
@@ -116,7 +116,7 @@ impl StorageUtils {
                     .transpose()?)
             }
             config::BlockStorage::Local(r) => {
-                let dir = r.path.join(&orbit.to_string());
+                let dir = r.path.join(&orbit.to_string_of_base(Base::Base58Btc)?);
                 match fs::read(dir.join("id")).await {
                     Ok(i) => Ok(Some(String::from_utf8(i)?.parse()?)),
                     Err(e) => match e.kind() {
@@ -174,7 +174,7 @@ impl StorageUtils {
                 orbit
             ))),
             config::BlockStorage::Local(r) => {
-                let path = r.path.join(orbit.to_string());
+                let path = r.path.join(orbit.to_string_of_base(Base::Base58Btc)?);
                 if !path.exists() {
                     tokio::fs::create_dir_all(&path).await?;
                 }

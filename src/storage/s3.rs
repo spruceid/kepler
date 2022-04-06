@@ -13,7 +13,7 @@ use ipfs::{
     },
     Block,
 };
-use libipld::cid::Cid;
+use libipld::cid::{multibase::Base, Cid};
 use regex::Regex;
 use rocket::{async_trait, http::hyper::Uri};
 use std::{path::PathBuf, str::FromStr};
@@ -70,7 +70,11 @@ impl S3DataStore {
             .client
             .get_object()
             .bucket(self.bucket.clone())
-            .key(format!("{}/{}", self.orbit, key))
+            .key(format!(
+                "{}/{}",
+                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                key
+            ))
             .send()
             .await;
         match res {
@@ -91,7 +95,11 @@ impl S3DataStore {
         self.client
             .put_object()
             .bucket(self.bucket.clone())
-            .key(format!("{}/{}", self.orbit, key))
+            .key(format!(
+                "{}/{}",
+                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                key
+            ))
             .body(ByteStream::new(SdkBody::from(body)))
             .send()
             .await?;
@@ -169,7 +177,11 @@ impl BlockStore for S3BlockStore {
             .client
             .get_object()
             .bucket(self.bucket.clone())
-            .key(format!("{}/{}", self.orbit, cid))
+            .key(format!(
+                "{}/{}",
+                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                cid
+            ))
             .send()
             .await;
         match res {
@@ -194,7 +206,11 @@ impl BlockStore for S3BlockStore {
             .client
             .put_object()
             .bucket(self.bucket.clone())
-            .key(format!("{}/{}", self.orbit, block.cid()))
+            .key(format!(
+                "{}/{}",
+                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                block.cid()
+            ))
             .body(ByteStream::new(SdkBody::from(block.data())))
             .send()
             .await;
@@ -212,7 +228,11 @@ impl BlockStore for S3BlockStore {
             .client
             .delete_object()
             .bucket(self.bucket.clone())
-            .key(format!("{}/{}", self.orbit, cid))
+            .key(format!(
+                "{}/{}",
+                self.orbit.to_string_of_base(Base::Base58Btc)?,
+                cid
+            ))
             .send()
             .await;
 

@@ -5,7 +5,11 @@ use ipfs::{
     Ipfs as OIpfs, IpfsOptions, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
 };
 use libipld::{
-    block::Block as OBlock, cid::Cid, multihash::Code, raw::RawCodec, store::DefaultParams,
+    block::Block as OBlock,
+    cid::{multibase::Base, Cid},
+    multihash::Code,
+    raw::RawCodec,
+    store::DefaultParams,
 };
 use libp2p::{core::transport::MemoryTransport, futures::TryStreamExt};
 use std::{future::Future, sync::mpsc::Receiver};
@@ -47,7 +51,10 @@ where
         keypair,
         bootstrap: vec![],
         mdns: false,
-        kad_protocol: Some(format!("/kepler/{}", orbit)),
+        kad_protocol: Some(format!(
+            "/kepler/{}",
+            orbit.to_string_of_base(Base::Base58Btc)?
+        )),
         listening_addrs: vec![multiaddr!(P2pCircuit)],
         span: None,
     };
