@@ -1,3 +1,4 @@
+use crate::capabilities::store::AuthRef;
 use crate::heads::{u642v, v2u64, HeadStore};
 use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
@@ -16,11 +17,11 @@ struct Delta {
     // max depth
     pub priority: u64,
     pub add: Vec<Cid>,
-    pub rmv: Vec<Cid>,
+    pub rmv: Vec<(Cid, AuthRef)>,
 }
 
 impl Delta {
-    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<Cid>) -> Self {
+    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<(Cid, AuthRef)>) -> Self {
         Self { priority, add, rmv }
     }
 
@@ -165,7 +166,7 @@ where
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
-        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>)>,
+        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>, AuthRef)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -188,10 +189,10 @@ where
 
     pub async fn index<N, M>(
         &self,
-        // tuples of (obj-data, content bytes)
+        // tuples of (obj-name, content cid, auth id)
         add: impl IntoIterator<Item = (N, Cid)>,
-        // tuples of (key, opt (priority, obj-cid))
-        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>)>,
+        // tuples of (key, opt (priority, obj-cid), auth id))
+        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>, AuthRef)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -205,11 +206,11 @@ where
         };
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
-        let rmvs: Vec<(M, Cid)> = remove
+        let rmvs: (Vec<(M, Cid)>, Vec<(Cid, AuthRef)>) = remove
             .into_iter()
-            .map(|(key, version)| {
+            .map(|(key, version, auth)| {
                 Ok(match version {
-                    Some((_, cid)) => (key, cid),
+                    Some((_, cid)) => ((key, cid), (cid, auth)),
                     None => {
                         let cid = self
                             .elements
@@ -217,18 +218,17 @@ where
                             .map(|b| Cid::try_from(b.as_ref()))
                             .transpose()?
                             .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
-                        (key, cid)
+                        ((key, cid), (cid, auth))
                     }
                 })
             })
-            .collect::<Result<Vec<(M, Cid)>>>()?;
-        let delta = LinkedDelta::new(
-            heads,
-            Delta::new(height, adds.1, rmvs.iter().map(|(_, c)| *c).collect()),
-        );
+            .collect::<Result<Vec<((M, Cid), (Cid, AuthRef))>>>()?
+            .into_iter()
+            .unzip();
+        let delta = LinkedDelta::new(heads, Delta::new(height, adds.1, rmvs.1));
         let block = delta.to_block()?;
         // apply/pin root/update heads
-        self.apply(&(block, delta), adds.0, rmvs).await?;
+        self.apply(&(block, delta), adds.0, rmvs.0).await?;
 
         // broadcast
         self.broadcast_heads().await?;
@@ -349,10 +349,12 @@ where
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.get_block(c).await?.decode()?;
-                    Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
+                    let obj: Object = self.ipfs.get_block(&c.0).await?.decode()?;
+                    Ok((obj.key, c.0)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
+
+            // TODO verify authz stuff
 
             self.apply(&(delta_block, delta), adds, removes).await?;
 
