@@ -12,7 +12,7 @@ use libipld::{
     prelude::*,
     Cid, DagCbor,
 };
-use rocket::futures::future::{try_join_all, TryFutureExt};
+use rocket::futures::future::try_join_all;
 use sled::{Db, Tree};
 use ssi::vc::URI;
 use std::convert::TryFrom;
@@ -32,21 +32,27 @@ pub struct Store {
     pub ipfs: Ipfs,
     elements: Tree,
     tombs: Tree,
-    heads: HeadStore,
+    delegation_heads: HeadStore,
+    invocation_heads: HeadStore,
 }
 
 impl Store {
-    pub fn new(id: Vec<u8>, ipfs: Ipfs, db: Db, heads: HeadStore) -> Result<Self> {
+    pub fn new(id: Vec<u8>, ipfs: Ipfs, db: &Db) -> Result<Self> {
         // map key to element cid
-        let elements = db.open_tree("elements")?;
+        let elements = db.open_tree([&id, ".cap-elements".as_bytes()].concat())?;
         // map key to element cid
-        let tombs = db.open_tree("tombs")?;
+        let tombs = db.open_tree([&id, ".cap-tombs".as_bytes()].concat())?;
+        // heads tracking for delegations
+        let delegation_heads = HeadStore::new(&db, [&id, "delegations".as_bytes()].concat())?;
+        // heads tracking for invocations
+        let invocation_heads = HeadStore::new(&db, [&id, "invocations".as_bytes()].concat())?;
         Ok(Self {
             id,
             ipfs,
             elements,
             tombs,
-            heads,
+            delegation_heads,
+            invocation_heads,
         })
     }
     pub fn is_revoked(&self, d: &[u8]) -> Result<Option<bool>> {
@@ -174,8 +180,9 @@ impl Store {
         }
 
         // commit heads
-        let (heads, _) = self.heads.get_heads()?;
-        self.ipfs.put_block(block).await?;
+        let cid = self.ipfs.put_block(block).await?;
+        let (heads, _) = self.delegation_heads.get_heads()?;
+        self.delegation_heads.new_heads([cid], heads)?;
         Ok(())
     }
 
@@ -192,8 +199,7 @@ impl Store {
     pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
         let cid = self
             .apply_invocations(Invocations {
-                // TODO we need a separate heads tracker for invocations
-                prev: vec![],
+                prev: self.invocation_heads.get_heads()?.0,
                 invoke: try_join_all(invocations.into_iter().map(|i| async move {
                     i.verify().await?;
                     self.link_update(i)
@@ -213,8 +219,8 @@ impl Store {
             self.set_element(e.update.id(), &cid)?;
         }
 
-        // TODO commit heads
-        //
+        let (heads, _) = self.delegation_heads.get_heads()?;
+        self.invocation_heads.new_heads([cid], heads)?;
         Ok(cid)
     }
 
@@ -226,7 +232,7 @@ impl Store {
         }: Updates,
     ) -> Result<Event> {
         Ok(Event {
-            prev: self.heads.get_heads()?.0,
+            prev: self.delegation_heads.get_heads()?.0,
             revoke: revocations
                 .into_iter()
                 .map(|r| self.link_update(r))

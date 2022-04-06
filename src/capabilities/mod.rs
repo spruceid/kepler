@@ -1,7 +1,6 @@
 pub mod store;
 
 use anyhow::Result;
-use std::str::FromStr;
 pub use store::AuthRef;
 use store::Store;
 

@@ -137,7 +137,8 @@ mod test {
 
     use super::*;
     use crate::{
-        config, heads::HeadStore, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init,
+        capabilities::AuthRef, config, heads::HeadStore, ipfs::create_ipfs,
+        relay::test::test_relay, tracing_try_init,
     };
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
@@ -166,9 +167,8 @@ mod test {
         };
         let (ipfs, ipfs_task, receiver) = create_ipfs(*id, &config, keypair, allowed_peers).await?;
         let db = sled::open(path.join("db.sled"))?;
-        let heads = HeadStore::new(&db, "test")?;
         tokio::spawn(ipfs_task);
-        let store = Store::new(id.to_string(), ipfs, db, heads)?;
+        let store = Store::new(id.to_string(), ipfs, db)?;
         Ok((
             store.clone(),
             behaviour::BehaviourProcess::new(store, receiver),
@@ -243,11 +243,14 @@ mod test {
                 .to_vec()
                 .into_iter()
                 .collect();
+        let dab = to_block(&id).unwrap();
+        let dummy_auth = AuthRef::new(*dab.cid(), vec![]);
+        alice_service.ipfs.put_block(dab).await?;
 
-        let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone());
-        let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone());
+        let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
+        let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
 
-        type RmItem = (Vec<u8>, Option<(u64, Cid)>);
+        type RmItem = (Vec<u8>, Option<(u64, Cid)>, AuthRef);
         let rm: Vec<RmItem> = vec![];
         alice_service
             .write(vec![(s3_obj_1, json.as_bytes())], rm.clone())
@@ -308,7 +311,7 @@ mod test {
         // remove key1
         let add: Vec<(&[u8], Cid)> = vec![];
         alice_service
-            .index(add, vec![(key1.as_bytes().to_vec(), None)])
+            .index(add, vec![(key1.as_bytes().to_vec(), None, dummy_auth)])
             .await?;
 
         assert_eq!(

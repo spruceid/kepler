@@ -18,7 +18,6 @@ use crate::orbit::load_orbit;
 use crate::relay::RelayNode;
 use crate::routes::DotPathBuf;
 use crate::s3::{ObjectBuilder, ObjectReader};
-use crate::capabilities::AuthRef;
 use std::collections::BTreeMap;
 
 pub struct Metadata(pub BTreeMap<String, String>);

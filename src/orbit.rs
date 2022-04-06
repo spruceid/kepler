@@ -4,7 +4,6 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
-    heads::HeadStore,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
@@ -164,19 +163,15 @@ impl Orbit {
             _ => panic!("To be refactored."),
         };
         let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
-        let heads = HeadStore::new(&db, "kv-store")?;
 
-        let service_store = Store::new(id, ipfs.clone(), db, heads)?;
+        let service_store = Store::new(id.clone(), ipfs.clone(), db)?;
         let service = KVService::start(service_store).await?;
 
-        // TODO hmmm
         let cap_db = sled::open(path.as_ref().join(&id).with_extension("capdb"))?;
-        let cap_heads = HeadStore::new(&cap_db, "caps-store")?;
         let cap_store = CapStore::new(
             manifest.id().to_string().into_bytes(),
             ipfs.clone(),
-            cap_db,
-            cap_heads,
+            &cap_db,
         )?;
         let capabilities = CapService::start(cap_store).await?;
 
@@ -389,6 +384,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let orbit = op(md).await.unwrap();
+        let _orbit = op(md).await.unwrap();
     }
 }

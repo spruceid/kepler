@@ -70,13 +70,15 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(id: String, ipfs: Ipfs, db: Db, heads: HeadStore) -> Result<Self> {
+    pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
         // map key to element cid
         let elements = db.open_tree("elements")?;
         // map key to element cid
         let tombs = db.open_tree("tombs")?;
         // map key to current max priority for key
         let priorities = db.open_tree("priorities")?;
+        // heads tracking store
+        let heads = HeadStore::new(&db, "heads")?;
         Ok(Self {
             id,
             ipfs,

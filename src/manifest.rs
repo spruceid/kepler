@@ -226,15 +226,28 @@ impl AuthorizationPolicy<AuthTokens> for Manifest {
 mod tests {
     use super::*;
     use didkit::DID_METHODS;
-    use ssi::{did::Source, jwk::JWK};
+    use ssi::{
+        did::{Source, DIDURL},
+        jwk::JWK,
+    };
+    use std::convert::TryInto;
 
     #[test]
     async fn basic_manifest() {
-        // let j = JWK::generate_secp256k1().unwrap();
-        // let did = DID_METHODS
-        //     .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
-        //     .unwrap();
+        let j = JWK::generate_secp256k1().unwrap();
+        let did: DIDURL = DIDURL {
+            did: DID_METHODS
+                .generate(&Source::KeyAndPattern(&j, "pkh:tz"))
+                .unwrap()
+                .parse()
+                .unwrap(),
+            fragment: Some("default".to_string()),
+            ..Default::default()
+        };
 
-        // let _md = Manifest::resolve_dyn(&did, None).await.unwrap().unwrap();
+        let _md = Manifest::resolve_dyn(&did.try_into().unwrap(), None)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }
