@@ -26,7 +26,7 @@ pub struct Service {
 }
 
 impl Service {
-    pub(crate) fn new(store: Store, task: TaskHandle) -> Self {
+    fn new(store: Store, task: TaskHandle) -> Self {
         Self {
             store,
             _task: Arc::new(task),

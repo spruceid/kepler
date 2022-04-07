@@ -45,6 +45,20 @@ impl OrbitId {
             Code::Blake2b256.digest(self.to_string().as_bytes()),
         )
     }
+
+    pub fn to_resource(
+        self,
+        service: Option<String>,
+        path: Option<String>,
+        fragment: Option<String>,
+    ) -> ResourceId {
+        ResourceId {
+            orbit: self,
+            service,
+            path,
+            fragment,
+        }
+    }
 }
 
 impl TryFrom<DIDURL> for OrbitId {
@@ -97,6 +111,13 @@ impl ResourceId {
         } else {
             Ok(())
         }
+    }
+
+    pub fn get_cid(&self) -> Cid {
+        Cid::new_v1(
+            SupportedCodecs::Raw as u64,
+            Code::Blake2b256.digest(self.to_string().as_bytes()),
+        )
     }
 }
 
