@@ -38,7 +38,7 @@ pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Resu
     if target.service() == capability.service()
         && match (target.path(), capability.path()) {
             (Some(t), Some(c)) => t.starts_with(c),
-            (Some(_), None) => true,
+            (_, None) => true,
             _ => false,
         }
     {
