@@ -169,11 +169,7 @@ impl Orbit {
         let service = KVService::start(service_store).await?;
 
         let cap_db = sled::open(path.as_ref().join(&id).with_extension("capdb"))?;
-        let cap_store = CapStore::new(
-            manifest.id().to_string().into_bytes(),
-            ipfs.clone(),
-            &cap_db,
-        )?;
+        let cap_store = CapStore::new(manifest.id(), ipfs.clone(), &cap_db)?;
         let capabilities = CapService::start(cap_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);

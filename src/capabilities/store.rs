@@ -1,7 +1,7 @@
 use crate::{
     heads::HeadStore,
     ipfs::{Block, Ipfs},
-    resource::ResourceId,
+    resource::{OrbitId, ResourceId},
     s3::to_block_raw,
     siwe::SIWEMessage,
     zcap::{KeplerDelegation, KeplerInvocation},
@@ -27,10 +27,13 @@ impl AuthRef {
     }
 }
 
+const SERVICE_NAME: &str = "capabilities";
+
 #[derive(Clone)]
 pub struct Store {
-    pub id: Vec<u8>,
+    pub id: ResourceId,
     pub ipfs: Ipfs,
+    pub(crate) root: Vec<u8>,
     elements: Tree,
     tombs: Tree,
     delegation_heads: HeadStore,
@@ -38,16 +41,21 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(id: Vec<u8>, ipfs: Ipfs, db: &Db) -> Result<Self> {
+    pub fn new(id: &OrbitId, ipfs: Ipfs, db: &Db) -> Result<Self> {
+        let id = id
+            .clone()
+            .to_resource(Some(SERVICE_NAME.to_string()), None, None);
+        let id_str = id.to_string();
+        let root = id.to_string().into_bytes();
         // map key to element cid
-        let elements = db.open_tree([&id, ".cap-elements".as_bytes()].concat())?;
+        let elements = db.open_tree([&id_str.as_str(), ".cap-elements"].concat())?;
         // map key to element cid
-        let tombs = db.open_tree([&id, ".cap-tombs".as_bytes()].concat())?;
+        let tombs = db.open_tree([&id_str, ".cap-tombs"].concat())?;
         // heads tracking for delegations
-        let delegation_heads = HeadStore::new(db, [&id, "delegations".as_bytes()].concat())?;
+        let delegation_heads = HeadStore::new(db, [&id_str, "delegations"].concat())?;
         // heads tracking for invocations
-        let invocation_heads = HeadStore::new(db, [&id, "invocations".as_bytes()].concat())?;
-        let (cid, n) = to_block_raw(&id)?.into_inner();
+        let invocation_heads = HeadStore::new(db, [&id_str, "invocations"].concat())?;
+        let (cid, n) = to_block_raw(&root)?.into_inner();
         let store = Self {
             id,
             ipfs,
@@ -55,6 +63,7 @@ impl Store {
             tombs,
             delegation_heads,
             invocation_heads,
+            root,
         };
         if store.element_cid(&n)? != Some(cid) {
             store.set_element(&n, &cid)?;
@@ -163,7 +172,7 @@ impl Store {
         Ok(())
     }
 
-    async fn apply(&self, event: Event) -> Result<()> {
+    pub(crate) async fn apply(&self, event: Event) -> Result<()> {
         let block = event.to_block()?;
         let cid = self.ipfs.put_block(block).await?;
 
@@ -221,7 +230,7 @@ impl Store {
         Ok(cid)
     }
 
-    async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
+    pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
         let cid = self.ipfs.put_block(event.to_block()?).await?;
 
         for e in event.invoke.iter() {
@@ -287,16 +296,16 @@ where
     }
 }
 
-#[derive(DagCbor, Debug)]
-struct Event {
+#[derive(DagCbor, Debug, Clone)]
+pub(crate) struct Event {
     pub prev: Vec<Cid>,
     pub delegate: Vec<LinkedUpdate<Delegation>>,
     pub revoke: Vec<LinkedUpdate<Revocation>>,
 }
 
 /// References a Policy Event and it's Parent LinkedUpdate
-#[derive(DagCbor, Debug)]
-struct LinkedUpdate<U>
+#[derive(DagCbor, Debug, Clone)]
+pub(crate) struct LinkedUpdate<U>
 where
     U: DagCbor,
 {
@@ -316,12 +325,12 @@ trait EndVerifiable {
 }
 
 #[derive(DagCbor, Debug)]
-struct Invocations {
+pub(crate) struct Invocations {
     pub prev: Vec<Cid>,
     pub invoke: Vec<LinkedUpdate<Invocation>>,
 }
 
-#[derive(PartialEq, DagCbor, Debug)]
+#[derive(PartialEq, DagCbor, Debug, Clone)]
 pub struct Delegation {
     id: Vec<u8>,
     parent: Vec<u8>,
@@ -430,7 +439,7 @@ impl EndVerifiable for Delegation {
     }
 }
 
-#[derive(PartialEq, DagCbor, Debug)]
+#[derive(PartialEq, DagCbor, Debug, Clone)]
 pub struct Invocation {
     id: Vec<u8>,
     parent: Vec<u8>,
@@ -530,7 +539,7 @@ impl EndVerifiable for Invocation {
     }
 }
 
-#[derive(PartialEq, DagCbor, Debug)]
+#[derive(PartialEq, DagCbor, Debug, Clone)]
 pub struct Revocation {
     id: Vec<u8>,
     parent: Vec<u8>,

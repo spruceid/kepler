@@ -154,8 +154,11 @@ impl Invoke<SIWEZcapTokens> for Orbit {
     async fn invoke(&self, invocation: &SIWEZcapTokens) -> Result<AuthRef> {
         self.authorize(invocation).await?;
 
-        let delegation =
-            (self.capabilities.id.clone(), invocation.delegation.clone()).try_into()?;
+        let delegation = (
+            self.capabilities.root.clone(),
+            invocation.delegation.clone(),
+        )
+            .try_into()?;
 
         let inv: Invocation = invocation.invocation.clone().try_into()?;
         let id = inv.id().to_vec();
@@ -251,7 +254,7 @@ impl Invoke<SIWETokens> for Orbit {
         let id = match invocation.delegation.as_ref() {
             Some(d) => {
                 let delegation: Delegation =
-                    (self.capabilities.id.clone(), d.clone()).try_into()?;
+                    (self.capabilities.root.clone(), d.clone()).try_into()?;
 
                 let id = delegation.id().to_vec();
                 self.capabilities
@@ -259,7 +262,7 @@ impl Invoke<SIWETokens> for Orbit {
                     .await?;
                 id
             }
-            None => self.capabilities.id.clone(),
+            None => self.capabilities.root.clone(),
         };
         let inv: Invocation = (id, invocation.invocation.clone()).try_into()?;
         let id = inv.id().to_vec();
