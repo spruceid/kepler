@@ -48,7 +48,7 @@ impl Store {
         let id_str = id.to_string();
         let root = id.to_string().into_bytes();
         // map key to element cid
-        let elements = db.open_tree([&id_str.as_str(), ".cap-elements"].concat())?;
+        let elements = db.open_tree([&id_str, ".cap-elements"].concat())?;
         // map key to element cid
         let tombs = db.open_tree([&id_str, ".cap-tombs"].concat())?;
         // heads tracking for delegations

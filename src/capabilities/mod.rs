@@ -77,7 +77,7 @@ async fn caps_task(
                 Ok((p, ev)) if p == peer_id => {
                     debug!("{} filtered out this event from self: {:?}", p, ev)
                 }
-                Ok((p, CapsMessage::Invocation(cid))) => {
+                Ok((_, CapsMessage::Invocation(cid))) => {
                     debug!("recieved invocation");
                     if let Err(e) = match store
                         .ipfs
@@ -92,24 +92,18 @@ async fn caps_task(
                         debug!("failed to apply recieved invocation {}", e);
                     }
                 }
-                Ok((p, CapsMessage::Update(update))) => {
+                Ok((_, CapsMessage::Update(update))) => {
                     debug!("recieved updates");
                     if let Err(e) = store.apply(update).await {
                         debug!("failed to apply recieved updates {}", e);
                     }
                 }
-                Ok((p, CapsMessage::StateReq)) => {
+                Ok((_, CapsMessage::StateReq)) => {
                     // broadcast heads
                 }
-                Ok((
-                    p,
-                    CapsMessage::Heads {
-                        updates,
-                        invocations,
-                    },
-                )) => {
-                    // index updates
-                    // index invocations
+                Ok((_, CapsMessage::Heads { .. })) => {
+                    // try_merge updates
+                    // try_merge invocations
                 }
                 Err(e) => {
                     debug!("cap service task error {}", e);
