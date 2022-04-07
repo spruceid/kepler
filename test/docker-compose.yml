@@ -1,0 +1,34 @@
+version: "3"
+
+services:
+  kepler:
+    build: ..
+    ports:
+      - "8000:8000"
+    environment:
+      RUST_LOG: "debug"
+      KEPLER_STORAGE_BLOCKS_BUCKET: "kepler-blocks"
+      KEPLER_STORAGE_BLOCKS_DYNAMODB_TABLE: "kepler-pinstore"
+      KEPLER_STORAGE_BLOCKS_TYPE: S3
+      KEPLER_STORAGE_BLOCKS_ENDPOINT: "http://localstack:4566"
+      KEPLER_STORAGE_BLOCKS_DYNAMODB_ENDPOINT: "http://localstack:4566"
+      KEPLER_STORAGE_INDEXES_PATH: "/kepler"
+      AWS_ACCESS_KEY_ID: "test"
+      AWS_SECRET_ACCESS_KEY: "test"
+      AWS_DEFAULT_REGION: "us-east-1"
+    depends_on:
+      - "localstack"
+
+  localstack:
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      LOCALSTACK_SERVICES: "s3,dynamodb"
+    volumes:
+      - "./setup.sh:/docker-entrypoint-initaws.d/setup.sh:z"

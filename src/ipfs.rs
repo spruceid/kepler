@@ -1,9 +1,3 @@
-use std::{future::Future, path::Path, sync::mpsc::Receiver};
-
-use crate::s3::behaviour::{Behaviour, Event as BehaviourEvent};
-
-use super::cas::ContentAddressedStorage;
-use super::codec::SupportedCodecs;
 use anyhow::Result;
 use ipfs::{
     multiaddr,
@@ -11,9 +5,21 @@ use ipfs::{
     Ipfs as OIpfs, IpfsOptions, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
 };
 use libipld::{
-    block::Block as OBlock, cid::Cid, multihash::Code, raw::RawCodec, store::DefaultParams,
+    block::Block as OBlock,
+    cid::{multibase::Base, Cid},
+    multihash::Code,
+    raw::RawCodec,
+    store::DefaultParams,
 };
 use libp2p::{core::transport::MemoryTransport, futures::TryStreamExt};
+use std::{future::Future, sync::mpsc::Receiver};
+
+use super::{cas::ContentAddressedStorage, codec::SupportedCodecs};
+use crate::{
+    config,
+    s3::behaviour::{Behaviour, Event as BehaviourEvent},
+    storage::{Repo, StorageUtils},
+};
 
 pub type KeplerParams = DefaultParams;
 // #[derive(Clone, Debug, Default)]
@@ -25,30 +31,30 @@ pub type KeplerParams = DefaultParams;
 //     type Hashes = Code;
 // }
 
-pub type Ipfs = OIpfs<Types>;
+pub type Ipfs = OIpfs<Repo>;
 pub type Block = OBlock<KeplerParams>;
 pub type Swarm = TSwarm<Types>;
 
 pub async fn create_ipfs<I>(
-    mut id: String,
-    dir: &Path,
+    orbit: Cid,
+    config: &config::Config,
     keypair: Keypair,
     allowed_peers: I,
 ) -> Result<(Ipfs, impl Future<Output = ()>, Receiver<BehaviourEvent>)>
 where
     I: IntoIterator<Item = PeerId> + 'static,
 {
-    let ipfs_path = dir.join("ipfs");
-    if !ipfs_path.exists() {
-        tokio::fs::create_dir_all(&ipfs_path).await?;
-    }
-    id.insert_str(0, "/kepler/");
+    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
+
     let ipfs_opts = IpfsOptions {
-        ipfs_path,
+        ipfs_path: storage_utils.ipfs_path(orbit).await?,
         keypair,
         bootstrap: vec![],
         mdns: false,
-        kad_protocol: Some(id),
+        kad_protocol: Some(format!(
+            "/kepler/{}",
+            orbit.to_string_of_base(Base::Base58Btc)?
+        )),
         listening_addrs: vec![multiaddr!(P2pCircuit)],
         span: None,
     };
@@ -66,7 +72,7 @@ where
         .build();
 
     let (ipfs, ipfs_task) =
-        UninitializedIpfs::<Types>::new(ipfs_opts, transport, Some(relay_behaviour))
+        UninitializedIpfs::<Repo>::new(ipfs_opts, transport, Some(relay_behaviour))
             .with_extended_behaviour(behaviour)
             .start()
             .await?;

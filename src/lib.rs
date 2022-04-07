@@ -21,6 +21,7 @@ pub mod resource;
 pub mod routes;
 pub mod s3;
 pub mod siwe;
+pub mod storage;
 pub mod transport;
 pub mod tz;
 pub mod zcap;
@@ -48,22 +49,30 @@ pub fn tracing_try_init() {
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
 
-    // ensure KEPLER_DATABASE_PATH exists
-    if !kepler_config.database.path.is_dir() {
-        return Err(anyhow!(
-            "KEPLER_DATABASE_PATH does not exist or is not a directory: {}",
-            kepler_config.database.path.to_str().unwrap()
-        ));
+    // TODO could apply that to everything, all chunks/indexes storage backends
+    if let config::IndexStorage::Local(c) = kepler_config.storage.indexes.clone() {
+        if !c.path.is_dir() {
+            return Err(anyhow!(
+                "KEPLER_STORAGE_PATH does not exist or is not a directory: {:?}",
+                c.path.to_str()
+            ));
+        }
     }
+    storage::StorageUtils::new(kepler_config.storage.blocks)
+        .healthcheck()
+        .await?;
 
-    let kp: Ed25519Keypair =
-        if let Ok(mut bytes) = fs::read(kepler_config.database.path.join("kp")).await {
-            Ed25519Keypair::decode(&mut bytes)?
-        } else {
-            let kp = Ed25519Keypair::generate();
-            fs::write(kepler_config.database.path.join("kp"), kp.encode()).await?;
-            kp
-        };
+    let relay_kp_path = match kepler_config.storage.indexes {
+        config::IndexStorage::Local(r) => r.path,
+        _ => panic!(""),
+    };
+    let kp: Ed25519Keypair = if let Ok(mut bytes) = fs::read(relay_kp_path.join("kp")).await {
+        Ed25519Keypair::decode(&mut bytes)?
+    } else {
+        let kp = Ed25519Keypair::generate();
+        fs::write(relay_kp_path.join("kp"), kp.encode()).await?;
+        kp
+    };
 
     let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
 
@@ -116,51 +125,4 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         }))
         .manage(relay_node)
         .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new())))
-}
-
-#[test]
-#[should_panic]
-async fn test_form() {
-    use codec::PutContent;
-    use rocket::{form::Form, http::ContentType, local::asynchronous::Client};
-
-    #[post("/", format = "multipart/form-data", data = "<form>")]
-    async fn stub_batch(form: Form<Vec<PutContent>>) {
-        let content1 = &form.get(0).unwrap().content.value;
-        let content2 = &form.get(1).unwrap().content.value;
-        let p1 = r#"{"dummy":"obj"}"#;
-        let p2 = r#"{"amother":"obj"}"#;
-        assert_eq!(&content1, &p1.as_bytes());
-        assert_eq!(&content2, &p2.as_bytes());
-    }
-
-    let form = r#"
------------------------------28081028282221432566755324225
-Content-Disposition: form-data; name="zyop8PQypg8QWqGNG92jJacYtEa56Mnaf9tLxDadXc8kPPxNVWZye"; filename="blob"
-Content-Type: application/json
-
-{"dummy":"obj"}
------------------------------28081028282221432566755324225
-Content-Disposition: form-data; name="zyop8PQypZnwFc58SPAxZTSCuG6R13jWSxQp8iBGNmBuV3HsrVyLx"; filename="blob"
-Content-Type: application/json
-
-{"amother":"obj"}
------------------------------28081028282221432566755324225--
-"#;
-
-    let client = Client::debug_with(rocket::routes![stub_batch])
-        .await
-        .unwrap();
-    let res = client
-        .post("/")
-        .header(
-            "multipart/form-data; boundary=-----------------------------28081028282221432566755324225"
-                .parse::<ContentType>()
-                .unwrap()
-        )
-        .body(&form)
-        .dispatch()
-        .await;
-
-    assert!(res.status().class().is_success());
 }

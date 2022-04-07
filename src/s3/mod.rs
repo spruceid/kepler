@@ -135,11 +135,13 @@ mod test {
     use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
-    use crate::{ipfs::create_ipfs, relay::test::test_relay, tracing_try_init};
-    use std::{collections::BTreeMap, convert::TryFrom, path::PathBuf, time::Duration};
+    use crate::{config, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init};
+    use std::{
+        collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
+    };
 
     async fn create_store<I>(
-        id: &str,
+        id: &Cid,
         path: PathBuf,
         keypair: Keypair,
         allowed_peers: I,
@@ -148,8 +150,18 @@ mod test {
         I: IntoIterator<Item = PeerId> + 'static,
     {
         std::fs::create_dir(path.clone())?;
-        let (ipfs, ipfs_task, receiver) =
-            create_ipfs(id.to_string(), &path, keypair, allowed_peers).await?;
+        let config = config::Config {
+            storage: config::Storage {
+                blocks: config::BlockStorage::Local(config::LocalBlockStorage {
+                    path: path.clone(),
+                }),
+                indexes: config::IndexStorage::Local(config::LocalIndexStorage {
+                    path: path.clone(),
+                }),
+            },
+            ..Default::default()
+        };
+        let (ipfs, ipfs_task, receiver) = create_ipfs(*id, &config, keypair, allowed_peers).await?;
         let db = sled::open(path.join("db.sled"))?;
         tokio::spawn(ipfs_task);
         let store = Store::new(id.to_string(), ipfs, db)?;
@@ -167,7 +179,8 @@ mod test {
         let relay_internal = relay.internal();
 
         let tmp = tempdir::TempDir::new("test_streams")?;
-        let id = "test_id".to_string();
+        let id =
+            Cid::from_str("bafkreieq5jui4j25lacwomsqgjeswwl3y5zcdrresptwgmfylxo2depppq").unwrap();
 
         let alice_keypair = Keypair::generate_ed25519();
         let alice_peer_id = alice_keypair.public().to_peer_id();

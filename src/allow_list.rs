@@ -9,7 +9,7 @@ pub trait OrbitAllowList {
     async fn is_allowed(&self, oid: &Cid) -> Result<OrbitId>;
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 #[serde(from = "String", into = "String")]
 pub struct OrbitAllowListService(pub String);
 

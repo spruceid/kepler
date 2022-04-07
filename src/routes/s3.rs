@@ -70,13 +70,7 @@ pub async fn list_content_no_auth(
     config: &State<config::Config>,
     relay: &State<RelayNode>,
 ) -> Result<Json<Vec<String>>, (Status, String)> {
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
+    let orbit = match load_orbit(orbit_id.0, config, (relay.id, relay.internal())).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -143,13 +137,7 @@ pub async fn get_metadata_no_auth(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
+    let orbit = match load_orbit(orbit_id.0, config, (relay.id, relay.internal())).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
@@ -188,13 +176,7 @@ pub async fn get_content_no_auth(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let orbit = match load_orbit(
-        orbit_id.0,
-        config.database.path.clone(),
-        (relay.id, relay.internal()),
-    )
-    .await
-    {
+    let orbit = match load_orbit(orbit_id.0, config, (relay.id, relay.internal())).await {
         Ok(Some(o)) => o,
         Ok(None) => return Err((Status::NotFound, anyhow!("Orbit not found").to_string())),
         Err(e) => return Err((Status::InternalServerError, e.to_string())),
