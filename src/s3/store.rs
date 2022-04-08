@@ -1,12 +1,12 @@
 use crate::capabilities::store::AuthRef;
-use crate::heads::{u642v, v2u64, HeadStore};
+use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
-use sled::{Db, IVec, Tree};
+use sled::Db;
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::debug;
 
@@ -59,66 +59,85 @@ impl LinkedDelta {
     }
 }
 
+struct Version<N: AsRef<[u8]>>(pub N, pub Cid);
+
+impl<N: AsRef<[u8]>> Version<N> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [self.0.as_ref(), ".".as_bytes(), &self.1.to_bytes()].concat()
+    }
+}
+
+struct Element(pub u64, pub Cid);
+
+#[derive(thiserror::Error, Debug)]
+enum ElementDeserError {
+    #[error(transparent)]
+    Cid(#[from] libipld::cid::Error),
+    #[error("Insufficient bytes")]
+    Length,
+}
+
+impl<'a> TryFrom<Vec<u8>> for Element {
+    type Error = ElementDeserError;
+    fn try_from(b: Vec<u8>) -> Result<Self, Self::Error> {
+        match (
+            b.get(..8)
+                .map(|b| <[u8; 8]>::try_from(b).map(u64::from_be_bytes)),
+            b.get(8..).map(Cid::try_from).transpose()?,
+        ) {
+            (Some(Ok(p)), Some(c)) => Ok(Self(p, c)),
+            _ => Err(ElementDeserError::Length),
+        }
+    }
+}
+
+impl Element {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [self.0.to_be_bytes().as_ref(), self.1.to_bytes().as_ref()].concat()
+    }
+}
+
 #[derive(Clone)]
 pub struct Store {
     pub id: String,
     pub ipfs: Ipfs,
-    elements: Tree,
-    tombs: Tree,
-    priorities: Tree,
+    index: AddRemoveSetStore,
     heads: HeadStore,
 }
 
 impl Store {
-    pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
-        // map key to element cid
-        let elements = db.open_tree("elements")?;
-        // map key to element cid
-        let tombs = db.open_tree("tombs")?;
-        // map key to current max priority for key
-        let priorities = db.open_tree("priorities")?;
+    pub fn new(id: String, ipfs: Ipfs, db: &Db) -> Result<Self> {
+        let index = AddRemoveSetStore::new(db, id.as_bytes())?;
         // heads tracking store
-        let heads = HeadStore::new(&db, "heads")?;
+        let heads = HeadStore::new(db, "heads")?;
         Ok(Self {
             id,
             ipfs,
-            elements,
-            tombs,
-            priorities,
+            index,
             heads,
         })
     }
-    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + '_ {
-        self.elements
-            .iter()
-            .map(|r| match r {
-                Ok((key, value)) => Ok((key, Cid::try_from(value.as_ref())?)),
-                Err(e) => Err(anyhow!(e)),
-            })
-            .filter_map(move |r| match r {
-                Err(e) => Some(Err(e)),
-                Ok((key, cid)) => match self.is_tombstoned(key.as_ref(), &cid) {
+    pub fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
+        self.index.elements().filter_map(move |r| match r {
+            Err(e) => Some(Err(e.into())),
+            Ok((key, Element(_, cid))) => {
+                match self.index.is_tombstoned(&Version(&key, cid).to_bytes()) {
                     Ok(false) => Some(Ok(key)),
                     Ok(true) => None,
-                    Err(e) => Some(Err(e)),
-                },
-            })
+                    Err(e) => Some(Err(e.into())),
+                }
+            }
+        })
     }
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
-        match self
-            .elements
-            .get(&key)?
-            .map(|b| Cid::try_from(b.as_ref()))
-            .transpose()?
-        {
-            Some(cid) => {
-                if !self.is_tombstoned(key.as_ref(), &cid)? {
-                    Ok(Some(self.ipfs.get_block(&cid).await?.decode()?))
-                } else {
-                    Ok(None)
-                }
-            }
+        match self.index.element(&key)? {
+            Some(Element(_, cid)) => Ok(
+                match self.index.is_tombstoned(&Version(key, cid).to_bytes())? {
+                    false => Some(self.ipfs.get_block(&cid).await?.decode()?),
+                    _ => None,
+                },
+            ),
             None => Ok(None),
         }
     }
@@ -150,14 +169,6 @@ impl Store {
             .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
             .await?;
         Ok(())
-    }
-
-    fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
-        [key.as_ref(), &cid.to_bytes()].concat()
-    }
-
-    fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
-        Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
     }
 
     pub async fn write<N, R>(
@@ -210,11 +221,9 @@ impl Store {
                 Ok(match version {
                     Some((_, cid)) => ((key, cid), (cid, auth)),
                     None => {
-                        let cid = self
-                            .elements
-                            .get(&key)?
-                            .map(|b| Cid::try_from(b.as_ref()))
-                            .transpose()?
+                        let Element(_, cid) = self
+                            .index
+                            .element(&key)?
                             .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
                         ((key, cid), (cid, auth))
                     }
@@ -267,26 +276,19 @@ impl Store {
         // TODO update tables atomically with transaction
         // tombstone removed elements
         for (key, cid) in removes.into_iter() {
-            self.tombs.insert(Self::get_key_id(&key, &cid), &[])?;
+            self.index.set_tombstone(&Version(&key, cid).to_bytes())?;
         }
         for (key, cid) in adds.into_iter() {
             // ensure dont double add or remove
-            if self.tombs.contains_key(Self::get_key_id(&key, &cid))? {
+            if self.index.is_tombstoned(&Version(&key, cid).to_bytes())? {
                 continue;
             };
-            // current element priority
-            let prio = self
-                .priorities
-                .get(&key)?
-                .map(v2u64)
-                .transpose()?
-                .unwrap_or(0);
-            // current element CID at key
-            let curr = self
-                .elements
-                .get(&key)?
-                .map(|b| Cid::try_from(b.as_ref()))
-                .transpose()?;
+
+            // current element priority and current element CID at key
+            let (prio, curr) = match self.index.element(&key)? {
+                Some(Element(p, c)) => (p, Some(c)),
+                None => (0, None),
+            };
             // order by priority, fall back to CID value ordering if priority equal
             if delta.delta.priority > prio
                 || (delta.delta.priority == prio
@@ -295,8 +297,8 @@ impl Store {
                         _ => true,
                     })
             {
-                self.elements.insert(&key, cid.to_bytes())?;
-                self.priorities.insert(&key, &u642v(delta.delta.priority))?;
+                self.index
+                    .set_element(&key, &Element(delta.delta.priority, cid).to_bytes())?;
             }
         }
         // find redundant heads and remove them

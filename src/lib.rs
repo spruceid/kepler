@@ -14,7 +14,7 @@ pub mod capabilities;
 pub mod cas;
 pub mod codec;
 pub mod config;
-pub mod heads;
+pub mod indexes;
 pub mod ipfs;
 pub mod manifest;
 pub mod orbit;
