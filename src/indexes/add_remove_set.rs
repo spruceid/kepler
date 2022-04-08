@@ -25,17 +25,16 @@ impl AddRemoveSetStore {
         let tombs = db.open_tree([id, ".tombs".as_bytes()].concat())?;
         Ok(Self { elements, tombs })
     }
-    pub fn element<'a, N: AsRef<[u8]>, E: TryFrom<Vec<u8>>>(
+    pub fn element<N: AsRef<[u8]>, E: TryFrom<Vec<u8>>>(
         &self,
         n: N,
     ) -> Result<Option<E>, Error<E::Error>> {
-        Ok(self
-            .elements
+        self.elements
             .get(n.as_ref())?
             .map(|b| E::try_from(b.to_vec()).map_err(Error::ElementDeser))
-            .transpose()?)
+            .transpose()
     }
-    pub fn elements<'a, E: TryFrom<Vec<u8>>>(
+    pub fn elements<E: TryFrom<Vec<u8>>>(
         &self,
     ) -> impl Iterator<Item = Result<(Vec<u8>, E), Error<E::Error>>> {
         self.elements.iter().map(|r| {
@@ -47,16 +46,15 @@ impl AddRemoveSetStore {
     pub fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<bool, sled::Error> {
         self.tombs.contains_key(n.as_ref())
     }
-    pub fn set_element<'a, N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
+    pub fn set_element<N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
         &self,
         n: N,
         e: &E,
     ) -> Result<Option<E>, Error<E::Error>> {
-        Ok(self
-            .elements
+        self.elements
             .insert(n.as_ref(), e.as_ref())?
             .map(|b| E::try_from(b.to_vec()).map_err(Error::ElementDeser))
-            .transpose()?)
+            .transpose()
     }
     pub fn set_tombstone<N: AsRef<[u8]>>(&self, n: N) -> Result<(), sled::Error> {
         self.tombs.insert(n.as_ref(), &[])?;
