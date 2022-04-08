@@ -143,8 +143,10 @@ impl StorageUtils {
                     .await?;
             }
             config::BlockStorage::Local(r) => {
-                let dir = r.path.join(orbit.get_cid().to_string());
-                fs::create_dir(&dir)
+                let dir = r
+                    .path
+                    .join(orbit.get_cid().to_string_of_base(Base::Base58Btc)?);
+                fs::create_dir_all(&dir)
                     .await
                     .map_err(|e| anyhow!("Couldn't create dir: {}", e))?;
 
