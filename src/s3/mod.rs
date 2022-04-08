@@ -166,7 +166,7 @@ mod test {
         let (ipfs, ipfs_task, receiver) = create_ipfs(*id, &config, keypair, allowed_peers).await?;
         let db = sled::open(path.join("db.sled"))?;
         tokio::spawn(ipfs_task);
-        let store = Store::new(id.to_string(), ipfs, db)?;
+        let store = Store::new(id.to_string(), ipfs, &db)?;
         Ok((
             store.clone(),
             behaviour::BehaviourProcess::new(store, receiver),
@@ -282,7 +282,7 @@ mod test {
             );
         };
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
 
         assert_eq!(
             bob_service

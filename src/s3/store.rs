@@ -6,11 +6,8 @@ use anyhow::Result;
 use async_recursion::async_recursion;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
-use sled::{Db, IVec, Tree};
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-};
+use sled::Db;
+use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::debug;
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
@@ -80,9 +77,9 @@ enum ElementDeserError {
     Length,
 }
 
-impl<'a> TryFrom<&'a [u8]> for Element {
+impl<'a> TryFrom<Vec<u8>> for Element {
     type Error = ElementDeserError;
-    fn try_from(b: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(b: Vec<u8>) -> Result<Self, Self::Error> {
         match (
             b.get(..8)
                 .map(|b| <[u8; 8]>::try_from(b).map(u64::from_be_bytes)),
@@ -105,22 +102,18 @@ pub struct Store {
     pub id: String,
     pub ipfs: Ipfs,
     index: AddRemoveSetStore,
-    priorities: Tree,
     heads: HeadStore,
 }
 
 impl Store {
     pub fn new(id: String, ipfs: Ipfs, db: &Db) -> Result<Self> {
         let index = AddRemoveSetStore::new(db, id.as_bytes())?;
-        // map key to current max priority for key
-        let priorities = db.open_tree("priorities")?;
         // heads tracking store
         let heads = HeadStore::new(db, "heads")?;
         Ok(Self {
             id,
             ipfs,
             index,
-            priorities,
             heads,
         })
     }
@@ -137,7 +130,7 @@ impl Store {
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
         match self.index.element(&key)? {
-            Some(cid) => Ok(
+            Some(Element(_, cid)) => Ok(
                 match self.index.is_tombstoned(&Version(key, cid).to_bytes())? {
                     Some(false) => Some(self.ipfs.get_block(&cid).await?.decode()?),
                     _ => None,
@@ -226,7 +219,7 @@ impl Store {
                 Ok(match version {
                     Some((_, cid)) => ((key, cid), (cid, auth)),
                     None => {
-                        let cid = self
+                        let Element(_, cid) = self
                             .index
                             .element(&key)?
                             .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
