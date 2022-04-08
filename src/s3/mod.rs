@@ -136,8 +136,7 @@ mod test {
 
     use super::*;
     use crate::{
-        capabilities::AuthRef, config, heads::HeadStore, ipfs::create_ipfs,
-        relay::test::test_relay, tracing_try_init,
+        capabilities::AuthRef, config, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init,
     };
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,

@@ -138,7 +138,8 @@ impl Orbit {
         manifest: Manifest,
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
-        let id = manifest.id().get_cid().to_string_of_base(Base::Base58Btc)?;
+        let id = manifest.id().get_cid();
+        let id_str = id.to_string_of_base(Base::Base58Btc)?;
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id,
@@ -163,12 +164,12 @@ impl Orbit {
             config::IndexStorage::Local(r) => &r.path,
             _ => panic!("To be refactored."),
         };
-        let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
+        let db = sled::open(path.join(&id_str).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id.clone(), ipfs.clone(), db)?;
+        let service_store = Store::new(id_str.clone(), ipfs.clone(), db)?;
         let service = KVService::start(service_store).await?;
 
-        let cap_db = sled::open(path.as_ref().join(&id).with_extension("capdb"))?;
+        let cap_db = sled::open(path.join(&id_str).with_extension("capdb"))?;
         let cap_store = CapStore::new(manifest.id(), ipfs.clone(), &cap_db)?;
         let capabilities = CapService::start(cap_store).await?;
 
