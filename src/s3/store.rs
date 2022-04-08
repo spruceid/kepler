@@ -120,11 +120,13 @@ impl Store {
     pub fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
         self.index.elements().filter_map(move |r| match r {
             Err(e) => Some(Err(e.into())),
-            Ok((key, cid)) => match self.index.is_tombstoned(&Version(&key, cid).to_bytes()) {
-                Ok(Some(false)) => Some(Ok(key)),
-                Ok(Some(true) | None) => None,
-                Err(e) => Some(Err(e.into())),
-            },
+            Ok((key, Element(_, cid))) => {
+                match self.index.is_tombstoned(&Version(&key, cid).to_bytes()) {
+                    Ok(false) => Some(Ok(key)),
+                    Ok(true) => None,
+                    Err(e) => Some(Err(e.into())),
+                }
+            }
         })
     }
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
@@ -132,7 +134,7 @@ impl Store {
         match self.index.element(&key)? {
             Some(Element(_, cid)) => Ok(
                 match self.index.is_tombstoned(&Version(key, cid).to_bytes())? {
-                    Some(false) => Some(self.ipfs.get_block(&cid).await?.decode()?),
+                    false => Some(self.ipfs.get_block(&cid).await?.decode()?),
                     _ => None,
                 },
             ),
@@ -278,11 +280,7 @@ impl Store {
         }
         for (key, cid) in adds.into_iter() {
             // ensure dont double add or remove
-            if self
-                .index
-                .is_tombstoned(&Version(&key, cid).to_bytes())?
-                .unwrap_or(false)
-            {
+            if self.index.is_tombstoned(&Version(&key, cid).to_bytes())? {
                 continue;
             };
 

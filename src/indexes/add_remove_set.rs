@@ -44,17 +44,8 @@ impl AddRemoveSetStore {
             Ok((k.to_vec(), e))
         })
     }
-    pub fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<Option<bool>, sled::Error> {
-        Ok(
-            match (
-                self.tombs.contains_key(n.as_ref())?,
-                self.elements.contains_key(n.as_ref())?,
-            ) {
-                (true, _) => Some(true),
-                (_, true) => Some(false),
-                (_, false) => None,
-            },
-        )
+    pub fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<bool, sled::Error> {
+        self.tombs.contains_key(n.as_ref())
     }
     pub fn set_element<'a, N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
         &self,

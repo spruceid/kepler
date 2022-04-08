@@ -282,7 +282,7 @@ mod test {
             );
         };
 
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         assert_eq!(
             bob_service

@@ -66,7 +66,7 @@ impl Store {
             root,
         })
     }
-    pub fn is_revoked(&self, d: &[u8]) -> Result<Option<bool>> {
+    pub fn is_revoked(&self, d: &[u8]) -> Result<bool> {
         Ok(self.index.is_tombstoned(d)?)
     }
     pub async fn get_delegation(&self, id: &[u8]) -> Result<Option<Delegation>> {
