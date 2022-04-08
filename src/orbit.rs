@@ -166,7 +166,7 @@ impl Orbit {
         };
         let db = sled::open(path.join(&id_str).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id_str.clone(), ipfs.clone(), db)?;
+        let service_store = Store::new(id_str.clone(), ipfs.clone(), &db)?;
         let service = KVService::start(service_store).await?;
 
         let cap_db = sled::open(path.join(&id_str).with_extension("capdb"))?;

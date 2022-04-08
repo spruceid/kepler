@@ -1,5 +1,5 @@
 use crate::{
-    heads::HeadStore,
+    indexes::{AddRemoveSetStore, HeadStore},
     ipfs::{Block, Ipfs},
     resource::{OrbitId, ResourceId},
     s3::to_block_raw,
@@ -9,8 +9,8 @@ use crate::{
 use anyhow::Result;
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
+    codec::{Decode, Encode},
     multihash::Code,
-    prelude::*,
     Cid, DagCbor,
 };
 use rocket::futures::future::try_join_all;
@@ -34,8 +34,7 @@ pub struct Store {
     pub id: ResourceId,
     pub ipfs: Ipfs,
     pub(crate) root: Vec<u8>,
-    elements: Tree,
-    tombs: Tree,
+    index: AddRemoveSetStore,
     delegation_heads: HeadStore,
     invocation_heads: HeadStore,
 }
@@ -47,37 +46,28 @@ impl Store {
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
         let id_str = id.to_string();
         let root = id.to_string().into_bytes();
-        // map key to element cid
-        let elements = db.open_tree([&id_str, ".cap-elements"].concat())?;
-        // map key to element cid
-        let tombs = db.open_tree([&id_str, ".cap-tombs"].concat())?;
+        let index = AddRemoveSetStore::new(db, id_str.as_bytes())?;
+
+        let (cid, n) = to_block_raw(&root)?.into_inner();
+
+        if index.element(&n)? != Some(cid) {
+            index.set_element(&n, &cid.to_bytes())?;
+        };
         // heads tracking for delegations
         let delegation_heads = HeadStore::new(db, [&id_str, "delegations"].concat())?;
         // heads tracking for invocations
         let invocation_heads = HeadStore::new(db, [&id_str, "invocations"].concat())?;
-        let (cid, n) = to_block_raw(&root)?.into_inner();
-        let store = Self {
+        Ok(Self {
             id,
             ipfs,
-            elements,
-            tombs,
+            index,
             delegation_heads,
             invocation_heads,
             root,
-        };
-        if store.element_cid(&n)? != Some(cid) {
-            store.set_element(&n, &cid)?;
-        };
-        Ok(store)
+        })
     }
     pub fn is_revoked(&self, d: &[u8]) -> Result<Option<bool>> {
-        Ok(
-            match (self.elements.contains_key(d)?, self.is_tombstoned(d)?) {
-                (false, false) => None,
-                (_, true) => Some(true),
-                (true, r) => Some(r),
-            },
-        )
+        Ok(self.index.is_tombstoned(d)?)
     }
     pub async fn get_delegation(&self, id: &[u8]) -> Result<Option<Delegation>> {
         Ok(self.element_decoded::<Event>(id).await?.and_then(|e| {
@@ -116,14 +106,6 @@ impl Store {
         }))
     }
 
-    fn is_tombstoned(&self, id: &[u8]) -> Result<bool> {
-        Ok(self.tombs.contains_key(id)?)
-    }
-    fn tombstone(&self, id: &[u8]) -> Result<()> {
-        self.tombs.insert(id, &[])?;
-        Ok(())
-    }
-
     async fn element_decoded<T>(&self, id: &[u8]) -> Result<Option<T>>
     where
         T: Decode<DagCborCodec>,
@@ -135,23 +117,10 @@ impl Store {
             .transpose()?)
     }
     async fn element_block(&self, id: &[u8]) -> Result<Option<Block>> {
-        Ok(match self.element_cid(id)? {
+        Ok(match self.index.element(id)? {
             Some(c) => Some(self.ipfs.get_block(&c).await?),
             None => None,
         })
-    }
-    fn element_cid(&self, id: &[u8]) -> Result<Option<Cid>> {
-        Ok(self
-            .elements
-            .get(id)?
-            .map(|b| Cid::try_from(b.as_ref()))
-            .transpose()?)
-    }
-    fn set_element(&self, id: &[u8], cid: &Cid) -> Result<()> {
-        if !self.elements.contains_key(id)? {
-            self.elements.insert(id, cid.to_bytes())?;
-        }
-        Ok(())
     }
     fn link_update<U>(&self, update: U) -> Result<LinkedUpdate<U>>
     where
@@ -159,7 +128,8 @@ impl Store {
     {
         Ok(LinkedUpdate {
             parent: self
-                .element_cid(update.parent())?
+                .index
+                .element(update.parent())?
                 .ok_or_else(|| anyhow!("unknown parent capability"))?,
             update,
         })
@@ -187,13 +157,13 @@ impl Store {
             // with the same uuid, associating the uuid with a different cid.
             // when the partition heals, they will have diverging capability indexes.
             // If we embed or commit to the cid in the uuid, we will never have this conflict
-            self.set_element(e.update.id(), &cid)?;
+            self.index.set_element(e.update.id(), &cid.to_bytes())?;
             tracing::debug!("applied delegation {:?}", e.update.id());
         }
         for e in event.revoke.iter() {
             // revoke
-            self.set_element(e.update.id(), &cid)?;
-            self.tombstone(e.update.revoked())?;
+            self.index.set_tombstone(e.update.revoked())?;
+            self.index.set_element(e.update.id(), &cid.to_bytes())?;
         }
 
         // commit heads
@@ -234,7 +204,7 @@ impl Store {
         let cid = self.ipfs.put_block(event.to_block()?).await?;
 
         for e in event.invoke.iter() {
-            self.set_element(e.update.id(), &cid)?;
+            self.index.set_element(e.update.id(), &cid.to_bytes())?;
         }
 
         let (heads, h) = self.delegation_heads.get_heads()?;
@@ -636,65 +606,91 @@ impl EndVerifiable for Revocation {
 
 #[cfg(test)]
 mod test {
-    // use super::*;
-    // use crate::heads::SledHeadStore;
-    // fn get_store() -> Store {
-    //     todo!()
-    // }
-    // #[test]
-    // async fn invoke() {
-    //     let caps = get_store();
-    //     let inv = Invocation;
+    use super::*;
+    use crate::ipfs::create_ipfs;
+    use ipfs::Keypair;
+    async fn get_store(id: &OrbitId) -> Store {
+        let tmp = tempdir::TempDir::new("test_streams").unwrap();
+        let kp = Keypair::generate_ed25519();
+        let (ipfs, ipfs_task, receiver) = create_ipfs(id.to_string(), &tmp.path(), kp, [])
+            .await
+            .unwrap();
+        let db = sled::open(tmp.path().join("db.sled")).unwrap();
+        tokio::spawn(ipfs_task);
+        Store::new(id, ipfs, &db).unwrap()
+    }
+    fn orbit() -> OrbitId {
+        "kepler:did:example:123://orbit0".parse().unwrap()
+    }
+    fn invoke(id: &[u8], target: ResourceId, parent: &[u8], invoker: &[u8]) -> Invocation {
+        Invocation {
+            id: id.into(),
+            parent: parent.into(),
+            target,
+            invoker: invoker.into(),
+            message: vec![],
+        }
+    }
+    #[test]
+    async fn simple_invoke() {
+        let oid = orbit();
+        let caps = get_store(&oid).await;
+        let inv = invoke(
+            "inv0".as_bytes(),
+            oid.clone()
+                .to_resource(Some("kv".into()), Some("images".into()), None),
+            oid.to_string().as_bytes(),
+            "invoker1".as_bytes(),
+        );
+        let res = caps.invoke(vec![inv]).await.unwrap();
+        assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
+    }
 
-    //     let res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
-    // }
+    #[test]
+    async fn delegate() {
+        let caps = get_store().await;
 
-    // #[test]
-    // async fn delegate() {
-    //     let caps = get_store();
+        let del = Delegation;
+        let del_res = caps.transact(del.into()).await.unwrap();
+        assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
 
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).await.unwrap();
-    //     assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
+        let inv = Invocation;
+        let inv_res = caps.invoke(vec![inv]).unwrap();
+        assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
+    }
 
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-    // }
+    #[test]
+    async fn revoke() {
+        let caps = get_store();
 
-    // #[test]
-    // async fn revoke() {
-    //     let caps = get_store();
+        let del = Delegation;
+        let del_res = caps.transact(del.into()).unwrap();
+        assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
 
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
+        let inv = Invocation;
+        let inv_res = caps.invoke(vec![inv]).unwrap();
+        assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
 
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
+        let rev = Revocation;
+        let rev_res = caps.transact(rev.into()).unwrap();
+        assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
 
-    //     let rev = Revocation;
-    //     let rev_res = caps.transact(rev.into()).unwrap();
-    //     assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
+        let inv2 = Invocation;
+        let inv_res2 = caps.invoke(vec![inv2]);
 
-    //     let inv2 = Invocation;
-    //     let inv_res2 = caps.invoke(vec![inv2]);
+        assert!(inv_res2.is_err());
+        assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
+    }
 
-    //     assert!(inv_res2.is_err());
-    //     assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
-    // }
+    #[test]
+    async fn get_caps() {
+        let caps = get_store();
 
-    // #[test]
-    // async fn get_caps() {
-    //     let caps = get_store();
+        let dels = vec![Delegation, Delegation, Delegation];
+        let del_res = caps.transact(dels.into()).unwrap();
+        assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
 
-    //     let dels = vec![Delegation, Delegation, Delegation];
-    //     let del_res = caps.transact(dels.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
-
-    //     let delegated = caps.capabilities_for("").unwrap().unwrap();
-    //     assert_eq!(dels, delegated);
-    // }
+        let delegated = caps.capabilities_for("").unwrap().unwrap();
+        assert_eq!(dels, delegated);
+    }
 }
