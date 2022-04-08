@@ -14,8 +14,11 @@ use rocket::tokio::fs;
 use std::{path::PathBuf, str::FromStr};
 
 mod dynamodb;
+mod indexes;
 mod s3;
 mod utils;
+
+pub use indexes::KV;
 
 use crate::{config, resource::OrbitId};
 use dynamodb::References;

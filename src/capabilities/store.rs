@@ -7,6 +7,7 @@ use crate::{
     zcap::{KeplerDelegation, KeplerInvocation},
 };
 use anyhow::Result;
+use futures::stream::{self, StreamExt, TryStream, TryStreamExt};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},
@@ -14,9 +15,10 @@ use libipld::{
     Cid, DagCbor,
 };
 use rocket::futures::future::try_join_all;
-use sled::Db;
 use ssi::vc::URI;
 use std::convert::TryFrom;
+
+use crate::config;
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
 pub struct AuthRef(Cid, Vec<u8>);
@@ -40,23 +42,37 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(id: &OrbitId, ipfs: Ipfs, db: &Db) -> Result<Self> {
+    pub async fn new(id: &OrbitId, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
         let id = id
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
         let id_str = id.to_string();
         let root = id.to_string().into_bytes();
-        let index = AddRemoveSetStore::new(db, id_str.as_bytes())?;
+        let index =
+            AddRemoveSetStore::new(id.get_cid(), "capabilities".to_string(), config.clone())
+                .await?;
 
         let (cid, n) = to_block_raw(&root)?.into_inner();
 
-        if index.element(&n)? != Some(cid) {
-            index.set_element(&n, &cid.to_bytes())?;
+        if index.element(&n).await? != Some(cid) {
+            index.set_element(&n, &cid.to_bytes()).await?;
         };
         // heads tracking for delegations
-        let delegation_heads = HeadStore::new(db, [&id_str, "delegations"].concat())?;
+        let delegation_heads = HeadStore::new(
+            id.get_cid(),
+            "capabilities".to_string(),
+            "delegations".to_string(),
+            config.clone(),
+        )
+        .await?;
         // heads tracking for invocations
-        let invocation_heads = HeadStore::new(db, [&id_str, "invocations"].concat())?;
+        let invocation_heads = HeadStore::new(
+            id.get_cid(),
+            "capabilities".to_string(),
+            "invocations".to_string(),
+            config.clone(),
+        )
+        .await?;
         Ok(Self {
             id,
             ipfs,
@@ -66,8 +82,8 @@ impl Store {
             root,
         })
     }
-    pub fn is_revoked(&self, d: &[u8]) -> Result<bool> {
-        Ok(self.index.is_tombstoned(d)?)
+    pub async fn is_revoked(&self, d: &[u8]) -> Result<bool> {
+        Ok(self.index.is_tombstoned(d).await?)
     }
     pub async fn get_delegation(&self, id: &[u8]) -> Result<Option<Delegation>> {
         Ok(self.element_decoded::<Event>(id).await?.and_then(|e| {
@@ -117,26 +133,27 @@ impl Store {
             .transpose()?)
     }
     async fn element_block(&self, id: &[u8]) -> Result<Option<Block>> {
-        Ok(match self.index.element(id)? {
+        Ok(match self.index.element(id).await? {
             Some(c) => Some(self.ipfs.get_block(&c).await?),
             None => None,
         })
     }
-    fn link_update<U>(&self, update: U) -> Result<LinkedUpdate<U>>
+    async fn link_update<U>(&self, update: U) -> Result<LinkedUpdate<U>>
     where
         U: DagCbor + IndexReferences,
     {
         Ok(LinkedUpdate {
             parent: self
                 .index
-                .element(update.parent())?
+                .element(update.parent())
+                .await?
                 .ok_or_else(|| anyhow!("unknown parent capability"))?,
             update,
         })
     }
 
     pub async fn transact(&self, updates: Updates) -> Result<()> {
-        self.apply(self.make_event(updates)?).await?;
+        self.apply(self.make_event(updates).await?).await?;
         // TODO broadcast now
         //
         Ok(())
@@ -157,19 +174,23 @@ impl Store {
             // with the same uuid, associating the uuid with a different cid.
             // when the partition heals, they will have diverging capability indexes.
             // If we embed or commit to the cid in the uuid, we will never have this conflict
-            self.index.set_element(e.update.id(), &cid.to_bytes())?;
+            self.index
+                .set_element(e.update.id(), &cid.to_bytes())
+                .await?;
             tracing::debug!("applied delegation {:?}", e.update.id());
         }
         for e in event.revoke.iter() {
             // revoke
-            self.index.set_tombstone(e.update.revoked())?;
-            self.index.set_element(e.update.id(), &cid.to_bytes())?;
+            self.index.set_tombstone(e.update.revoked()).await?;
+            self.index
+                .set_element(e.update.id(), &cid.to_bytes())
+                .await?;
         }
 
         // commit heads
-        let (heads, h) = self.delegation_heads.get_heads()?;
-        self.delegation_heads.set_heights([(cid, h + 1)])?;
-        self.delegation_heads.new_heads([cid], heads)?;
+        let (heads, h) = self.delegation_heads.get_heads().await?;
+        self.delegation_heads.set_heights([(cid, h + 1)]).await?;
+        self.delegation_heads.new_heads([cid], heads).await?;
         Ok(())
     }
 
@@ -186,11 +207,11 @@ impl Store {
     pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
         let cid = self
             .apply_invocations(Invocations {
-                prev: self.invocation_heads.get_heads()?.0,
+                prev: self.invocation_heads.get_heads().await?.0,
                 invoke: try_join_all(invocations.into_iter().map(|i| async move {
                     i.verify().await?;
                     tracing::debug!("invoking {:?}", i.parent());
-                    self.link_update(i)
+                    self.link_update(i).await
                 }))
                 .await?,
             })
@@ -204,16 +225,18 @@ impl Store {
         let cid = self.ipfs.put_block(event.to_block()?).await?;
 
         for e in event.invoke.iter() {
-            self.index.set_element(e.update.id(), &cid.to_bytes())?;
+            self.index
+                .set_element(e.update.id(), &cid.to_bytes())
+                .await?;
         }
 
-        let (heads, h) = self.delegation_heads.get_heads()?;
-        self.invocation_heads.set_heights([(cid, h + 1)])?;
-        self.invocation_heads.new_heads([cid], heads)?;
+        let (heads, h) = self.delegation_heads.get_heads().await?;
+        self.invocation_heads.set_heights([(cid, h + 1)]).await?;
+        self.invocation_heads.new_heads([cid], heads).await?;
         Ok(cid)
     }
 
-    fn make_event(
+    async fn make_event(
         &self,
         Updates {
             delegations,
@@ -221,15 +244,25 @@ impl Store {
         }: Updates,
     ) -> Result<Event> {
         Ok(Event {
-            prev: self.delegation_heads.get_heads()?.0,
-            revoke: revocations
-                .into_iter()
-                .map(|r| self.link_update(r))
-                .collect::<Result<Vec<LinkedUpdate<Revocation>>>>()?,
-            delegate: delegations
-                .into_iter()
-                .map(|d| self.link_update(d))
-                .collect::<Result<Vec<LinkedUpdate<Delegation>>>>()?,
+            prev: self.delegation_heads.get_heads().await?.0,
+            revoke: stream::iter(
+                revocations
+                    .into_iter()
+                    .map(|r| Ok(r))
+                    .collect::<Vec<Result<Revocation>>>(),
+            )
+            .and_then(|r| async { self.link_update(r).await })
+            .try_collect()
+            .await?,
+            delegate: stream::iter(
+                delegations
+                    .into_iter()
+                    .map(|d| Ok(d))
+                    .collect::<Vec<Result<Delegation>>>(),
+            )
+            .and_then(|d| async { self.link_update(d).await })
+            .try_collect()
+            .await?,
         })
     }
 }

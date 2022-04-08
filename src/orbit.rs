@@ -164,13 +164,12 @@ impl Orbit {
             config::IndexStorage::Local(r) => &r.path,
             _ => panic!("To be refactored."),
         };
-        let db = sled::open(path.join(&id_str).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id_str.clone(), ipfs.clone(), &db)?;
+        let service_store = Store::new(id, ipfs.clone(), config.storage.indexes.clone()).await?;
         let service = KVService::start(service_store).await?;
 
-        let cap_db = sled::open(path.join(&id_str).with_extension("capdb"))?;
-        let cap_store = CapStore::new(manifest.id(), ipfs.clone(), &cap_db)?;
+        let cap_store =
+            CapStore::new(manifest.id(), ipfs.clone(), config.storage.indexes.clone()).await?;
         let capabilities = CapService::start(cap_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
