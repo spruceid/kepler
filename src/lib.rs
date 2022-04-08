@@ -39,6 +39,9 @@ use routes::core::{
 use routes::s3 as s3_routes;
 use std::{collections::HashMap, sync::RwLock};
 
+#[get("/healthz")]
+pub fn healthcheck() {}
+
 pub fn tracing_try_init() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -77,6 +80,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
 
     let mut routes = routes![
+        healthcheck,
         put_content,
         batch_put_content,
         delete_content,
