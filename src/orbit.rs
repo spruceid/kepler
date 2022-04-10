@@ -160,11 +160,6 @@ impl Orbit {
                 .await?;
         };
 
-        let path = match &config.storage.indexes {
-            config::IndexStorage::Local(r) => &r.path,
-            _ => panic!("To be refactored."),
-        };
-
         let service_store = Store::new(id, ipfs.clone(), config.storage.indexes.clone()).await?;
         let service = KVService::start(service_store).await?;
 
