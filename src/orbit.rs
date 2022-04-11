@@ -10,7 +10,7 @@ use crate::{
     s3::{behaviour::BehaviourProcess, Service as KVService, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
-    zcap::ZCAPTokens,
+    zcap::ZCAPInvocation,
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
@@ -43,7 +43,7 @@ use super::storage::StorageUtils;
 
 pub enum AuthTokens {
     Tezos(Box<TezosAuthorizationString>),
-    ZCAP(Box<ZCAPTokens>),
+    ZCAP(Box<ZCAPInvocation>),
     SIWEZcapDelegated(Box<SIWEZcapTokens>),
     SIWEDelegated(Box<SIWETokens>),
 }
@@ -60,7 +60,7 @@ impl<'r> FromRequest<'r> for AuthTokens {
                 Self::SIWEDelegated(Box::new(siwe))
             } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
                 Self::SIWEZcapDelegated(Box::new(siwe))
-            } else if let Outcome::Success(zcap) = ZCAPTokens::from_request(request).await {
+            } else if let Outcome::Success(zcap) = ZCAPInvocation::from_request(request).await {
                 Self::ZCAP(Box::new(zcap))
             } else {
                 return Outcome::Failure((

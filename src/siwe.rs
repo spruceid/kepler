@@ -67,6 +67,26 @@ pub struct SIWETokens {
     pub invoked_action: ResourceId,
 }
 
+pub struct SIWEDelegation {
+    pub delegation: SIWEMessage,
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for SIWEDelegation {
+    type Error = anyhow::Error;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match request.headers().get_one("x-siwe-delegation").map(|b64| {
+            base64::decode_config(b64, base64::URL_SAFE)
+                .map_err(|e| anyhow!(e))
+                .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
+        }) {
+            Some(Ok(delegation)) => Outcome::Success(Self { delegation }),
+            Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
+            None => Outcome::Forward(()),
+        }
+    }
+}
+
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for SIWEZcapTokens {
     type Error = anyhow::Error;
