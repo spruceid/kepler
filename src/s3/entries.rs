@@ -1,4 +1,5 @@
 use super::{to_block, to_block_raw};
+use crate::capabilities::store::AuthRef;
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
 use libipld::{cid::Cid, store::StoreParams, DagCbor};
@@ -78,6 +79,7 @@ pub struct Object {
     pub key: Vec<u8>,
     pub value: Cid,
     pub metadata: BTreeMap<String, String>,
+    pub auth: AuthRef,
 }
 
 impl Object {
@@ -85,11 +87,13 @@ impl Object {
         key: Vec<u8>,
         value: Cid,
         metadata: impl IntoIterator<Item = (String, String)>,
+        auth: AuthRef,
     ) -> Self {
         Self {
             key,
             value,
             metadata: metadata.into_iter().collect(),
+            auth,
         }
     }
 
@@ -101,18 +105,24 @@ impl Object {
 pub struct ObjectBuilder {
     pub key: Vec<u8>,
     pub metadata: BTreeMap<String, String>,
+    pub auth: AuthRef,
 }
 
 impl ObjectBuilder {
-    pub fn new(key: Vec<u8>, metadata: impl IntoIterator<Item = (String, String)>) -> Self {
+    pub fn new(
+        key: Vec<u8>,
+        metadata: impl IntoIterator<Item = (String, String)>,
+        auth: AuthRef,
+    ) -> Self {
         Self {
             key,
             metadata: metadata.into_iter().collect(),
+            auth,
         }
     }
 
     pub fn add_content(self, value: Cid) -> Object {
-        Object::new(self.key, value, self.metadata)
+        Object::new(self.key, value, self.metadata, self.auth)
     }
 }
 

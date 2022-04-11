@@ -1,12 +1,13 @@
 use crate::{
     auth::AuthorizationToken,
+    capabilities::{store::Store as CapStore, AuthRef, Invoke, Service as CapService},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
     ipfs::create_ipfs,
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
-    s3::{behaviour::BehaviourProcess, Service, Store},
+    s3::{behaviour::BehaviourProcess, Service as KVService, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     tz::TezosAuthorizationString,
     zcap::ZCAPTokens,
@@ -14,6 +15,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use libipld::cid::{
+    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -123,9 +125,10 @@ impl OrbitTasks {
 
 #[derive(Clone)]
 pub struct Orbit {
-    pub service: Service,
+    pub service: KVService,
     _tasks: OrbitTasks,
-    manifest: Manifest,
+    pub manifest: Manifest,
+    pub capabilities: CapService,
 }
 
 impl Orbit {
@@ -136,6 +139,7 @@ impl Orbit {
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
+        let id_str = id.to_string_of_base(Base::Base58Btc)?;
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id,
@@ -160,10 +164,14 @@ impl Orbit {
             config::IndexStorage::Local(r) => &r.path,
             _ => panic!("To be refactored."),
         };
-        let db = sled::open(path.join(&id.to_string()).with_extension("ks3db"))?;
+        let db = sled::open(path.join(&id_str).with_extension("ks3db"))?;
 
-        let service_store = Store::new(id.to_string(), ipfs.clone(), db)?;
-        let service = Service::start(service_store).await?;
+        let service_store = Store::new(id_str.clone(), ipfs.clone(), &db)?;
+        let service = KVService::start(service_store).await?;
+
+        let cap_db = sled::open(path.join(&id_str).with_extension("capdb"))?;
+        let cap_store = CapStore::new(manifest.id(), ipfs.clone(), &cap_db)?;
+        let capabilities = CapService::start(cap_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
 
@@ -190,6 +198,7 @@ impl Orbit {
             service,
             manifest,
             _tasks: tasks,
+            capabilities,
         })
     }
 
@@ -314,6 +323,18 @@ impl Deref for Orbit {
     }
 }
 
+#[rocket::async_trait]
+impl Invoke<AuthTokens> for Orbit {
+    async fn invoke(&self, invocation: &AuthTokens) -> anyhow::Result<AuthRef> {
+        match invocation {
+            AuthTokens::Tezos(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::ZCAP(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::SIWEDelegated(token) => self.invoke(token.as_ref()).await,
+            AuthTokens::SIWEZcapDelegated(token) => self.invoke(token.as_ref()).await,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,6 +382,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let orbit = op(md).await.unwrap();
+        let _orbit = op(md).await.unwrap();
     }
 }

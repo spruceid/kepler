@@ -1,6 +1,8 @@
 use crate::{
     auth::{AuthorizationPolicy, AuthorizationToken},
+    capabilities::{AuthRef, Invoke},
     manifest::Manifest,
+    orbit::Orbit,
     resource::ResourceId,
 };
 use anyhow::Result;
@@ -163,6 +165,13 @@ impl AuthorizationPolicy<TezosAuthorizationString> for Manifest {
         } else {
             auth_token.verify()
         }
+    }
+}
+
+#[rocket::async_trait]
+impl Invoke<TezosAuthorizationString> for Orbit {
+    async fn invoke(&self, _invocation: &TezosAuthorizationString) -> Result<AuthRef> {
+        unimplemented!()
     }
 }
 

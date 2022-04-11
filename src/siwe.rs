@@ -1,6 +1,11 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
+    capabilities::{
+        store::{AuthRef, Delegation, IndexReferences, Invocation, Updates},
+        Invoke,
+    },
     manifest::Manifest,
+    orbit::Orbit,
     resource::ResourceId,
     zcap::KeplerInvocation,
 };
@@ -16,8 +21,9 @@ use hex::FromHex;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use siwe::Message;
-use std::{ops::Deref, str::FromStr};
+use std::{convert::TryInto, ops::Deref, str::FromStr};
 
+#[derive(Clone)]
 pub struct SIWESignature([u8; 65]);
 
 impl core::fmt::Display for SIWESignature {
@@ -37,10 +43,10 @@ impl FromStr for SIWESignature {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SIWEMessage(
-    #[serde_as(as = "DisplayFromStr")] Message,
-    #[serde_as(as = "DisplayFromStr")] SIWESignature,
+    #[serde_as(as = "DisplayFromStr")] pub Message,
+    #[serde_as(as = "DisplayFromStr")] pub SIWESignature,
 );
 
 impl Deref for SIWEMessage {
@@ -144,6 +150,28 @@ impl AuthorizationToken for SIWETokens {
 }
 
 #[rocket::async_trait]
+impl Invoke<SIWEZcapTokens> for Orbit {
+    async fn invoke(&self, invocation: &SIWEZcapTokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+
+        let delegation = (
+            self.capabilities.root.clone(),
+            invocation.delegation.clone(),
+        )
+            .try_into()?;
+
+        let inv: Invocation = invocation.invocation.clone().try_into()?;
+        let id = inv.id().to_vec();
+
+        self.capabilities
+            .transact(Updates::new([delegation], []))
+            .await?;
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
+    }
+}
+
+#[rocket::async_trait]
 impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
     async fn authorize(&self, auth_token: &SIWEZcapTokens) -> Result<()> {
         // check delegator is controller
@@ -205,16 +233,41 @@ impl AuthorizationPolicy<SIWEZcapTokens> for Manifest {
             .delegation
             .verify_eip191(&auth_token.delegation.1 .0)?;
 
-        match auth_token
+        if let Some(e) = auth_token
             .invocation
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
             .await
             .errors
             .pop()
         {
-            Some(e) => Err(anyhow!(e)),
-            None => Ok(()),
-        }
+            return Err(anyhow!(e));
+        };
+
+        Ok(())
+    }
+}
+
+#[rocket::async_trait]
+impl Invoke<SIWETokens> for Orbit {
+    async fn invoke(&self, invocation: &SIWETokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+        let id = match invocation.delegation.as_ref() {
+            Some(d) => {
+                let delegation: Delegation =
+                    (self.capabilities.root.clone(), d.clone()).try_into()?;
+
+                let id = delegation.id().to_vec();
+                self.capabilities
+                    .transact(Updates::new([delegation], []))
+                    .await?;
+                id
+            }
+            None => self.capabilities.root.clone(),
+        };
+        let inv: Invocation = (id, invocation.invocation.clone()).try_into()?;
+        let id = inv.id().to_vec();
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
     }
 }
 
@@ -230,6 +283,14 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
             &t.invocation.chain_id,
             &to_checksum(&H160(t.invocation.address), None)
         );
+        // check time validity
+        if !t.invocation.valid_now()
+            || !t.delegation.as_ref().map(|s| s.valid_now()).unwrap_or(true)
+        {
+            return Err(anyhow!("Message has Expired"));
+        };
+
+        t.invocation.verify_eip191(&t.invocation.1 .0)?;
 
         match &t.delegation {
             Some(d) => {
@@ -269,14 +330,6 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
                 };
             }
         };
-        // check time validity
-        if !t.invocation.valid_now()
-            || !t.delegation.as_ref().map(|s| s.valid_now()).unwrap_or(true)
-        {
-            return Err(anyhow!("Message has Expired"));
-        };
-
-        t.invocation.verify_eip191(&t.invocation.1 .0)?;
 
         Ok(())
     }

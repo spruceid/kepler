@@ -1,14 +1,13 @@
+use crate::capabilities::store::AuthRef;
+use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
-use sled::{Batch, Db, IVec, Tree};
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-};
+use sled::Db;
+use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::debug;
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
@@ -18,11 +17,11 @@ struct Delta {
     // max depth
     pub priority: u64,
     pub add: Vec<Cid>,
-    pub rmv: Vec<Cid>,
+    pub rmv: Vec<(Cid, AuthRef)>,
 }
 
 impl Delta {
-    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<Cid>) -> Self {
+    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<(Cid, AuthRef)>) -> Self {
         Self { priority, add, rmv }
     }
 
@@ -60,66 +59,85 @@ impl LinkedDelta {
     }
 }
 
+struct Version<N: AsRef<[u8]>>(pub N, pub Cid);
+
+impl<N: AsRef<[u8]>> Version<N> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [self.0.as_ref(), ".".as_bytes(), &self.1.to_bytes()].concat()
+    }
+}
+
+struct Element(pub u64, pub Cid);
+
+#[derive(thiserror::Error, Debug)]
+enum ElementDeserError {
+    #[error(transparent)]
+    Cid(#[from] libipld::cid::Error),
+    #[error("Insufficient bytes")]
+    Length,
+}
+
+impl<'a> TryFrom<Vec<u8>> for Element {
+    type Error = ElementDeserError;
+    fn try_from(b: Vec<u8>) -> Result<Self, Self::Error> {
+        match (
+            b.get(..8)
+                .map(|b| <[u8; 8]>::try_from(b).map(u64::from_be_bytes)),
+            b.get(8..).map(Cid::try_from).transpose()?,
+        ) {
+            (Some(Ok(p)), Some(c)) => Ok(Self(p, c)),
+            _ => Err(ElementDeserError::Length),
+        }
+    }
+}
+
+impl Element {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [self.0.to_be_bytes().as_ref(), self.1.to_bytes().as_ref()].concat()
+    }
+}
+
 #[derive(Clone)]
 pub struct Store {
     pub id: String,
     pub ipfs: Ipfs,
-    elements: Tree,
-    tombs: Tree,
-    priorities: Tree,
-    heads: Heads,
+    index: AddRemoveSetStore,
+    heads: HeadStore,
 }
 
 impl Store {
-    pub fn new(id: String, ipfs: Ipfs, db: Db) -> Result<Self> {
-        // map key to element cid
-        let elements = db.open_tree("elements")?;
-        // map key to element cid
-        let tombs = db.open_tree("tombs")?;
-        // map key to current max priority for key
-        let priorities = db.open_tree("priorities")?;
-        // map current DAG head cids to their priority
-        let heads = Heads::new(db)?;
+    pub fn new(id: String, ipfs: Ipfs, db: &Db) -> Result<Self> {
+        let index = AddRemoveSetStore::new(db, id.as_bytes())?;
+        // heads tracking store
+        let heads = HeadStore::new(db, "heads")?;
         Ok(Self {
             id,
             ipfs,
-            elements,
-            tombs,
-            priorities,
+            index,
             heads,
         })
     }
-    pub fn list(&self) -> impl DoubleEndedIterator<Item = Result<IVec>> + Send + Sync + '_ {
-        self.elements
-            .iter()
-            .map(|r| match r {
-                Ok((key, value)) => Ok((key, Cid::try_from(value.as_ref())?)),
-                Err(e) => Err(anyhow!(e)),
-            })
-            .filter_map(move |r| match r {
-                Err(e) => Some(Err(e)),
-                Ok((key, cid)) => match self.is_tombstoned(key.as_ref(), &cid) {
+    pub fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
+        self.index.elements().filter_map(move |r| match r {
+            Err(e) => Some(Err(e.into())),
+            Ok((key, Element(_, cid))) => {
+                match self.index.is_tombstoned(&Version(&key, cid).to_bytes()) {
                     Ok(false) => Some(Ok(key)),
                     Ok(true) => None,
-                    Err(e) => Some(Err(e)),
-                },
-            })
+                    Err(e) => Some(Err(e.into())),
+                }
+            }
+        })
     }
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
-        match self
-            .elements
-            .get(&key)?
-            .map(|b| Cid::try_from(b.as_ref()))
-            .transpose()?
-        {
-            Some(cid) => {
-                if !self.is_tombstoned(key.as_ref(), &cid)? {
-                    Ok(Some(self.ipfs.get_block(&cid).await?.decode()?))
-                } else {
-                    Ok(None)
-                }
-            }
+        match self.index.element(&key)? {
+            Some(Element(_, cid)) => Ok(
+                match self.index.is_tombstoned(&Version(key, cid).to_bytes())? {
+                    false => Some(self.ipfs.get_block(&cid).await?.decode()?),
+                    _ => None,
+                },
+            ),
             None => Ok(None),
         }
     }
@@ -145,11 +163,18 @@ impl Store {
             Err(_) => Ok(None),
         }
     }
+    pub(crate) async fn request_heads(&self) -> Result<()> {
+        debug!("requesting heads");
+        self.ipfs
+            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
+            .await?;
+        Ok(())
+    }
 
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
-        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>)>,
+        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>, AuthRef)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -172,16 +197,16 @@ impl Store {
 
     pub async fn index<N, M>(
         &self,
-        // tuples of (obj-data, content bytes)
+        // tuples of (obj-name, content cid, auth id)
         add: impl IntoIterator<Item = (N, Cid)>,
-        // tuples of (key, opt (priority, obj-cid))
-        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>)>,
+        // tuples of (key, opt (priority, obj-cid), auth id))
+        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>, AuthRef)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
         M: AsRef<[u8]>,
     {
-        let (heads, height) = self.heads.state()?;
+        let (heads, height) = self.heads.get_heads()?;
         let height = if heads.is_empty() && height == 0 {
             0
         } else {
@@ -189,30 +214,28 @@ impl Store {
         };
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
-        let rmvs: Vec<(M, Cid)> = remove
+        type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, AuthRef)>);
+        let rmvs: Rmvs<M> = remove
             .into_iter()
-            .map(|(key, version)| {
+            .map(|(key, version, auth)| {
                 Ok(match version {
-                    Some((_, cid)) => (key, cid),
+                    Some((_, cid)) => ((key, cid), (cid, auth)),
                     None => {
-                        let cid = self
-                            .elements
-                            .get(&key)?
-                            .map(|b| Cid::try_from(b.as_ref()))
-                            .transpose()?
+                        let Element(_, cid) = self
+                            .index
+                            .element(&key)?
                             .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
-                        (key, cid)
+                        ((key, cid), (cid, auth))
                     }
                 })
             })
-            .collect::<Result<Vec<(M, Cid)>>>()?;
-        let delta = LinkedDelta::new(
-            heads,
-            Delta::new(height, adds.1, rmvs.iter().map(|(_, c)| *c).collect()),
-        );
+            .collect::<Result<Vec<((M, Cid), (Cid, AuthRef))>>>()?
+            .into_iter()
+            .unzip();
+        let delta = LinkedDelta::new(heads, Delta::new(height, adds.1, rmvs.1));
         let block = delta.to_block()?;
         // apply/pin root/update heads
-        self.apply(&(block, delta), adds.0, rmvs).await?;
+        self.apply(&(block, delta), adds.0, rmvs.0).await?;
 
         // broadcast
         self.broadcast_heads().await?;
@@ -220,7 +243,7 @@ impl Store {
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let (heads, height) = self.heads.state()?;
+        let (heads, height) = self.heads.get_heads()?;
         if !heads.is_empty() {
             debug!(
                 "broadcasting {} heads at maxheight {} on {}",
@@ -253,26 +276,19 @@ impl Store {
         // TODO update tables atomically with transaction
         // tombstone removed elements
         for (key, cid) in removes.into_iter() {
-            self.tombs.insert(Self::get_key_id(&key, &cid), &[])?;
+            self.index.set_tombstone(&Version(&key, cid).to_bytes())?;
         }
         for (key, cid) in adds.into_iter() {
             // ensure dont double add or remove
-            if self.tombs.contains_key(Self::get_key_id(&key, &cid))? {
+            if self.index.is_tombstoned(&Version(&key, cid).to_bytes())? {
                 continue;
             };
-            // current element priority
-            let prio = self
-                .priorities
-                .get(&key)?
-                .map(v2u64)
-                .transpose()?
-                .unwrap_or(0);
-            // current element CID at key
-            let curr = self
-                .elements
-                .get(&key)?
-                .map(|b| Cid::try_from(b.as_ref()))
-                .transpose()?;
+
+            // current element priority and current element CID at key
+            let (prio, curr) = match self.index.element(&key)? {
+                Some(Element(p, c)) => (p, Some(c)),
+                None => (0, None),
+            };
             // order by priority, fall back to CID value ordering if priority equal
             if delta.delta.priority > prio
                 || (delta.delta.priority == prio
@@ -281,14 +297,15 @@ impl Store {
                         _ => true,
                     })
             {
-                self.elements.insert(&key, cid.to_bytes())?;
-                self.priorities.insert(&key, &u642v(delta.delta.priority))?;
+                self.index
+                    .set_element(&key, &Element(delta.delta.priority, cid).to_bytes())?;
             }
         }
         // find redundant heads and remove them
         // add new head
-        self.heads.set(vec![(*block.cid(), delta.delta.priority)])?;
-        self.heads.new_head(block.cid(), delta.prev.clone())?;
+        self.heads
+            .set_heights([(*block.cid(), delta.delta.priority)])?;
+        self.heads.new_heads([*block.cid()], delta.prev.clone())?;
         self.ipfs.put_block(block.clone()).await?;
 
         Ok(())
@@ -311,7 +328,7 @@ impl Store {
                     .iter()
                     .filter_map(|p| {
                         self.heads
-                            .get(p)
+                            .get_height(p)
                             .map(|o| match o {
                                 Some(_) => None,
                                 None => Some(*p),
@@ -332,10 +349,12 @@ impl Store {
 
             let removes: Vec<(Vec<u8>, Cid)> =
                 try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.get_block(c).await?.decode()?;
-                    Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
+                    let obj: Object = self.ipfs.get_block(&c.0).await?.decode()?;
+                    Ok((obj.key, c.0)) as Result<(Vec<u8>, Cid)>
                 }))
                 .await?;
+
+            // TODO verify authz stuff
 
             self.apply(&(delta_block, delta), adds, removes).await?;
 
@@ -343,108 +362,12 @@ impl Store {
             debug!("syncing head {}", head);
 
             self.ipfs.insert_pin(&head, true).await?;
-
-            // Can't find sync method in rust-ipfs.
-            // Does bitswap syncing happen automatically behind the scenes?
-
-            //match self.ipfs.sync(&head, self.ipfs.peers()).await {
-            //    Ok(_) => {
-            //        debug!("synced head {}", head);
-            //        Ok(())
-            //    }
-            //    Err(e) => {
-            //        error!("failed sync head {}", e);
-            //        Err(anyhow!(e))
-            //    }
-            //}
             Ok(()) as Result<()>
         }))
         .await?;
         Ok(())
     }
-
-    pub(crate) async fn request_heads(&self) -> Result<()> {
-        debug!("requesting heads");
-        self.ipfs
-            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
-            .await?;
-        Ok(())
-    }
-
-    fn get_key_id<K: AsRef<[u8]>>(key: K, cid: &Cid) -> Vec<u8> {
-        [key.as_ref(), &cid.to_bytes()].concat()
-    }
-
     pub async fn start_service(self) -> Result<Service> {
         Service::start(self).await
     }
-
-    fn is_tombstoned(&self, key: &[u8], cid: &Cid) -> Result<bool> {
-        Ok(self.tombs.contains_key([key, &cid.to_bytes()].concat())?)
-    }
-}
-
-#[derive(Clone)]
-pub struct Heads {
-    heights: Tree,
-    heads: Tree,
-}
-
-impl Heads {
-    pub fn new(db: Db) -> Result<Self> {
-        Ok(Self {
-            heights: db.open_tree("heights")?,
-            heads: db.open_tree("heads")?,
-        })
-    }
-
-    pub fn state(&self) -> Result<(Vec<Cid>, u64)> {
-        self.heads.iter().try_fold(
-            (vec![], 0),
-            |(mut heads, max_height), r| -> Result<(Vec<Cid>, u64)> {
-                let (head, _) = r?;
-                let height = v2u64(
-                    self.heights
-                        .get(&head)?
-                        .ok_or_else(|| anyhow!("Failed to find head height"))?,
-                )?;
-                heads.push(head[..].try_into()?);
-                Ok((heads, u64::max(max_height, height)))
-            },
-        )
-    }
-
-    pub fn get(&self, head: &Cid) -> Result<Option<u64>> {
-        self.heights.get(head.to_bytes())?.map(v2u64).transpose()
-    }
-
-    pub fn set(&self, heights: impl IntoIterator<Item = (Cid, u64)>) -> Result<()> {
-        let mut batch = Batch::default();
-        for (op, height) in heights.into_iter() {
-            if !self.heights.contains_key(op.to_bytes())? {
-                debug!("setting head height {} {}", op, height);
-                batch.insert(op.to_bytes(), &u642v(height));
-            }
-        }
-        self.heights.apply_batch(batch)?;
-        Ok(())
-    }
-
-    pub fn new_head(&self, head: &Cid, prev: impl IntoIterator<Item = Cid>) -> Result<()> {
-        let mut batch = Batch::default();
-        batch.insert(head.to_bytes(), &[]);
-        for p in prev {
-            batch.remove(p.to_bytes());
-        }
-        self.heads.apply_batch(batch)?;
-        Ok(())
-    }
-}
-
-fn v2u64<V: AsRef<[u8]>>(v: V) -> Result<u64> {
-    Ok(u64::from_be_bytes(v.as_ref().try_into()?))
-}
-
-fn u642v(n: u64) -> [u8; 8] {
-    n.to_be_bytes()
 }

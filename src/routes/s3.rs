@@ -200,14 +200,15 @@ pub async fn put_content(
         Some(k) => k,
         _ => return Err((Status::BadRequest, "Key parsing failed".into())),
     };
-    let rm: [(Vec<u8>, _); 0] = [];
+
+    let rm: [([u8; 0], _, _); 0] = [];
 
     orbit
         .0
         .service
         .write(
-            vec![(
-                ObjectBuilder::new(k.as_bytes().to_vec(), md.0),
+            [(
+                ObjectBuilder::new(k.as_bytes().to_vec(), md.0, orbit.1),
                 data.open(1u8.gigabytes()),
             )],
             rm,
@@ -231,7 +232,7 @@ pub async fn delete_content(
     Ok(orbit
         .0
         .service
-        .index(add, vec![(k, None)])
+        .index(add, vec![(k, None, orbit.1)])
         .await
         .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
 }

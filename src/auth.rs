@@ -1,3 +1,4 @@
+use crate::capabilities::{store::AuthRef, Invoke};
 use crate::cas::CidWrap;
 use crate::config;
 use crate::manifest::Manifest;
@@ -74,12 +75,12 @@ pub trait AuthorizationPolicy<T> {
     async fn authorize(&self, auth_token: &T) -> Result<()>;
 }
 
-pub struct PutAuthWrapper(pub Orbit);
-pub struct GetAuthWrapper(pub Orbit);
-pub struct MetadataAuthWrapper(pub Orbit);
-pub struct DelAuthWrapper(pub Orbit);
+pub struct PutAuthWrapper(pub Orbit, pub AuthRef);
+pub struct DelAuthWrapper(pub Orbit, pub AuthRef);
+pub struct GetAuthWrapper(pub Orbit, pub AuthRef);
+pub struct MetadataAuthWrapper(pub Orbit, pub AuthRef);
+pub struct ListAuthWrapper(pub Orbit, pub AuthRef);
 pub struct CreateAuthWrapper(pub Orbit);
-pub struct ListAuthWrapper(pub Orbit);
 
 async fn extract_info<T>(
     req: &Request<'_>,
@@ -139,7 +140,7 @@ macro_rules! impl_fromreq {
                     }
                 };
                 match (
-                    token.resource().fragment().as_ref().map(|s| s.as_str()),
+                    token.resource().fragment(),
                     &oid == &match hash_same(&oid, token.resource().orbit().to_string()) {
                         Ok(c) => c,
                         Err(_) => {
@@ -170,8 +171,8 @@ macro_rules! impl_fromreq {
                                     return Outcome::Failure((Status::InternalServerError, e))
                                 }
                             };
-                        match orbit.authorize(&token).await {
-                            Ok(_) => Outcome::Success(Self(orbit)),
+                        match orbit.invoke(&token).await {
+                            Ok(a) => Outcome::Success(Self(orbit, a)),
                             Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                         }
                     }
@@ -214,7 +215,7 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
         };
 
         match (
-            token.resource().fragment().as_ref().map(|s| s.as_str()),
+            token.resource().fragment(),
             token.resource().path(),
             token.resource().service(),
         ) {
@@ -237,15 +238,19 @@ impl<'r> FromRequest<'r> for CreateAuthWrapper {
                     Err(e) => return Outcome::Failure((Status::Unauthorized, e)),
                 };
 
-                match create_orbit(md.id(), &config, &auth_data, relay, keys).await {
-                    Ok(Some(orbit)) => Outcome::Success(Self(orbit)),
+                let orbit = match create_orbit(md.id(), &config, &auth_data, relay, keys).await {
+                    Ok(Some(orbit)) => orbit,
                     Ok(None) => {
                         return Outcome::Failure((
                             Status::Conflict,
                             anyhow!("Orbit already exists"),
                         ));
                     }
-                    Err(e) => Outcome::Failure((Status::InternalServerError, e)),
+                    Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+                };
+                match orbit.invoke(&token).await {
+                    Ok(_) => Outcome::Success(Self(orbit)),
+                    Err(e) => Outcome::Failure((Status::Unauthorized, e)),
                 }
             }
             _ => Outcome::Failure((

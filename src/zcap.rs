@@ -1,6 +1,11 @@
 use crate::{
     auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
+    capabilities::{
+        store::{IndexReferences, Invocation as CapInvocation, Updates},
+        AuthRef, Invoke,
+    },
     manifest::Manifest,
+    orbit::Orbit,
     resource::ResourceId,
 };
 use anyhow::Result;
@@ -12,13 +17,12 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_with::{serde_as, DisplayFromStr};
 use ssi::{
     did::DIDURL,
     vc::URI,
     zcap::{Delegation, Invocation},
 };
-use std::{collections::HashMap as Map, str::FromStr};
+use std::{collections::HashMap as Map, convert::TryInto, str::FromStr};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -30,11 +34,9 @@ pub struct DelProps {
     pub extra_fields: Option<Map<String, Value>>,
 }
 
-#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
-    #[serde_as(as = "DisplayFromStr")]
     pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,6 +86,27 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
 impl AuthorizationToken for ZCAPTokens {
     fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
+    }
+}
+
+#[rocket::async_trait]
+impl Invoke<ZCAPTokens> for Orbit {
+    async fn invoke(&self, invocation: &ZCAPTokens) -> Result<AuthRef> {
+        self.authorize(invocation).await?;
+
+        let inv: CapInvocation = invocation.invocation.clone().try_into()?;
+
+        match &invocation.delegation {
+            Some(d) => {
+                self.capabilities
+                    .transact(Updates::new([d.clone().try_into()?], []))
+                    .await?
+            }
+            None => (),
+        };
+        let id = inv.id().to_vec();
+
+        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
     }
 }
 
@@ -150,7 +173,6 @@ impl AuthorizationPolicy<ZCAPTokens> for Manifest {
                     .await
             }
         };
-
         res.errors
             .first()
             .map(|e| Err(anyhow!(e.clone())))
