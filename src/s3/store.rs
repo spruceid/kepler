@@ -135,7 +135,7 @@ impl Store {
                         {
                             Ok(false) => Some(Ok(key)),
                             Ok(true) => None,
-                            Err(e) => Some(Err(e.into())),
+                            Err(e) => Some(Err(e)),
                         }
                     }
                 }
@@ -234,29 +234,24 @@ impl Store {
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
         type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, AuthRef)>);
-        let rmvs: Rmvs<M> = stream::iter(
-            remove
-                .into_iter()
-                .map(|r| Ok(r))
-                .collect::<Vec<Result<_>>>(),
-        )
-        .and_then(|(key, version, auth)| async move {
-            Ok(match version {
-                Some((_, cid)) => ((key, cid), (cid, auth)),
-                None => {
-                    let Element(_, cid) = self
-                        .index
-                        .element(&key)
-                        .await?
-                        .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
-                    ((key, cid), (cid, auth))
-                }
+        let rmvs: Rmvs<M> = stream::iter(remove.into_iter().map(Ok).collect::<Vec<Result<_>>>())
+            .and_then(|(key, version, auth)| async move {
+                Ok(match version {
+                    Some((_, cid)) => ((key, cid), (cid, auth)),
+                    None => {
+                        let Element(_, cid) = self
+                            .index
+                            .element(&key)
+                            .await?
+                            .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
+                        ((key, cid), (cid, auth))
+                    }
+                })
             })
-        })
-        .try_collect::<Vec<((M, Cid), (Cid, AuthRef))>>()
-        .await?
-        .into_iter()
-        .unzip();
+            .try_collect::<Vec<((M, Cid), (Cid, AuthRef))>>()
+            .await?
+            .into_iter()
+            .unzip();
         let delta = LinkedDelta::new(heads, Delta::new(height, adds.1, rmvs.1));
         let block = delta.to_block()?;
         // apply/pin root/update heads
@@ -358,9 +353,9 @@ impl Store {
 
             // recurse through unseen prevs first
             self.try_merge_heads(
-                stream::iter(delta.prev.iter().map(|p| Ok(p)).collect::<Vec<Result<_>>>())
+                stream::iter(delta.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
                     .try_filter_map(|p| async move {
-                        self.heads.get_height(&p).await.map(|o| match o {
+                        self.heads.get_height(p).await.map(|o| match o {
                             Some(_) => None,
                             None => Some(p),
                         })

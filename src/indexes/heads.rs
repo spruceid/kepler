@@ -35,7 +35,7 @@ impl HeadStore {
                 .elements()
                 .await?
                 .into_iter()
-                .map(|e| Ok(e))
+                .map(Ok)
                 .collect::<Vec<anyhow::Result<(Vec<u8>, Vec<u8>)>>>(),
         )
         .try_fold(

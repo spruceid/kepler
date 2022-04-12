@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use rocket::{fairing::AdHoc, figment::Figment, http::Header, tokio::fs, Build, Rocket};
+use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
 pub mod allow_list;
 pub mod auth;

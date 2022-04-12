@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use aws_sdk_dynamodb::{
-    error::{GetItemError, GetItemErrorKind},
     model::{AttributeValue, ReturnValue},
-    output::{GetItemOutput, QueryOutput},
-    types::{Blob, SdkError},
+    output::GetItemOutput,
+    types::Blob,
     Client,
 };
 use aws_smithy_http::endpoint::Endpoint;
-use futures::stream::{self, StreamExt, TryStream, TryStreamExt};
+use futures::stream::{self, TryStreamExt};
 use libipld::{cid::Cid, multibase::Base};
 use sled::{Batch, Tree};
 use std::str::FromStr;

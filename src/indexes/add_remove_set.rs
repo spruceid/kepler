@@ -1,5 +1,5 @@
 use anyhow::Result;
-use libipld::{cid::Cid, multibase::Base};
+use libipld::cid::Cid;
 use std::convert::TryFrom;
 use thiserror::Error;
 
@@ -59,7 +59,7 @@ impl AddRemoveSetStore {
         }))
     }
     pub async fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<bool, anyhow::Error> {
-        Ok(self.tombs.contains_key(n.as_ref()).await?)
+        self.tombs.contains_key(n.as_ref()).await
     }
     pub async fn set_element<N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
         &self,

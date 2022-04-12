@@ -231,10 +231,10 @@ pub async fn delete_content(
         _ => return Err((Status::BadRequest, "Key parsing failed")),
     };
     let add: Vec<(&[u8], Cid)> = vec![];
-    Ok(orbit
+    orbit
         .0
         .service
         .index(add, vec![(k, None, orbit.1)])
         .await
-        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
+        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))
 }

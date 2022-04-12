@@ -7,7 +7,7 @@ use crate::{
     zcap::{KeplerDelegation, KeplerInvocation},
 };
 use anyhow::Result;
-use futures::stream::{self, StreamExt, TryStream, TryStreamExt};
+use futures::stream::{self, TryStreamExt};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},
@@ -46,7 +46,6 @@ impl Store {
         let id = id
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
-        let id_str = id.to_string();
         let root = id.to_string().into_bytes();
         let index =
             AddRemoveSetStore::new(id.get_cid(), "capabilities".to_string(), config.clone())
@@ -83,7 +82,7 @@ impl Store {
         })
     }
     pub async fn is_revoked(&self, d: &[u8]) -> Result<bool> {
-        Ok(self.index.is_tombstoned(d).await?)
+        self.index.is_tombstoned(d).await
     }
     pub async fn get_delegation(&self, id: &[u8]) -> Result<Option<Delegation>> {
         Ok(self.element_decoded::<Event>(id).await?.and_then(|e| {
@@ -126,11 +125,10 @@ impl Store {
     where
         T: Decode<DagCborCodec>,
     {
-        Ok(self
-            .element_block(id)
+        self.element_block(id)
             .await?
             .map(|b| b.decode())
-            .transpose()?)
+            .transpose()
     }
     async fn element_block(&self, id: &[u8]) -> Result<Option<Block>> {
         Ok(match self.index.element(id).await? {
@@ -248,7 +246,7 @@ impl Store {
             revoke: stream::iter(
                 revocations
                     .into_iter()
-                    .map(|r| Ok(r))
+                    .map(Ok)
                     .collect::<Vec<Result<Revocation>>>(),
             )
             .and_then(|r| async { self.link_update(r).await })
@@ -257,7 +255,7 @@ impl Store {
             delegate: stream::iter(
                 delegations
                     .into_iter()
-                    .map(|d| Ok(d))
+                    .map(Ok)
                     .collect::<Vec<Result<Delegation>>>(),
             )
             .and_then(|d| async { self.link_update(d).await })

@@ -15,7 +15,6 @@ use crate::{
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use libipld::cid::{
-    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -139,7 +138,6 @@ impl Orbit {
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
-        let id_str = id.to_string_of_base(Base::Base58Btc)?;
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id,
