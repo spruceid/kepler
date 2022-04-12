@@ -3,10 +3,10 @@ pub mod store;
 use crate::orbit::AbortOnDrop;
 use anyhow::Result;
 use ipfs::PeerId;
-use libipld::{cbor::DagCborCodec, cid::Cid, codec::Decode, multibase::Base, DagCbor};
+use libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base};
 use rocket::futures::{Stream, StreamExt};
 pub use store::AuthRef;
-use store::{Event, Store};
+use store::{CapsMessage, Store};
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -49,20 +49,9 @@ impl Service {
             );
         let peer_id = store.ipfs.identity().await?.0.to_peer_id();
         let task = AbortOnDrop::new(tokio::spawn(caps_task(events, store.clone(), peer_id)));
-        // store.request_heads().await?;
+        store.request_heads().await?;
         Ok(Service::new(store, task))
     }
-}
-
-#[derive(DagCbor, Clone, Debug)]
-enum CapsMessage {
-    Invocation(Cid),
-    Update(Event),
-    StateReq,
-    Heads {
-        updates: Vec<Cid>,
-        invocations: Vec<Cid>,
-    },
 }
 
 async fn caps_task(
@@ -99,11 +88,26 @@ async fn caps_task(
                     }
                 }
                 Ok((_, CapsMessage::StateReq)) => {
-                    // broadcast heads
+                    if let Err(e) = store.broadcast_heads().await {
+                        debug!(
+                            "failed to broadcast updates in response to state request {}",
+                            e
+                        );
+                    }
                 }
-                Ok((_, CapsMessage::Heads { .. })) => {
-                    // try_merge updates
-                    // try_merge invocations
+                Ok((
+                    _,
+                    CapsMessage::Heads {
+                        updates,
+                        invocations,
+                    },
+                )) => {
+                    if let Err(e) = store
+                        .try_merge_heads(updates.into_iter(), invocations.into_iter())
+                        .await
+                    {
+                        debug!("failed to merge heads {}", e);
+                    }
                 }
                 Err(e) => {
                     debug!("cap service task error {}", e);

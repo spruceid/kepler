@@ -7,10 +7,12 @@ use crate::{
     zcap::{KeplerDelegation, KeplerInvocation},
 };
 use anyhow::Result;
+use async_recursion::async_recursion;
 use futures::stream::{self, TryStreamExt};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},
+    multibase::Base,
     multihash::Code,
     Cid, DagCbor,
 };
@@ -151,13 +153,13 @@ impl Store {
     }
 
     pub async fn transact(&self, updates: Updates) -> Result<()> {
-        self.apply(self.make_event(updates).await?).await?;
-        // TODO broadcast now
-        //
+        let event = self.make_event(updates).await?;
+        self.apply(&event).await?;
+        self.broadcast_update_verbatim(event).await?;
         Ok(())
     }
 
-    pub(crate) async fn apply(&self, event: Event) -> Result<()> {
+    pub(crate) async fn apply(&self, event: &Event) -> Result<()> {
         let block = event.to_block()?;
         let cid = self.ipfs.put_block(block).await?;
 
@@ -214,8 +216,7 @@ impl Store {
                 .await?,
             })
             .await?;
-        // TODO broadcast now
-        //
+        self.broadcast_heads().await?;
         Ok(cid)
     }
 
@@ -263,6 +264,148 @@ impl Store {
             .await?,
         })
     }
+
+    async fn broadcast_update_verbatim(&self, event: Event) -> Result<()> {
+        debug!("broadcasting update on {}", self.id,);
+        self.ipfs
+            .pubsub_publish(
+                self.id
+                    .clone()
+                    .get_cid()
+                    .to_string_of_base(Base::Base58Btc)?,
+                CapsMessage::Update(event).to_block()?.into_inner().1,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn broadcast_heads(&self) -> Result<()> {
+        let updates = self.delegation_heads.get_heads()?.0;
+        let invocations = self.invocation_heads.get_heads()?.0;
+        if !updates.is_empty() || !invocations.is_empty() {
+            debug!(
+                "broadcasting {} update heads and {} invocation heads on {}",
+                updates.len(),
+                invocations.len(),
+                self.id,
+            );
+            self.ipfs
+                .pubsub_publish(
+                    self.id
+                        .clone()
+                        .get_cid()
+                        .to_string_of_base(Base::Base58Btc)?,
+                    CapsMessage::Heads {
+                        updates,
+                        invocations,
+                    }
+                    .to_block()?
+                    .into_inner()
+                    .1,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn request_heads(&self) -> Result<()> {
+        self.ipfs
+            .pubsub_publish(
+                self.id
+                    .clone()
+                    .get_cid()
+                    .to_string_of_base(Base::Base58Btc)?,
+                CapsMessage::StateReq.to_block()?.into_inner().1,
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn try_merge_heads(
+        &self,
+        updates: impl Iterator<Item = Cid> + Send,
+        invocations: impl Iterator<Item = Cid> + Send,
+    ) -> Result<()> {
+        self.try_merge_updates(updates).await?;
+        self.try_merge_invocations(invocations).await?;
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn try_merge_updates(
+        &self,
+        updates: impl Iterator<Item = Cid> + Send + 'async_recursion,
+    ) -> Result<()> {
+        try_join_all(updates.map(|head| async move {
+            let update_block = self.ipfs.get_block(&head).await?;
+            let update: Event = update_block.decode()?;
+
+            self.try_merge_updates(
+                update
+                    .prev
+                    .iter()
+                    .filter_map(|d| {
+                        self.delegation_heads
+                            .get_height(d)
+                            .map(|o| match o {
+                                Some(_) => None,
+                                None => Some(*d),
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<Cid>>>()?
+                    .into_iter(),
+            )
+            .await?;
+
+            self.apply(update).await
+        }))
+        .await?;
+        Ok(())
+    }
+
+    #[async_recursion]
+    async fn try_merge_invocations(
+        &self,
+        invocations: impl Iterator<Item = Cid> + Send + 'async_recursion,
+    ) -> Result<()> {
+        try_join_all(invocations.map(|head| async move {
+            let invocation_block = self.ipfs.get_block(&head).await?;
+            let invs: Invocations = invocation_block.decode()?;
+
+            self.try_merge_invocations(
+                invs.prev
+                    .iter()
+                    .filter_map(|i| {
+                        self.invocation_heads
+                            .get_height(i)
+                            .map(|o| match o {
+                                Some(_) => None,
+                                None => Some(*i),
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<Cid>>>()?
+                    .into_iter(),
+            )
+            .await?;
+
+            self.apply_invocations(invs).await
+        }))
+        .await?;
+        Ok(())
+    }
+}
+
+#[derive(DagCbor, Clone, Debug)]
+pub(crate) enum CapsMessage {
+    Invocation(Cid),
+    Update(Event),
+    StateReq,
+    Heads {
+        updates: Vec<Cid>,
+        invocations: Vec<Cid>,
+    },
 }
 
 #[derive(Default)]
