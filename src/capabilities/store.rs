@@ -280,8 +280,8 @@ impl Store {
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let updates = self.delegation_heads.get_heads()?.0;
-        let invocations = self.invocation_heads.get_heads()?.0;
+        let updates = self.delegation_heads.get_heads().await?.0;
+        let invocations = self.invocation_heads.get_heads().await?.0;
         if !updates.is_empty() || !invocations.is_empty() {
             debug!(
                 "broadcasting {} update heads and {} invocation heads on {}",
@@ -341,24 +341,20 @@ impl Store {
             let update: Event = update_block.decode()?;
 
             self.try_merge_updates(
-                update
-                    .prev
-                    .iter()
-                    .filter_map(|d| {
-                        self.delegation_heads
-                            .get_height(d)
-                            .map(|o| match o {
-                                Some(_) => None,
-                                None => Some(*d),
-                            })
-                            .transpose()
+                stream::iter(update.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
+                    .try_filter_map(|d| async move {
+                        self.delegation_heads.get_height(d).await.map(|o| match o {
+                            Some(_) => None,
+                            None => Some(*d),
+                        })
                     })
-                    .collect::<Result<Vec<Cid>>>()?
+                    .try_collect::<Vec<Cid>>()
+                    .await?
                     .into_iter(),
             )
             .await?;
 
-            self.apply(update).await
+            self.apply(&update).await
         }))
         .await?;
         Ok(())
@@ -374,18 +370,15 @@ impl Store {
             let invs: Invocations = invocation_block.decode()?;
 
             self.try_merge_invocations(
-                invs.prev
-                    .iter()
-                    .filter_map(|i| {
-                        self.invocation_heads
-                            .get_height(i)
-                            .map(|o| match o {
-                                Some(_) => None,
-                                None => Some(*i),
-                            })
-                            .transpose()
+                stream::iter(invs.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
+                    .try_filter_map(|i| async move {
+                        self.invocation_heads.get_height(i).await.map(|o| match o {
+                            Some(_) => None,
+                            None => Some(*i),
+                        })
                     })
-                    .collect::<Result<Vec<Cid>>>()?
+                    .try_collect::<Vec<Cid>>()
+                    .await?
                     .into_iter(),
             )
             .await?;
