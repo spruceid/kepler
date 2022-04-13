@@ -143,6 +143,7 @@ pub async fn handle_s3_action(
                 orbit
                     .service
                     .list()
+                    .await
                     .filter_map(|r| {
                         // filter out any non-utf8 keys
                         r.map(|v| std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()))

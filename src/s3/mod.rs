@@ -164,7 +164,6 @@ mod test {
             ..Default::default()
         };
         let (ipfs, ipfs_task, receiver) = create_ipfs(*id, &config, keypair, allowed_peers).await?;
-        let db = sled::open(path.join("db.sled"))?;
         tokio::spawn(ipfs_task);
         let store = Store::new(*id, ipfs, config.storage.indexes).await?;
         Ok((
