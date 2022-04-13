@@ -137,11 +137,11 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 
         let orbit = match load_orbit(orbit_id.get_cid(), &config, relay).await {
             Ok(Some(o)) => o,
-            Ok(None) => return Outcome::Failure((Status::NotFound, anyhow!("No Orbit found"))),
-            Err(e) => return Outcome::Failure((Status::InternalServerError, e)),
+            Ok(None) => return not_found(anyhow!("No Orbit found")),
+            Err(e) => return unauthorized(e),
         };
 
-        let delegation = match (orbit_id.to_string().into(), token.delegation).try_into() {
+        let delegation = match (orbit.capabilities.root.clone(), token.delegation).try_into() {
             Err(e) => return unauthorized(e),
             Ok(d) => d,
         };
