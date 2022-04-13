@@ -15,7 +15,6 @@ use crate::{
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use libipld::cid::{
-    multibase::Base,
     multihash::{Code, MultihashDigest},
     Cid,
 };
@@ -139,7 +138,6 @@ impl Orbit {
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
-        let id_str = id.to_string_of_base(Base::Base58Btc)?;
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
         let (ipfs, ipfs_future, receiver) = create_ipfs(
             id,
@@ -160,17 +158,11 @@ impl Orbit {
                 .await?;
         };
 
-        let path = match &config.storage.indexes {
-            config::IndexStorage::Local(r) => &r.path,
-            _ => panic!("To be refactored."),
-        };
-        let db = sled::open(path.join(&id_str).with_extension("ks3db"))?;
-
-        let service_store = Store::new(id_str.clone(), ipfs.clone(), &db)?;
+        let service_store = Store::new(id, ipfs.clone(), config.storage.indexes.clone()).await?;
         let service = KVService::start(service_store).await?;
 
-        let cap_db = sled::open(path.join(&id_str).with_extension("capdb"))?;
-        let cap_store = CapStore::new(manifest.id(), ipfs.clone(), &cap_db)?;
+        let cap_store =
+            CapStore::new(manifest.id(), ipfs.clone(), config.storage.indexes.clone()).await?;
         let capabilities = CapService::start(cap_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);

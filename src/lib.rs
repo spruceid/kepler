@@ -6,7 +6,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
-use rocket::{fairing::AdHoc, figment::Figment, http::Header, tokio::fs, Build, Rocket};
+use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
 pub mod allow_list;
 pub mod auth;
@@ -54,31 +54,12 @@ pub fn tracing_try_init() {
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
 
-    // TODO could apply that to everything, all chunks/indexes storage backends
-    if let config::IndexStorage::Local(c) = kepler_config.storage.indexes.clone() {
-        if !c.path.is_dir() {
-            return Err(anyhow!(
-                "KEPLER_STORAGE_PATH does not exist or is not a directory: {:?}",
-                c.path.to_str()
-            ));
-        }
-    }
-    storage::StorageUtils::new(kepler_config.storage.blocks)
+    storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
+    storage::StorageUtils::new(kepler_config.storage.blocks.clone())
         .healthcheck()
         .await?;
 
-    let relay_kp_path = match kepler_config.storage.indexes {
-        config::IndexStorage::Local(r) => r.path,
-        _ => panic!(""),
-    };
-    let kp: Ed25519Keypair = if let Ok(mut bytes) = fs::read(relay_kp_path.join("kp")).await {
-        Ed25519Keypair::decode(&mut bytes)?
-    } else {
-        let kp = Ed25519Keypair::generate();
-        fs::write(relay_kp_path.join("kp"), kp.encode()).await?;
-        kp
-    };
-
+    let kp = storage::StorageUtils::relay_key_pair(kepler_config.storage.blocks).await?;
     let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
 
     let mut routes = routes![

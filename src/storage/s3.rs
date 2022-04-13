@@ -44,7 +44,7 @@ pub struct S3BlockStore {
     pub orbit: Cid,
 }
 
-fn new_client(config: config::S3BlockStorage) -> Client {
+pub fn new_client(config: config::S3BlockStorage) -> Client {
     let general_config = super::utils::aws_config();
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
     let sdk_config = match config.endpoint {

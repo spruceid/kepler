@@ -4,13 +4,14 @@ use crate::s3::entries::{read_from_store, write_to_store};
 use crate::s3::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
-use libipld::{cbor::DagCborCodec, cid::Cid, DagCbor};
+use futures::stream::{self, StreamExt, TryStreamExt};
+use libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
-use sled::Db;
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::debug;
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
+use crate::config;
 
 #[derive(DagCbor)]
 struct Delta {
@@ -106,34 +107,52 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(id: String, ipfs: Ipfs, db: &Db) -> Result<Self> {
-        let index = AddRemoveSetStore::new(db, id.as_bytes())?;
+    pub async fn new(orbit_id: Cid, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
+        let index = AddRemoveSetStore::new(orbit_id, "s3".to_string(), config.clone()).await?;
         // heads tracking store
-        let heads = HeadStore::new(db, "heads")?;
+        let heads = HeadStore::new(orbit_id, "s3".to_string(), "heads".to_string(), config).await?;
         Ok(Self {
-            id,
+            id: orbit_id.to_string_of_base(Base::Base58Btc)?,
             ipfs,
             index,
             heads,
         })
     }
-    pub fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
-        self.index.elements().filter_map(move |r| match r {
-            Err(e) => Some(Err(e.into())),
-            Ok((key, Element(_, cid))) => {
-                match self.index.is_tombstoned(&Version(&key, cid).to_bytes()) {
-                    Ok(false) => Some(Ok(key)),
-                    Ok(true) => None,
+    pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
+        let elements = match self.index.elements().await {
+            Ok(e) => e,
+            Err(e) => return vec![Err(e)].into_iter(),
+        };
+        stream::iter(elements)
+            .filter_map(move |r| async move {
+                match r {
                     Err(e) => Some(Err(e.into())),
+                    Ok((key, Element(_, cid))) => {
+                        match self
+                            .index
+                            .is_tombstoned(&Version(&key, cid).to_bytes())
+                            .await
+                        {
+                            Ok(false) => Some(Ok(key)),
+                            Ok(true) => None,
+                            Err(e) => Some(Err(e)),
+                        }
+                    }
                 }
-            }
-        })
+            })
+            .collect::<Vec<Result<Vec<u8>>>>()
+            .await
+            .into_iter()
     }
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
-        match self.index.element(&key)? {
+        match self.index.element(&key).await? {
             Some(Element(_, cid)) => Ok(
-                match self.index.is_tombstoned(&Version(key, cid).to_bytes())? {
+                match self
+                    .index
+                    .is_tombstoned(&Version(key, cid).to_bytes())
+                    .await?
+                {
                     false => Some(self.ipfs.get_block(&cid).await?.decode()?),
                     _ => None,
                 },
@@ -206,7 +225,7 @@ impl Store {
         N: AsRef<[u8]>,
         M: AsRef<[u8]>,
     {
-        let (heads, height) = self.heads.get_heads()?;
+        let (heads, height) = self.heads.get_heads().await?;
         let height = if heads.is_empty() && height == 0 {
             0
         } else {
@@ -215,21 +234,22 @@ impl Store {
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
         type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, AuthRef)>);
-        let rmvs: Rmvs<M> = remove
-            .into_iter()
-            .map(|(key, version, auth)| {
+        let rmvs: Rmvs<M> = stream::iter(remove.into_iter().map(Ok).collect::<Vec<Result<_>>>())
+            .and_then(|(key, version, auth)| async move {
                 Ok(match version {
                     Some((_, cid)) => ((key, cid), (cid, auth)),
                     None => {
                         let Element(_, cid) = self
                             .index
-                            .element(&key)?
+                            .element(&key)
+                            .await?
                             .ok_or_else(|| anyhow!("Failed to find Object ID for key"))?;
                         ((key, cid), (cid, auth))
                     }
                 })
             })
-            .collect::<Result<Vec<((M, Cid), (Cid, AuthRef))>>>()?
+            .try_collect::<Vec<((M, Cid), (Cid, AuthRef))>>()
+            .await?
             .into_iter()
             .unzip();
         let delta = LinkedDelta::new(heads, Delta::new(height, adds.1, rmvs.1));
@@ -243,7 +263,7 @@ impl Store {
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let (heads, height) = self.heads.get_heads()?;
+        let (heads, height) = self.heads.get_heads().await?;
         if !heads.is_empty() {
             debug!(
                 "broadcasting {} heads at maxheight {} on {}",
@@ -276,16 +296,22 @@ impl Store {
         // TODO update tables atomically with transaction
         // tombstone removed elements
         for (key, cid) in removes.into_iter() {
-            self.index.set_tombstone(&Version(&key, cid).to_bytes())?;
+            self.index
+                .set_tombstone(&Version(&key, cid).to_bytes())
+                .await?;
         }
         for (key, cid) in adds.into_iter() {
             // ensure dont double add or remove
-            if self.index.is_tombstoned(&Version(&key, cid).to_bytes())? {
+            if self
+                .index
+                .is_tombstoned(&Version(&key, cid).to_bytes())
+                .await?
+            {
                 continue;
             };
 
             // current element priority and current element CID at key
-            let (prio, curr) = match self.index.element(&key)? {
+            let (prio, curr) = match self.index.element(&key).await? {
                 Some(Element(p, c)) => (p, Some(c)),
                 None => (0, None),
             };
@@ -298,14 +324,18 @@ impl Store {
                     })
             {
                 self.index
-                    .set_element(&key, &Element(delta.delta.priority, cid).to_bytes())?;
+                    .set_element(&key, &Element(delta.delta.priority, cid).to_bytes())
+                    .await?;
             }
         }
         // find redundant heads and remove them
         // add new head
         self.heads
-            .set_heights([(*block.cid(), delta.delta.priority)])?;
-        self.heads.new_heads([*block.cid()], delta.prev.clone())?;
+            .set_heights([(*block.cid(), delta.delta.priority)])
+            .await?;
+        self.heads
+            .new_heads([*block.cid()], delta.prev.clone())
+            .await?;
         self.ipfs.put_block(block.clone()).await?;
 
         Ok(())
@@ -323,19 +353,15 @@ impl Store {
 
             // recurse through unseen prevs first
             self.try_merge_heads(
-                delta
-                    .prev
-                    .iter()
-                    .filter_map(|p| {
-                        self.heads
-                            .get_height(p)
-                            .map(|o| match o {
-                                Some(_) => None,
-                                None => Some(*p),
-                            })
-                            .transpose()
+                stream::iter(delta.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
+                    .try_filter_map(|p| async move {
+                        self.heads.get_height(p).await.map(|o| match o {
+                            Some(_) => None,
+                            None => Some(p),
+                        })
                     })
-                    .collect::<Result<Vec<Cid>>>()?
+                    .try_collect::<Vec<Cid>>()
+                    .await?
                     .into_iter(),
             )
             .await?;

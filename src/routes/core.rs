@@ -166,11 +166,11 @@ pub async fn delete_content(
     orbit: DelAuthWrapper,
     hash: CidWrap,
 ) -> Result<(), (Status, &'static str)> {
-    Ok(orbit
+    orbit
         .0
         .delete(&hash.0)
         .await
-        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))?)
+        .map_err(|_| (Status::InternalServerError, "Failed to delete content"))
 }
 
 #[post("/<orbit_id>")]

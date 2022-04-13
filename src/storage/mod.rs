@@ -1,4 +1,9 @@
 use anyhow::{Error, Result};
+use aws_sdk_s3::{
+    error::{GetObjectError, GetObjectErrorKind},
+    types::{ByteStream, SdkError},
+};
+use aws_smithy_http::body::SdkBody;
 use ipfs::{
     repo::{
         fs::{FsBlockStore, FsDataStore, FsLock},
@@ -14,8 +19,11 @@ use rocket::tokio::fs;
 use std::{path::PathBuf, str::FromStr};
 
 mod dynamodb;
+mod indexes;
 mod s3;
 mod utils;
+
+pub use indexes::KV;
 
 use crate::{config, resource::OrbitId};
 use dynamodb::References;
@@ -77,6 +85,62 @@ impl StorageUtils {
                 let dir = r.path.join(&orbit.to_string_of_base(Base::Base58Btc)?);
                 Ok(dir.exists())
             }
+        }
+    }
+
+    pub async fn relay_key_pair(config: config::BlockStorage) -> Result<Ed25519Keypair> {
+        let kp = match config.clone() {
+            config::BlockStorage::S3(r) => {
+                let client = s3::new_client(r.clone());
+                let res = client
+                    .get_object()
+                    .bucket(r.bucket.clone())
+                    .key("kp")
+                    .send()
+                    .await;
+                match res {
+                    Ok(o) => Some(Ed25519Keypair::decode(
+                        &mut o.body.collect().await?.into_bytes().to_vec(),
+                    )?),
+                    Err(SdkError::ServiceError {
+                        err:
+                            GetObjectError {
+                                kind: GetObjectErrorKind::NoSuchKey(_),
+                                ..
+                            },
+                        ..
+                    }) => None,
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            config::BlockStorage::Local(r) => {
+                if let Ok(mut bytes) = fs::read(r.path.join("kp")).await {
+                    Some(Ed25519Keypair::decode(&mut bytes)?)
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(k) = kp {
+            Ok(k)
+        } else {
+            let kp = Ed25519Keypair::generate();
+            match config {
+                config::BlockStorage::S3(r) => {
+                    let client = s3::new_client(r.clone());
+                    client
+                        .put_object()
+                        .bucket(r.bucket.clone())
+                        .key("kp")
+                        .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
+                        .send()
+                        .await?;
+                }
+                config::BlockStorage::Local(r) => {
+                    fs::write(r.path.join("kp"), kp.encode()).await?;
+                }
+            };
+            Ok(kp)
         }
     }
 

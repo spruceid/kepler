@@ -1,12 +1,14 @@
-use sled::{Db, Tree};
+use anyhow::Result;
+use libipld::cid::Cid;
 use std::convert::TryFrom;
-
 use thiserror::Error;
+
+use crate::{config, storage::KV};
 
 #[derive(Clone)]
 pub struct AddRemoveSetStore {
-    elements: Tree,
-    tombs: Tree,
+    elements: KV,
+    tombs: KV,
 }
 
 #[derive(Error, Debug)]
@@ -14,50 +16,64 @@ pub enum Error<E> {
     #[error(transparent)]
     Store(#[from] sled::Error),
     #[error(transparent)]
+    Other(#[from] anyhow::Error),
+    #[error(transparent)]
     ElementDeser(E),
 }
 
 impl AddRemoveSetStore {
-    pub fn new(db: &Db, id: &[u8]) -> Result<Self, sled::Error> {
+    pub async fn new(
+        orbit_id: Cid,
+        subsystem_name: String,
+        config: config::IndexStorage,
+    ) -> Result<Self> {
         // map key to element cid
-        let elements = db.open_tree([id, ".elements".as_bytes()].concat())?;
+        let elements = KV::new(
+            orbit_id,
+            subsystem_name.clone(),
+            "elements".to_string(),
+            config.clone(),
+        )
+        .await?;
         // map key to element cid
-        let tombs = db.open_tree([id, ".tombs".as_bytes()].concat())?;
+        let tombs = KV::new(orbit_id, subsystem_name, "tombs".to_string(), config).await?;
         Ok(Self { elements, tombs })
     }
-    pub fn element<N: AsRef<[u8]>, E: TryFrom<Vec<u8>>>(
+    pub async fn element<N: AsRef<[u8]>, E: TryFrom<Vec<u8>>>(
         &self,
         n: N,
     ) -> Result<Option<E>, Error<E::Error>> {
         self.elements
-            .get(n.as_ref())?
+            .get(n.as_ref())
+            .await?
             .map(|b| E::try_from(b.to_vec()).map_err(Error::ElementDeser))
             .transpose()
     }
-    pub fn elements<E: TryFrom<Vec<u8>>>(
+    pub async fn elements<E: TryFrom<Vec<u8>>>(
         &self,
-    ) -> impl Iterator<Item = Result<(Vec<u8>, E), Error<E::Error>>> {
-        self.elements.iter().map(|r| {
-            let (k, v) = r?;
-            let e = E::try_from(v.to_vec()).map_err(Error::ElementDeser)?;
-            Ok((k.to_vec(), e))
-        })
+    ) -> Result<impl Iterator<Item = Result<(Vec<u8>, E), Error<E::Error>>>, anyhow::Error> {
+        Ok(self.elements.elements().await?.into_iter().map(|r| {
+            let (k, v) = r;
+            let e = E::try_from(v).map_err(Error::ElementDeser)?;
+            Ok((k, e))
+        }))
     }
-    pub fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<bool, sled::Error> {
-        self.tombs.contains_key(n.as_ref())
+    pub async fn is_tombstoned<N: AsRef<[u8]>>(&self, n: N) -> Result<bool, anyhow::Error> {
+        self.tombs.contains_key(n.as_ref()).await
     }
-    pub fn set_element<N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
+    pub async fn set_element<N: AsRef<[u8]>, E: AsRef<[u8]> + TryFrom<Vec<u8>>>(
         &self,
         n: N,
         e: &E,
     ) -> Result<Option<E>, Error<E::Error>> {
         self.elements
-            .insert(n.as_ref(), e.as_ref())?
+            .insert(n.as_ref(), e.as_ref())
+            .await?
             .map(|b| E::try_from(b.to_vec()).map_err(Error::ElementDeser))
             .transpose()
     }
-    pub fn set_tombstone<N: AsRef<[u8]>>(&self, n: N) -> Result<(), sled::Error> {
-        self.tombs.insert(n.as_ref(), &[])?;
+    pub async fn set_tombstone<N: AsRef<[u8]>>(&self, n: N) -> Result<(), anyhow::Error> {
+        self.tombs.insert(n.as_ref(), &[]).await?;
         Ok(())
     }
 }
