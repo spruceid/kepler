@@ -83,7 +83,7 @@ async fn caps_task(
                 }
                 Ok((_, CapsMessage::Update(update))) => {
                     debug!("recieved updates");
-                    if let Err(e) = store.apply(update).await {
+                    if let Err(e) = store.apply(&update).await {
                         debug!("failed to apply recieved updates {}", e);
                     }
                 }
