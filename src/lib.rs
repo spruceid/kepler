@@ -25,7 +25,6 @@ pub mod s3;
 pub mod siwe;
 pub mod storage;
 pub mod transport;
-pub mod tz;
 pub mod zcap;
 
 use libp2p::{

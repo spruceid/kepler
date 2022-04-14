@@ -214,7 +214,6 @@ fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
 impl AuthorizationPolicy<AuthTokens> for Manifest {
     async fn authorize(&self, auth_token: &AuthTokens) -> anyhow::Result<()> {
         match auth_token {
-            AuthTokens::Tezos(token) => self.authorize(token.as_ref()).await,
             AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
             AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,

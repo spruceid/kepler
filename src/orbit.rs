@@ -9,7 +9,6 @@ use crate::{
     resource::{OrbitId, ResourceId},
     s3::{behaviour::BehaviourProcess, Service as KVService, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
-    tz::TezosAuthorizationString,
     zcap::ZCAPInvocation,
 };
 use anyhow::{anyhow, Result};
@@ -42,7 +41,6 @@ use tokio::spawn;
 use super::storage::StorageUtils;
 
 pub enum AuthTokens {
-    Tezos(Box<TezosAuthorizationString>),
     ZCAP(Box<ZCAPInvocation>),
     SIWEZcapDelegated(Box<SIWEZcapTokens>),
     SIWEDelegated(Box<SIWETokens>),
@@ -53,21 +51,18 @@ impl<'r> FromRequest<'r> for AuthTokens {
     type Error = anyhow::Error;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let ats =
-            if let Outcome::Success(tz) = TezosAuthorizationString::from_request(request).await {
-                Self::Tezos(Box::new(tz))
-            } else if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
-                Self::SIWEDelegated(Box::new(siwe))
-            } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
-                Self::SIWEZcapDelegated(Box::new(siwe))
-            } else if let Outcome::Success(zcap) = ZCAPInvocation::from_request(request).await {
-                Self::ZCAP(Box::new(zcap))
-            } else {
-                return Outcome::Failure((
-                    Status::Unauthorized,
-                    anyhow!("No valid authorization headers"),
-                ));
-            };
+        let ats = if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
+            Self::SIWEDelegated(Box::new(siwe))
+        } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
+            Self::SIWEZcapDelegated(Box::new(siwe))
+        } else if let Outcome::Success(zcap) = ZCAPInvocation::from_request(request).await {
+            Self::ZCAP(Box::new(zcap))
+        } else {
+            return Outcome::Failure((
+                Status::Unauthorized,
+                anyhow!("No valid authorization headers"),
+            ));
+        };
         Outcome::Success(ats)
     }
 }
@@ -75,7 +70,6 @@ impl<'r> FromRequest<'r> for AuthTokens {
 impl AuthorizationToken for AuthTokens {
     fn resource(&self) -> &ResourceId {
         match self {
-            Self::Tezos(token) => token.resource(),
             Self::ZCAP(token) => token.resource(),
             Self::SIWEDelegated(token) => token.resource(),
             Self::SIWEZcapDelegated(token) => token.resource(),
@@ -319,7 +313,6 @@ impl Deref for Orbit {
 impl Invoke<AuthTokens> for Orbit {
     async fn invoke(&self, invocation: &AuthTokens) -> anyhow::Result<AuthRef> {
         match invocation {
-            AuthTokens::Tezos(token) => self.invoke(token.as_ref()).await,
             AuthTokens::ZCAP(token) => self.invoke(token.as_ref()).await,
             AuthTokens::SIWEDelegated(token) => self.invoke(token.as_ref()).await,
             AuthTokens::SIWEZcapDelegated(token) => self.invoke(token.as_ref()).await,
