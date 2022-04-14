@@ -25,7 +25,6 @@ pub mod s3;
 pub mod siwe;
 pub mod storage;
 pub mod transport;
-pub mod tz;
 pub mod zcap;
 
 use libp2p::{
@@ -33,12 +32,7 @@ use libp2p::{
     PeerId,
 };
 use relay::RelayNode;
-use routes::core::{
-    batch_put_content, cors, delete_content, get_content, get_content_no_auth, list_content,
-    list_content_no_auth, open_host_key, open_orbit_allowlist, open_orbit_authz, put_content,
-    relay_addr,
-};
-use routes::s3 as s3_routes;
+use routes::{cors, delegate, invoke, open_host_key, relay_addr};
 use std::{collections::HashMap, sync::RwLock};
 
 #[get("/healthz")]
@@ -62,39 +56,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kp = storage::StorageUtils::relay_key_pair(kepler_config.storage.blocks).await?;
     let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
 
-    let mut routes = routes![
+    let routes = routes![
         healthcheck,
-        put_content,
-        batch_put_content,
-        delete_content,
-        open_orbit_allowlist,
-        open_orbit_authz,
         cors,
-        s3_routes::put_content,
-        s3_routes::delete_content,
         relay_addr,
-        open_host_key
+        open_host_key,
+        invoke,
+        delegate,
     ];
-
-    if kepler_config.orbits.public {
-        let mut no_auth = routes![
-            get_content_no_auth,
-            list_content_no_auth,
-            s3_routes::get_content_no_auth,
-            s3_routes::get_metadata_no_auth,
-            s3_routes::list_content_no_auth,
-        ];
-        routes.append(&mut no_auth);
-    } else {
-        let mut auth = routes![
-            get_content,
-            list_content,
-            s3_routes::get_content,
-            s3_routes::get_metadata,
-            s3_routes::list_content,
-        ];
-        routes.append(&mut auth);
-    }
 
     Ok(rocket::custom(config)
         .mount("/", routes)

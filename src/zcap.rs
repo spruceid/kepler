@@ -47,13 +47,17 @@ pub type KeplerInvocation = Invocation<InvProps>;
 pub type KeplerDelegation = Delegation<(), DelProps>;
 
 #[derive(Clone)]
-pub struct ZCAPTokens {
+pub struct ZCAPInvocation {
     pub invocation: KeplerInvocation,
     pub delegation: Option<KeplerDelegation>,
 }
 
+pub struct ZCAPDelegation {
+    pub delegation: KeplerDelegation,
+}
+
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for ZCAPTokens {
+impl<'r> FromRequest<'r> for ZCAPInvocation {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         match (
@@ -83,15 +87,36 @@ impl<'r> FromRequest<'r> for ZCAPTokens {
     }
 }
 
-impl AuthorizationToken for ZCAPTokens {
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for ZCAPDelegation {
+    type Error = anyhow::Error;
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match request
+            .headers()
+            .get_one("x-kepler-delegation")
+            .map(|b64| {
+                base64::decode_config(b64, base64::URL_SAFE)
+                    .map_err(|e| anyhow!(e))
+                    .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
+            })
+            .transpose()
+        {
+            Ok(Some(delegation)) => Outcome::Success(Self { delegation }),
+            Ok(None) => Outcome::Forward(()),
+            Err(e) => Outcome::Failure((Status::Unauthorized, e)),
+        }
+    }
+}
+
+impl AuthorizationToken for ZCAPInvocation {
     fn resource(&self) -> &ResourceId {
         &self.invocation.property_set.invocation_target
     }
 }
 
 #[rocket::async_trait]
-impl Invoke<ZCAPTokens> for Orbit {
-    async fn invoke(&self, invocation: &ZCAPTokens) -> Result<AuthRef> {
+impl Invoke<ZCAPInvocation> for Orbit {
+    async fn invoke(&self, invocation: &ZCAPInvocation) -> Result<AuthRef> {
         self.authorize(invocation).await?;
 
         let inv: CapInvocation = invocation.invocation.clone().try_into()?;
@@ -111,8 +136,8 @@ impl Invoke<ZCAPTokens> for Orbit {
 }
 
 #[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPTokens> for Manifest {
-    async fn authorize(&self, auth_token: &ZCAPTokens) -> Result<()> {
+impl AuthorizationPolicy<ZCAPInvocation> for Manifest {
+    async fn authorize(&self, auth_token: &ZCAPInvocation) -> Result<()> {
         let invoker_vm = auth_token
             .invocation
             .proof

@@ -271,6 +271,18 @@ mod tests {
         assert_eq!(None, res2.service());
         assert_eq!(None, res2.path());
         assert_eq!("peer", res2.fragment().unwrap());
+
+        let res3: ResourceId = "kepler:ens:example.eth://orbit0/s3#list".parse().unwrap();
+
+        assert_eq!("s3", res3.service().unwrap());
+        assert_eq!("/", res3.path().unwrap());
+        assert_eq!("list", res3.fragment().unwrap());
+
+        let res4: ResourceId = "kepler:ens:example.eth://orbit0/s3/#list".parse().unwrap();
+
+        assert_eq!("s3", res4.service().unwrap());
+        assert_eq!("/", res4.path().unwrap());
+        assert_eq!("list", res4.fragment().unwrap());
     }
 
     #[test]
