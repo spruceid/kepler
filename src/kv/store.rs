@@ -1,7 +1,7 @@
 use crate::capabilities::store::AuthRef;
 use crate::indexes::{AddRemoveSetStore, HeadStore};
-use crate::s3::entries::{read_from_store, write_to_store};
-use crate::s3::{Object, ObjectBuilder, Service};
+use crate::kv::entries::{read_from_store, write_to_store};
+use crate::kv::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -108,9 +108,9 @@ pub struct Store {
 
 impl Store {
     pub async fn new(orbit_id: Cid, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
-        let index = AddRemoveSetStore::new(orbit_id, "s3".to_string(), config.clone()).await?;
+        let index = AddRemoveSetStore::new(orbit_id, "kv".to_string(), config.clone()).await?;
         // heads tracking store
-        let heads = HeadStore::new(orbit_id, "s3".to_string(), "heads".to_string(), config).await?;
+        let heads = HeadStore::new(orbit_id, "kv".to_string(), "heads".to_string(), config).await?;
         Ok(Self {
             id: orbit_id.to_string_of_base(Base::Base58Btc)?,
             ipfs,
@@ -165,18 +165,18 @@ impl Store {
     where
         N: AsRef<[u8]>,
     {
-        let s3_obj = match self.get(key).await {
+        let kv_obj = match self.get(key).await {
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
         match self
             .ipfs
-            .get_block(&s3_obj.value)
+            .get_block(&kv_obj.value)
             .await?
             .decode::<DagCborCodec, Vec<(Cid, u32)>>()
         {
             Ok(content) => Ok(Some((
-                s3_obj.metadata,
+                kv_obj.metadata,
                 read_from_store(self.ipfs.clone(), content),
             ))),
             Err(_) => Ok(None),

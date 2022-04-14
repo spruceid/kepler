@@ -252,14 +252,14 @@ mod tests {
 
     #[test]
     async fn basic() {
-        let res: ResourceId = "kepler:ens:example.eth://orbit0/s3/path/to/image.jpg"
+        let res: ResourceId = "kepler:ens:example.eth://orbit0/kv/path/to/image.jpg"
             .parse()
             .unwrap();
 
         assert_eq!("ens:example.eth", res.orbit().suffix());
         assert_eq!("did:ens:example.eth", res.orbit().did());
         assert_eq!("orbit0", res.orbit().name());
-        assert_eq!("s3", res.service().unwrap());
+        assert_eq!("kv", res.service().unwrap());
         assert_eq!("/path/to/image.jpg", res.path().unwrap());
         assert_eq!(None, res.fragment().as_ref());
 
@@ -272,26 +272,26 @@ mod tests {
         assert_eq!(None, res2.path());
         assert_eq!("peer", res2.fragment().unwrap());
 
-        let res3: ResourceId = "kepler:ens:example.eth://orbit0/s3#list".parse().unwrap();
+        let res3: ResourceId = "kepler:ens:example.eth://orbit0/kv#list".parse().unwrap();
 
-        assert_eq!("s3", res3.service().unwrap());
+        assert_eq!("kv", res3.service().unwrap());
         assert_eq!("/", res3.path().unwrap());
         assert_eq!("list", res3.fragment().unwrap());
 
-        let res4: ResourceId = "kepler:ens:example.eth://orbit0/s3/#list".parse().unwrap();
+        let res4: ResourceId = "kepler:ens:example.eth://orbit0/kv/#list".parse().unwrap();
 
-        assert_eq!("s3", res4.service().unwrap());
+        assert_eq!("kv", res4.service().unwrap());
         assert_eq!("/", res4.path().unwrap());
         assert_eq!("list", res4.fragment().unwrap());
     }
 
     #[test]
     async fn failures() {
-        let no_suffix: Result<ResourceId, _> = "kepler:://orbit0/s3/path/to/image.jpg".parse();
+        let no_suffix: Result<ResourceId, _> = "kepler:://orbit0/kv/path/to/image.jpg".parse();
         assert!(no_suffix.is_err());
 
         let invalid_name: Result<ResourceId, _> =
-            "kepler:ens:example.eth://or:bit0/s3/path/to/image.jpg".parse();
+            "kepler:ens:example.eth://or:bit0/kv/path/to/image.jpg".parse();
         assert!(invalid_name.is_err());
     }
 }

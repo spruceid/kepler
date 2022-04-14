@@ -131,7 +131,7 @@ mod test {
     use ipfs::IpfsOptions;
 
     use super::*;
-    use crate::s3::DagCborCodec;
+    use crate::kv::DagCborCodec;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn write() -> Result<(), anyhow::Error> {

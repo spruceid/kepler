@@ -17,10 +17,10 @@ use std::{
 };
 
 use crate::{
-    auth::{DelegateAuthWrapper, InvokeAuthWrapper, S3Action},
+    auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
     resource::OrbitId,
-    s3::{ObjectBuilder, ObjectReader},
 };
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -50,15 +50,15 @@ impl<'r> Responder<'r, 'static> for Metadata {
     }
 }
 
-pub struct S3Response(ObjectReader, pub Metadata);
+pub struct KVResponse(ObjectReader, pub Metadata);
 
-impl S3Response {
+impl KVResponse {
     pub fn new(md: Metadata, reader: ObjectReader) -> Self {
         Self(reader, md)
     }
 }
 
-impl<'r> Responder<'r, 'static> for S3Response {
+impl<'r> Responder<'r, 'static> for KVResponse {
     fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
         Ok(Response::build_from(self.1.respond_to(r)?)
             // must ensure that Metadata::respond_to does not set the body of the response
@@ -104,16 +104,16 @@ pub async fn invoke(
     use InvokeAuthWrapper::*;
     match i {
         Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
-        S3(action) => handle_s3_action(action, data).await,
+        KV(action) => handle_kv_action(action, data).await,
     }
 }
 
-pub async fn handle_s3_action(
-    action: Box<S3Action>,
+pub async fn handle_kv_action(
+    action: Box<KVAction>,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
     match *action {
-        S3Action::Delete {
+        KVAction::Delete {
             orbit,
             key,
             auth_ref,
@@ -131,14 +131,14 @@ pub async fn handle_s3_action(
                 })?;
             Ok(InvocationResponse::Empty)
         }
-        S3Action::Get { orbit, key } => match orbit.service.read(key).await {
-            Ok(Some((md, r))) => Ok(InvocationResponse::S3Response(S3Response::new(
+        KVAction::Get { orbit, key } => match orbit.service.read(key).await {
+            Ok(Some((md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
                 Metadata(md),
                 r,
             ))),
             _ => Ok(InvocationResponse::Empty),
         },
-        S3Action::List { orbit } => {
+        KVAction::List { orbit } => {
             Ok(InvocationResponse::List(
                 orbit
                     .service
@@ -153,12 +153,12 @@ pub async fn handle_s3_action(
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?,
             ))
         }
-        S3Action::Metadata { orbit, key } => match orbit.service.get(key).await {
+        KVAction::Metadata { orbit, key } => match orbit.service.get(key).await {
             Ok(Some(content)) => Ok(InvocationResponse::Metadata(Metadata(content.metadata))),
             Err(e) => Err((Status::InternalServerError, e.to_string())),
             Ok(None) => Ok(InvocationResponse::Empty),
         },
-        S3Action::Put {
+        KVAction::Put {
             orbit,
             key,
             metadata,
@@ -185,7 +185,7 @@ pub async fn handle_s3_action(
 pub enum InvocationResponse {
     OrbitId(OrbitId),
     Empty,
-    S3Response(S3Response),
+    KVResponse(KVResponse),
     List(Vec<String>),
     Metadata(Metadata),
 }
@@ -195,7 +195,7 @@ impl<'r> Responder<'r, 'static> for InvocationResponse {
         match self {
             InvocationResponse::OrbitId(orbit_id) => orbit_id.to_string().respond_to(request),
             InvocationResponse::Empty => ().respond_to(request),
-            InvocationResponse::S3Response(response) => response.respond_to(request),
+            InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
         }
