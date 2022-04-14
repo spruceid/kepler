@@ -14,8 +14,6 @@
     # path = "/tmp/kepler/indexes"
 
 [global.orbits]
-## allow unauthorized get requests
-# public = true
 ## Orbit allow list api endpoint
 # allowlist = "http://localhost:10000"
 
