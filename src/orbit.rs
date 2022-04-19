@@ -5,9 +5,9 @@ use crate::{
     codec::SupportedCodecs,
     config,
     ipfs::create_ipfs,
+    kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
     resource::{OrbitId, ResourceId},
-    s3::{behaviour::BehaviourProcess, Service as KVService, Store},
     siwe::{SIWETokens, SIWEZcapTokens},
     zcap::ZCAPInvocation,
 };

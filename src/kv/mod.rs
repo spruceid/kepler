@@ -244,20 +244,20 @@ mod test {
         let dummy_auth = AuthRef::new(*dab.cid(), vec![]);
         alice_service.ipfs.put_block(dab).await?;
 
-        let s3_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
-        let s3_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
+        let kv_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
+        let kv_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
 
         type RmItem = (Vec<u8>, Option<(u64, Cid)>, AuthRef);
         let rm: Vec<RmItem> = vec![];
         alice_service
-            .write(vec![(s3_obj_1, json.as_bytes())], rm.clone())
+            .write(vec![(kv_obj_1, json.as_bytes())], rm.clone())
             .await?;
         bob_service
-            .write(vec![(s3_obj_2, json.as_bytes())], rm)
+            .write(vec![(kv_obj_2, json.as_bytes())], rm)
             .await?;
 
         {
-            // ensure only alice has s3_obj_1
+            // ensure only alice has kv_obj_1
             let o = alice_service
                 .get(key1)
                 .await?
@@ -267,7 +267,7 @@ mod test {
             assert_eq!(bob_service.get(key1).await?, None, "object 1 found for bob");
         };
         {
-            // ensure only bob has s3_obj_2
+            // ensure only bob has kv_obj_2
             let o = bob_service
                 .get(key2)
                 .await?

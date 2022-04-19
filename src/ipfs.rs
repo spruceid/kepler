@@ -17,7 +17,7 @@ use std::{future::Future, sync::mpsc::Receiver};
 use super::{cas::ContentAddressedStorage, codec::SupportedCodecs};
 use crate::{
     config,
-    s3::behaviour::{Behaviour, Event as BehaviourEvent},
+    kv::behaviour::{Behaviour, Event as BehaviourEvent},
     storage::{Repo, StorageUtils},
 };
 

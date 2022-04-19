@@ -164,10 +164,10 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 
 pub enum InvokeAuthWrapper {
     Create(OrbitId),
-    S3(Box<S3Action>),
+    KV(Box<KVAction>),
 }
 
-pub enum S3Action {
+pub enum KVAction {
     Delete {
         orbit: Orbit,
         key: String,
@@ -271,7 +271,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                 };
                 match target.service() {
                     None => bad_request(anyhow!("missing service in invocation target")),
-                    Some("s3") => {
+                    Some("kv") => {
                         let key = match target.path() {
                             Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
                             None => {
@@ -280,26 +280,26 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                         };
                         match target.fragment() {
                             None => bad_request(anyhow!("missing action in invocation target")),
-                            Some("del") => Outcome::Success(Self::S3(Box::new(S3Action::Delete {
+                            Some("del") => Outcome::Success(Self::KV(Box::new(KVAction::Delete {
                                 orbit,
                                 key,
                                 auth_ref,
                             }))),
                             Some("get") => {
-                                Outcome::Success(Self::S3(Box::new(S3Action::Get { orbit, key })))
+                                Outcome::Success(Self::KV(Box::new(KVAction::Get { orbit, key })))
                             }
                             Some("list") => {
-                                Outcome::Success(Self::S3(Box::new(S3Action::List { orbit })))
+                                Outcome::Success(Self::KV(Box::new(KVAction::List { orbit })))
                             }
                             Some("metadata") => {
-                                Outcome::Success(Self::S3(Box::new(S3Action::Metadata {
+                                Outcome::Success(Self::KV(Box::new(KVAction::Metadata {
                                     orbit,
                                     key,
                                 })))
                             }
                             Some("put") => match Metadata::from_request(req).await {
                                 Outcome::Success(metadata) => {
-                                    Outcome::Success(Self::S3(Box::new(S3Action::Put {
+                                    Outcome::Success(Self::KV(Box::new(KVAction::Put {
                                         orbit,
                                         key,
                                         metadata,

@@ -1,8 +1,8 @@
 use crate::{
     indexes::{AddRemoveSetStore, HeadStore},
     ipfs::{Block, Ipfs},
+    kv::to_block_raw,
     resource::{OrbitId, ResourceId},
-    s3::to_block_raw,
     siwe::SIWEMessage,
     zcap::{KeplerDelegation, KeplerInvocation},
 };
