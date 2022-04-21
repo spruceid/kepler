@@ -2,11 +2,11 @@ use crate::capabilities::store::{AuthRef, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
-use crate::resource::{OrbitId, ResourceId};
 use crate::routes::Metadata;
 use crate::zcap::{CapNode, Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
+use lib::resource::{OrbitId, ResourceId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     http::Status,

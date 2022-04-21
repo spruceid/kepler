@@ -1,8 +1,13 @@
 use crate::capabilities::store::decode_root;
-use crate::resource::ResourceId;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use didkit::DID_METHODS;
+use lib::{
+    didkit::DID_METHODS,
+    resource::ResourceId,
+    ssi::{vc::{Proof, URI},
+cacao_zcap::CacaoZcapExtraProps},
+    zcap::{KeplerDelegation as InnerDelegation, KeplerInvocation as InnerInvocation},
+};
 use libipld::{
     cbor::DagCborCodec,
     codec::{Decode, Encode},
@@ -16,29 +21,11 @@ use rocket::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssi::{cacao_zcap::CacaoZcapExtraProps, vc::URI};
 use std::{
-    collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Cursor, Read, Seek, Write},
     str::FromStr,
 };
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct InvProps {
-    pub invocation_target: ResourceId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_from: Option<String>,
-    #[serde(flatten)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_fields: Option<HashMap<String, Value>>,
-}
-
-type InnerDelegation = ssi::zcap::Delegation<(), CacaoZcapExtraProps>;
-type InnerInvocation = ssi::zcap::Invocation<InvProps>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Delegation(InnerDelegation);
@@ -324,7 +311,6 @@ macro_rules! impl_capnode {
     ($type:ident) => {
         impl CapNode for $type {
             fn id(&self) -> Vec<u8> {
-                use ssi::vc::URI;
                 match &self.0.id {
                     URI::String(ref u) => uuid_bytes_or_str(u),
                 }
@@ -355,7 +341,7 @@ impl_capnode!(Revocation);
 pub struct ParentIter<'a>(Option<&'a Value>);
 
 impl<'a> ParentIter<'a> {
-    pub fn new(proof: Option<&'a ssi::vc::Proof>) -> Self {
+    pub fn new(proof: Option<&'a Proof>) -> Self {
         Self(
             proof
                 .and_then(|p| p.property_set.as_ref())
