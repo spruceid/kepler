@@ -13,6 +13,7 @@ use ipfs::{
     },
     Block, RepoTypes,
 };
+use lib::resource::OrbitId;
 use libipld::cid::{multibase::Base, Cid};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
@@ -25,7 +26,7 @@ mod utils;
 
 pub use indexes::KV;
 
-use crate::{config, resource::OrbitId};
+use crate::config;
 use dynamodb::References;
 
 pub struct StorageUtils {

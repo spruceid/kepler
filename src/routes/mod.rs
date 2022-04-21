@@ -112,7 +112,7 @@ pub async fn invoke(
 ) -> Result<InvocationResponse, (Status, String)> {
     use InvokeAuthWrapper::*;
     match i {
-        Revoke => Ok(InvocationResponse::Revoked),
+        Revocation => Ok(InvocationResponse::Revoked),
         KV(action) => handle_kv_action(action, data).await,
     }
 }

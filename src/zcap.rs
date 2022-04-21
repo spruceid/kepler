@@ -1,7 +1,12 @@
-use crate::resource::ResourceId;
-use anyhow::Result;
-use cacao_zcap::CacaoZcapExtraProps;
-use didkit::DID_METHODS;
+use lib::{
+    didkit::DID_METHODS,
+    resource::ResourceId,
+    ssi::vc::{Proof, URI},
+    zcap::{
+        KeplerDelegation as InnerDelegation, KeplerInvocation as InnerInvocation, Verifiable,
+        VerificationResult,
+    },
+};
 use libipld::{
     cbor::DagCborCodec,
     codec::{Decode, Encode},
@@ -15,25 +20,11 @@ use rocket::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssi::vc::URI;
 use std::{
-    collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Cursor, Read, Seek, Write},
     str::FromStr,
 };
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct InvProps {
-    pub invocation_target: ResourceId,
-    #[serde(flatten)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_fields: Option<HashMap<String, Value>>,
-}
-
-type InnerDelegation = ssi::zcap::Delegation<(), CacaoZcapExtraProps>;
-type InnerInvocation = ssi::zcap::Invocation<InvProps>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Delegation(InnerDelegation);
@@ -300,7 +291,6 @@ macro_rules! impl_capnode {
     ($type:ident) => {
         impl CapNode for $type {
             fn id(&self) -> Vec<u8> {
-                use ssi::vc::URI;
                 match &self.0.id {
                     URI::String(ref u) => uuid_bytes_or_str(u),
                 }
@@ -322,7 +312,7 @@ impl_capnode!(Revocation);
 pub struct ParentIter<'a>(Option<&'a Value>);
 
 impl<'a> ParentIter<'a> {
-    pub fn new(proof: Option<&'a ssi::vc::Proof>) -> Self {
+    pub fn new(proof: Option<&'a Proof>) -> Self {
         Self(
             proof
                 .and_then(|p| p.property_set.as_ref())
@@ -376,67 +366,23 @@ impl<'a> Iterator for NestedIdIter<'a> {
     }
 }
 
-#[rocket::async_trait]
-pub trait Verifiable {
-    async fn verify(&self) -> Result<()>;
+macro_rules! impl_verifiable {
+    ($type:ident) => {
+        #[rocket::async_trait]
+        impl Verifiable for $type {
+            async fn verify(&self) -> VerificationResult {
+                Verifiable::verify(&self.0).await
+            }
+        }
+    };
 }
 
-#[rocket::async_trait]
-impl Verifiable for Delegation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(e) = self
-            .0
-            .verify(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
-            .into_iter()
-            .next()
-        {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl Verifiable for Invocation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(e) = self
-            .0
-            .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
-            .into_iter()
-            .next()
-        {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl Verifiable for Revocation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(e) = self
-            .0
-            .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
-            .into_iter()
-            .next()
-        {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
-    }
-}
+impl_verifiable!(Delegation);
+impl_verifiable!(Invocation);
+impl_verifiable!(Revocation);
 
 #[test]
-async fn basic() -> Result<()> {
+async fn basic() -> anyhow::Result<()> {
     let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:8097ab5c-ebd6-4924-b659-5f8009429e4d","invocationTarget":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default/ipfs/#list","proof":{"type":"Ed25519Signature2018","proofPurpose":"capabilityInvocation","verificationMethod":"did:key:z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj#z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj","created":"2022-03-21T13:59:14.455Z","jws":"eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..ybqGJAhCtAPE97cZTLLvX5f5IzJtZLaCmrYAGosckwt9MT5A-ZRQfcZsdwrDUGND5lSTAIAvxWjCOvtMA1RVCw","capability":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default"}}"#;
     let inv: Invocation = serde_json::from_str(inv_str)?;
     let res = inv

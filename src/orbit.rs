@@ -6,10 +6,10 @@ use crate::{
     ipfs::create_ipfs,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
-    resource::OrbitId,
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
+use lib::resource::OrbitId;
 use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
@@ -264,8 +264,8 @@ impl Deref for Orbit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use didkit::DID_METHODS;
-    use ssi::{
+    use lib::didkit::DID_METHODS;
+    use lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,
     };

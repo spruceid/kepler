@@ -1,8 +1,8 @@
 use libipld::cid::{multibase::Base, Cid, Error as CidError};
 use libp2p::{Multiaddr, PeerId};
 
-use crate::resource::OrbitId;
-use ssi::{
+use lib::resource::OrbitId;
+use lib::ssi::{
     did::{Document, RelativeDIDURL, Service, VerificationMethod, DIDURL},
     did_resolve::DIDResolver,
     one_or_many::OneOrMany,
@@ -130,7 +130,7 @@ pub async fn resolve_dyn(
     resolver: Option<&dyn DIDResolver>,
 ) -> Result<Option<Manifest>, ResolutionError> {
     let (md, doc, doc_md) = resolver
-        .unwrap_or_else(|| didkit::DID_METHODS.to_resolver())
+        .unwrap_or_else(|| lib::didkit::DID_METHODS.to_resolver())
         .resolve(&id.did(), &Default::default())
         .await;
 
@@ -213,8 +213,8 @@ fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use didkit::DID_METHODS;
-    use ssi::{
+    use lib::didkit::DID_METHODS;
+    use lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,
     };
