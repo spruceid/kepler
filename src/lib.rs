@@ -19,6 +19,7 @@ pub mod ipfs;
 pub mod kv;
 pub mod manifest;
 pub mod orbit;
+pub mod prometheus;
 pub mod relay;
 pub mod resource;
 pub mod routes;

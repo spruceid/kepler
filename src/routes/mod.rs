@@ -98,14 +98,20 @@ pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
     i: InvokeAuthWrapper,
-
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
     use InvokeAuthWrapper::*;
-    match i {
+    let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+        .with_label_values(&[i.prometheus_label()])
+        .start_timer();
+
+    let res = match i {
         Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
         KV(action) => handle_kv_action(action, data).await,
-    }
+    };
+
+    timer.observe_duration();
+    res
 }
 
 pub async fn handle_kv_action(

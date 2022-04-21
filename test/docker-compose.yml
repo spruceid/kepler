@@ -5,6 +5,12 @@ services:
     build: ..
     ports:
       - "8000:8000"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     environment:
       RUST_LOG: "debug"
       KEPLER_STORAGE_BLOCKS_BUCKET: "kepler-blocks"

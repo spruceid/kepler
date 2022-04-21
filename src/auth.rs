@@ -167,6 +167,15 @@ pub enum InvokeAuthWrapper {
     KV(Box<KVAction>),
 }
 
+impl InvokeAuthWrapper {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            InvokeAuthWrapper::Create(_) => "orbit_create",
+            InvokeAuthWrapper::KV(kv) => kv.prometheus_label(),
+        }
+    }
+}
+
 pub enum KVAction {
     Delete {
         orbit: Orbit,
@@ -190,6 +199,18 @@ pub enum KVAction {
         metadata: Metadata,
         auth_ref: AuthRef,
     },
+}
+
+impl KVAction {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            KVAction::Delete { .. } => "kv_delete",
+            KVAction::Get { .. } => "kv_get",
+            KVAction::List { .. } => "kv_list",
+            KVAction::Metadata { .. } => "kv_metadata",
+            KVAction::Put { .. } => "kv_put",
+        }
+    }
 }
 
 #[async_trait]
