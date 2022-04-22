@@ -9,6 +9,12 @@ lazy_static! {
         &["action"]
     )
     .unwrap();
+    pub static ref AUTHORIZATION_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "kepler_authorization_duration_seconds",
+        "The authorization latencies in seconds.",
+        &["request"]
+    )
+    .unwrap();
 }
 
 pub async fn serve_req(_req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
