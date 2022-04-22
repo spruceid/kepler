@@ -10,6 +10,7 @@ pub struct Config {
     pub apis: ExternalApis,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
+    pub prometheus: Prometheus,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
@@ -78,6 +79,11 @@ pub struct Relay {
     pub port: u16,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Prometheus {
+    pub port: u16,
+}
+
 impl Default for BlockStorage {
     fn default() -> BlockStorage {
         BlockStorage::Local(LocalBlockStorage::default())
@@ -112,5 +118,11 @@ impl Default for Relay {
             address: "127.0.0.1".into(),
             port: 8081,
         }
+    }
+}
+
+impl Default for Prometheus {
+    fn default() -> Self {
+        Self { port: 8001 }
     }
 }

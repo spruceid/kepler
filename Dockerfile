@@ -42,5 +42,7 @@ COPY --from=builder ${DIR}/target/x86_64-unknown-linux-musl/release/kepler /usr/
 COPY ./kepler.toml ./
 ENV ROCKET_ADDRESS=0.0.0.0
 EXPOSE 8000
+EXPOSE 8001
+EXPOSE 8081
 ENTRYPOINT ["kepler"]
 LABEL org.opencontainers.image.source https://github.com/spruceid/kepler

@@ -167,6 +167,15 @@ pub enum InvokeAuthWrapper {
     KV(Box<KVAction>),
 }
 
+impl InvokeAuthWrapper {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            InvokeAuthWrapper::Create(_) => "orbit_create",
+            InvokeAuthWrapper::KV(kv) => kv.prometheus_label(),
+        }
+    }
+}
+
 pub enum KVAction {
     Delete {
         orbit: Orbit,
@@ -192,11 +201,27 @@ pub enum KVAction {
     },
 }
 
+impl KVAction {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            KVAction::Delete { .. } => "kv_delete",
+            KVAction::Get { .. } => "kv_get",
+            KVAction::List { .. } => "kv_list",
+            KVAction::Metadata { .. } => "kv_metadata",
+            KVAction::Put { .. } => "kv_put",
+        }
+    }
+}
+
 #[async_trait]
 impl<'l> FromRequest<'l> for InvokeAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {
+        let timer = crate::prometheus::AUTHORIZATION_HISTOGRAM
+            .with_label_values(&["invoke"])
+            .start_timer();
+
         let (config, relay) = match get_state(req) {
             Ok(s) => s,
             Err(e) => return internal_server_error(e),
@@ -210,7 +235,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
 
         let target = token.resource();
 
-        match target.fragment() {
+        let res = match target.fragment() {
             None => unauthorized(anyhow!("target resource is missing action")),
             // TODO: Refactor '#peer` invocations to be delegations to the peer id.
             Some("peer") => {
@@ -322,7 +347,10 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                     }
                 }
             }
-        }
+        };
+
+        timer.observe_duration();
+        res
     }
 }
 
