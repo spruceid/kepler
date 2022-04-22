@@ -22,7 +22,6 @@ pub mod orbit;
 pub mod relay;
 pub mod resource;
 pub mod routes;
-pub mod siwe;
 pub mod storage;
 pub mod transport;
 pub mod zcap;

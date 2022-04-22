@@ -3,8 +3,7 @@ use crate::{
     ipfs::{Block, Ipfs},
     kv::to_block_raw,
     resource::{OrbitId, ResourceId},
-    siwe::SIWEMessage,
-    zcap::{KeplerDelegation, KeplerInvocation},
+    zcap::{CapNode, Delegation, Invocation, Revocation, Verifiable},
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
@@ -17,8 +16,6 @@ use libipld::{
     Cid, DagCbor,
 };
 use rocket::futures::future::try_join_all;
-use ssi::vc::URI;
-use std::convert::TryFrom;
 
 use crate::config;
 
@@ -30,6 +27,15 @@ impl AuthRef {
         Self(event_cid, invocation_id)
     }
 }
+
+#[derive(DagCbor, PartialEq, Debug, Clone)]
+enum BlockRef {
+    SameBlock,
+    Block(Cid),
+}
+
+#[derive(DagCbor, PartialEq, Debug, Clone)]
+struct ElementRef(BlockRef, Vec<u8>);
 
 const SERVICE_NAME: &str = "capabilities";
 
@@ -140,13 +146,14 @@ impl Store {
     }
     async fn link_update<U>(&self, update: U) -> Result<LinkedUpdate<U>>
     where
-        U: DagCbor + IndexReferences,
+        U: DagCbor + CapNode,
     {
         Ok(LinkedUpdate {
-            parent: self
+            parents: self
                 .index
                 .element(update.parent())
                 .await?
+                .map(|c: Cid| vec![ElementRef(BlockRef::Block(c), update.parent().to_vec())])
                 .ok_or_else(|| anyhow!("unknown parent capability"))?,
             update,
         })
@@ -266,7 +273,7 @@ impl Store {
     }
 
     async fn broadcast_update_verbatim(&self, event: Event) -> Result<()> {
-        debug!("broadcasting update on {}", self.id,);
+        debug!("broadcasting update on {}", self.id);
         self.ipfs
             .pubsub_publish(
                 self.id
@@ -447,18 +454,7 @@ where
     U: DagCbor,
 {
     pub update: U,
-    pub parent: Cid,
-}
-
-pub trait IndexReferences {
-    fn id(&self) -> &[u8];
-    fn parent(&self) -> &[u8];
-}
-
-#[rocket::async_trait]
-trait EndVerifiable {
-    // NOTE this assumes that all parent delegations are embedded in the document
-    async fn verify(&self) -> Result<()>;
+    pub parents: Vec<ElementRef>,
 }
 
 #[derive(DagCbor, Debug)]
@@ -467,307 +463,14 @@ pub(crate) struct Invocations {
     pub invoke: Vec<LinkedUpdate<Invocation>>,
 }
 
-#[derive(PartialEq, DagCbor, Debug, Clone)]
-pub struct Delegation {
-    id: Vec<u8>,
-    parent: Vec<u8>,
-    resources: Vec<ResourceId>,
-    delegator: Vec<u8>,
-    delegate: Vec<u8>,
-    message: Vec<u8>,
-}
-
-impl IndexReferences for Delegation {
-    fn id(&self) -> &[u8] {
-        &self.id
-    }
-    fn parent(&self) -> &[u8] {
-        &self.parent
-    }
-}
-
-impl Delegation {
-    pub fn resources(&self) -> &[ResourceId] {
-        &self.resources
-    }
-    pub fn delegator(&self) -> &[u8] {
-        &self.delegator
-    }
-    pub fn delegate(&self) -> &[u8] {
-        &self.delegate
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum DelegationConversionError<S> {
-    #[error("Missing Parent Delegation ID")]
-    MissingParent,
-    #[error("Missing Delegator ID")]
-    MissingDelegator,
-    #[error("Missing Delegate ID")]
-    MissingDelegate,
-    #[error("Missing Resources")]
-    MissingResources,
-    #[error("Delegation ID is invalid")]
-    InvalidId,
-    #[error("Missing Delegation ID")]
-    MissingId,
-    #[error(transparent)]
-    MessageSerialisation(#[from] S),
-}
-
-impl TryFrom<KeplerDelegation> for Delegation {
-    type Error = DelegationConversionError<serde_json::Error>;
-    fn try_from(d: KeplerDelegation) -> Result<Self, Self::Error> {
-        Ok(Self {
-            message: serde_json::to_vec(&d)?,
-            // TODO verify ID binding if we have
-            id: match d.id {
-                URI::String(s) => s.into(),
-            },
-            parent: match d.parent_capability {
-                URI::String(s) => s.into(),
-            },
-            resources: d.property_set.capability_action,
-            delegator: d
-                .proof
-                .and_then(|p| p.verification_method)
-                .ok_or(DelegationConversionError::MissingDelegator)?
-                .into(),
-            delegate: match d
-                .invoker
-                .ok_or(DelegationConversionError::MissingDelegate)?
-            {
-                URI::String(s) => s.into(),
-            },
-        })
-    }
-}
-
-// HACK have to inject parent delegation ID
-impl TryFrom<(Vec<u8>, SIWEMessage)> for Delegation {
-    type Error = DelegationConversionError<serde_json::Error>;
-    fn try_from((parent_id, message): (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
-        Ok(Self {
-            message: serde_json::to_vec(&message)?,
-            // TODO calculate ID
-            id: ["urn:siwe:kepler:", &message.0.nonce].concat().into_bytes(),
-            parent: parent_id,
-            resources: message
-                .0
-                .resources
-                .iter()
-                .map(|u| {
-                    u.as_str()
-                        .parse()
-                        .map_err(|_| DelegationConversionError::MissingResources)
-                })
-                .collect::<Result<Vec<ResourceId>, Self::Error>>()?,
-            delegator: message.0.address.into(),
-            delegate: message.0.uri.as_str().into(),
-        })
-    }
-}
-
-#[rocket::async_trait]
-impl EndVerifiable for Delegation {
-    async fn verify(&self) -> Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(PartialEq, DagCbor, Debug, Clone)]
-pub struct Invocation {
-    id: Vec<u8>,
-    parent: Vec<u8>,
-    target: ResourceId,
-    invoker: Vec<u8>,
-    message: Vec<u8>,
-}
-
-impl IndexReferences for Invocation {
-    fn id(&self) -> &[u8] {
-        &self.id
-    }
-    fn parent(&self) -> &[u8] {
-        &self.parent
-    }
-}
-
-impl Invocation {
-    pub fn resource(&self) -> &ResourceId {
-        &self.target
-    }
-    pub fn invoker(&self) -> &[u8] {
-        &self.invoker
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum InvocationConversionError<S> {
-    #[error("Missing Parent Delegation ID")]
-    MissingParent,
-    #[error("Missing Invoker ID")]
-    MissingInvoker,
-    #[error("Missing Target Resource")]
-    MissingResource,
-    #[error("Invocation ID is invalid")]
-    InvalidId,
-    #[error("Missing Invocation ID")]
-    MissingId,
-    #[error(transparent)]
-    MessageSerialisation(#[from] S),
-}
-
-impl TryFrom<KeplerInvocation> for Invocation {
-    type Error = InvocationConversionError<serde_json::Error>;
-    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
-        let message = serde_json::to_vec(&i)?;
-        match i.proof {
-            Some(p) => Ok(Self {
-                message,
-                // TODO verify ID binding if we have
-                id: match i.id {
-                    URI::String(s) => s.into(),
-                },
-                parent: p
-                    .property_set
-                    .as_ref()
-                    .and_then(|ps| ps.get("capability").cloned())
-                    .and_then(|v| match v {
-                        serde_json::Value::String(s) => Some(s.into()),
-                        _ => None,
-                    })
-                    .ok_or(InvocationConversionError::MissingParent)?,
-                target: i.property_set.invocation_target,
-                invoker: p
-                    .verification_method
-                    .ok_or(InvocationConversionError::MissingInvoker)?
-                    .into(),
-            }),
-            None => Err(InvocationConversionError::MissingInvoker),
-        }
-    }
-}
-
-impl TryFrom<(Vec<u8>, SIWEMessage)> for Invocation {
-    type Error = InvocationConversionError<serde_json::Error>;
-    fn try_from((parent_id, message): (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
-        Ok(Self {
-            message: serde_json::to_vec(&message)?,
-            // TODO calculate ID
-            id: ["urn:siwe:kepler:", &message.0.nonce].concat().into_bytes(),
-            parent: parent_id,
-            target: message
-                .0
-                .resources
-                .iter()
-                .find_map(|r| r.as_str().parse().ok())
-                .ok_or(Self::Error::MissingResource)?,
-            invoker: message.0.address.into(),
-        })
-    }
-}
-
-#[rocket::async_trait]
-impl EndVerifiable for Invocation {
-    async fn verify(&self) -> Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(PartialEq, DagCbor, Debug, Clone)]
-pub struct Revocation {
-    id: Vec<u8>,
-    parent: Vec<u8>,
-    target: Vec<u8>,
-    revoker: Vec<u8>,
-    message: Vec<u8>,
-}
-
-impl IndexReferences for Revocation {
-    fn id(&self) -> &[u8] {
-        &self.id
-    }
-    fn parent(&self) -> &[u8] {
-        &self.parent
-    }
-}
-
-impl Revocation {
-    pub fn revoked(&self) -> &[u8] {
-        &self.target
-    }
-    pub fn revoker(&self) -> &[u8] {
-        &self.revoker
-    }
-}
-
-fn check_target_is_delegation<S>(
-    target: &ResourceId,
-) -> Result<Vec<u8>, RevocationConversionError<S>> {
+fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
     match (
         target.service(),
         target.path().unwrap_or("").strip_prefix("/delegations/"),
     ) {
         // TODO what exactly do we expect here
-        (Some("capabilities"), Some(p)) => Ok(p.into()),
-        _ => Err(RevocationConversionError::InvalidTarget),
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum RevocationConversionError<S> {
-    #[error("Target does not identify revokable Delegation")]
-    InvalidTarget,
-    #[error(transparent)]
-    InvalidInvocation(#[from] InvocationConversionError<S>),
-}
-
-impl TryFrom<KeplerInvocation> for Revocation {
-    type Error = RevocationConversionError<serde_json::Error>;
-    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
-        let Invocation {
-            id,
-            parent,
-            target,
-            invoker,
-            message,
-        } = Invocation::try_from(i)?;
-        Ok(Self {
-            id,
-            parent,
-            target: check_target_is_delegation(&target)?,
-            revoker: invoker,
-            message,
-        })
-    }
-}
-
-impl TryFrom<(Vec<u8>, SIWEMessage)> for Revocation {
-    type Error = RevocationConversionError<serde_json::Error>;
-    fn try_from(i: (Vec<u8>, SIWEMessage)) -> Result<Self, Self::Error> {
-        let Invocation {
-            id,
-            parent,
-            target,
-            invoker,
-            message,
-        } = Invocation::try_from(i)?;
-        Ok(Self {
-            id,
-            parent,
-            target: check_target_is_delegation(&target)?,
-            revoker: invoker,
-            message,
-        })
-    }
-}
-
-#[rocket::async_trait]
-impl EndVerifiable for Revocation {
-    async fn verify(&self) -> Result<()> {
-        Ok(())
+        (Some("capabilities"), Some(p)) => Some(p.into()),
+        _ => None,
     }
 }
 

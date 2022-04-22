@@ -47,6 +47,8 @@ tracing = "0.1"
 tracing-subscriber = "0.2"
 urlencoding = "2.1"
 void = "1"
+cacao-zcap = { path = "../cacao-zcap-rs" }
+uuid = "1"
 
 [dev-dependencies]
 tempdir = "0.3.7"

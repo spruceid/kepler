@@ -17,10 +17,9 @@ use std::{
 };
 
 use crate::{
-    auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth::{DelegateAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
-    resource::OrbitId,
 };
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -91,28 +90,31 @@ pub fn open_host_key(
 }
 
 #[post("/delegate")]
-pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
-    Ok(())
+pub fn delegate(d: DelegateAuthWrapper) -> DelegateAuthWrapper {
+    d
 }
 
-#[post("/invoke", data = "<data>")]
-pub async fn invoke(
-    i: InvokeAuthWrapper,
-
-    data: Data<'_>,
-) -> Result<InvocationResponse, (Status, String)> {
-    use InvokeAuthWrapper::*;
-    match i {
-        Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
-        KV(action) => handle_kv_action(action, data).await,
+impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        match self {
+            DelegateAuthWrapper::OrbitCreation(orbit_id) => {
+                orbit_id.to_string().respond_to(request)
+            }
+            DelegateAuthWrapper::Delegation => ().respond_to(request),
+        }
     }
 }
 
+#[post("/invoke", data = "<data>")]
+pub async fn invoke(i: KVAction, data: Data<'_>) -> Result<InvocationResponse, (Status, String)> {
+    handle_kv_action(i, data).await
+}
+
 pub async fn handle_kv_action(
-    action: Box<KVAction>,
+    action: KVAction,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
-    match *action {
+    match action {
         KVAction::Delete {
             orbit,
             key,
@@ -183,7 +185,6 @@ pub async fn handle_kv_action(
 }
 
 pub enum InvocationResponse {
-    OrbitId(OrbitId),
     Empty,
     KVResponse(KVResponse),
     List(Vec<String>),
@@ -193,7 +194,6 @@ pub enum InvocationResponse {
 impl<'r> Responder<'r, 'static> for InvocationResponse {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         match self {
-            InvocationResponse::OrbitId(orbit_id) => orbit_id.to_string().respond_to(request),
             InvocationResponse::Empty => ().respond_to(request),
             InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),

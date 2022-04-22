@@ -1,215 +1,246 @@
-use crate::{
-    auth::{simple_check, AuthorizationPolicy, AuthorizationToken},
-    capabilities::{
-        store::{IndexReferences, Invocation as CapInvocation, Updates},
-        AuthRef, Invoke,
-    },
-    manifest::Manifest,
-    orbit::Orbit,
-    resource::ResourceId,
-};
+use crate::resource::ResourceId;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use cacao_zcap::CacaoZcapExtraProps;
 use didkit::DID_METHODS;
+use libipld::{
+    cbor::DagCborCodec,
+    codec::{Decode, Encode},
+    error::Error as IpldError,
+    json::DagJsonCodec,
+    Ipld,
+};
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use ssi::{
-    did::DIDURL,
-    vc::URI,
-    zcap::{Delegation, Invocation},
+use serde_json::{Error as SerdeError, Value};
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read, Seek, Write},
 };
-use std::{collections::HashMap as Map, convert::TryInto, str::FromStr};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct DelProps {
-    pub capability_action: Vec<ResourceId>,
-    pub expiration: Option<DateTime<Utc>>,
-    #[serde(flatten)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_fields: Option<Map<String, Value>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct InvProps {
+struct InvProps {
     pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_fields: Option<Map<String, Value>>,
+    pub extra_fields: Option<HashMap<String, Value>>,
 }
 
-pub type KeplerInvocation = Invocation<InvProps>;
-pub type KeplerDelegation = Delegation<(), DelProps>;
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Delegation(ssi::zcap::Delegation<(), CacaoZcapExtraProps>);
 
-#[derive(Clone)]
-pub struct ZCAPInvocation {
-    pub invocation: KeplerInvocation,
-    pub delegation: Option<KeplerDelegation>,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Invocation(ssi::zcap::Invocation<InvProps>);
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Revocation(ssi::zcap::Invocation<InvProps>);
+
+impl Delegation {
+    pub fn resource(&self) -> ResourceId {
+        todo!()
+    }
+    pub fn delegator(&self) -> &[u8] {
+        todo!()
+    }
+    pub fn delegate(&self) -> &[u8] {
+        todo!()
+    }
 }
 
-pub struct ZCAPDelegation {
-    pub delegation: KeplerDelegation,
+impl Invocation {
+    pub fn resource(&self) -> ResourceId {
+        todo!()
+    }
+    pub fn invoker(&self) -> &[u8] {
+        todo!()
+    }
 }
 
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ZCAPInvocation {
-    type Error = anyhow::Error;
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        match (
-            request.headers().get_one("x-kepler-invocation").map(|b64| {
-                base64::decode_config(b64, base64::URL_SAFE)
-                    .map_err(|e| anyhow!(e))
-                    .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
-            }),
-            request
-                .headers()
-                .get_one("x-kepler-delegation")
-                .map(|b64| {
+impl Revocation {
+    pub fn revoked(&self) -> &[u8] {
+        todo!()
+    }
+    pub fn revoker(&self) -> &[u8] {
+        todo!()
+    }
+}
+
+macro_rules! impl_encode_dagcbor {
+    ($type:ident) => {
+        impl Encode<DagCborCodec> for $type {
+            fn encode<W>(&self, c: DagCborCodec, w: &mut W) -> Result<(), IpldError>
+            where
+                W: Write,
+            {
+                // HACK transliterate via serde -> json -> ipld -> cbor
+                Ipld::decode(DagJsonCodec, &mut Cursor::new(serde_json::to_vec(self)?))?
+                    .encode(c, w)
+            }
+        }
+    };
+}
+
+macro_rules! impl_decode_dagcbor {
+    ($type:ident) => {
+        impl Decode<DagCborCodec> for $type {
+            fn decode<R>(c: DagCborCodec, r: &mut R) -> Result<Self, IpldError>
+            where
+                R: Read + Seek,
+            {
+                // HACK transliterate via cbor -> ipld -> json -> serde
+                let mut b: Vec<u8> = vec![];
+                Ipld::decode(c, r)?.encode(DagJsonCodec, &mut b);
+                Ok(serde_json::from_slice(&b)?)
+            }
+        }
+    };
+}
+
+impl_encode_dagcbor!(Delegation);
+impl_encode_dagcbor!(Invocation);
+impl_encode_dagcbor!(Revocation);
+
+impl_decode_dagcbor!(Delegation);
+impl_decode_dagcbor!(Invocation);
+impl_decode_dagcbor!(Revocation);
+
+#[derive(thiserror::Error, Debug)]
+pub enum HeaderFromReqError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    B64(#[from] base64::DecodeError),
+}
+
+macro_rules! impl_fromreq {
+    ($type:ident, $name:tt) => {
+        #[rocket::async_trait]
+        impl<'r> FromRequest<'r> for $type {
+            type Error = HeaderFromReqError;
+            async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+                match request.headers().get_one($name).map(|b64| {
                     base64::decode_config(b64, base64::URL_SAFE)
-                        .map_err(|e| anyhow!(e))
-                        .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
-                })
-                .transpose(),
-        ) {
-            (Some(Ok(invocation)), Ok(delegation)) => Outcome::Success(Self {
-                invocation,
-                delegation,
-            }),
-            (Some(Err(e)), _) => Outcome::Failure((Status::Unauthorized, e)),
-            (_, Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
-            (None, _) => Outcome::Forward(()),
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ZCAPDelegation {
-    type Error = anyhow::Error;
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        match request
-            .headers()
-            .get_one("x-kepler-delegation")
-            .map(|b64| {
-                base64::decode_config(b64, base64::URL_SAFE)
-                    .map_err(|e| anyhow!(e))
-                    .and_then(|s| serde_json::from_slice(&s).map_err(|e| anyhow!(e)))
-            })
-            .transpose()
-        {
-            Ok(Some(delegation)) => Outcome::Success(Self { delegation }),
-            Ok(None) => Outcome::Forward(()),
-            Err(e) => Outcome::Failure((Status::Unauthorized, e)),
-        }
-    }
-}
-
-impl AuthorizationToken for ZCAPInvocation {
-    fn resource(&self) -> &ResourceId {
-        &self.invocation.property_set.invocation_target
-    }
-}
-
-#[rocket::async_trait]
-impl Invoke<ZCAPInvocation> for Orbit {
-    async fn invoke(&self, invocation: &ZCAPInvocation) -> Result<AuthRef> {
-        self.authorize(invocation).await?;
-
-        let inv: CapInvocation = invocation.invocation.clone().try_into()?;
-
-        match &invocation.delegation {
-            Some(d) => {
-                self.capabilities
-                    .transact(Updates::new([d.clone().try_into()?], []))
-                    .await?
-            }
-            None => (),
-        };
-        let id = inv.id().to_vec();
-
-        Ok(AuthRef::new(self.capabilities.invoke([inv]).await?, id))
-    }
-}
-
-#[rocket::async_trait]
-impl AuthorizationPolicy<ZCAPInvocation> for Manifest {
-    async fn authorize(&self, auth_token: &ZCAPInvocation) -> Result<()> {
-        let invoker_vm = auth_token
-            .invocation
-            .proof
-            .as_ref()
-            .and_then(|proof| proof.verification_method.as_ref())
-            .ok_or_else(|| anyhow!("Missing delegation verification method"))
-            .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
-        let res = match &auth_token.delegation {
-            Some(d) => {
-                let delegator_vm = d
-                    .proof
-                    .as_ref()
-                    .and_then(|proof| proof.verification_method.as_ref())
-                    .ok_or_else(|| anyhow!("Missing delegation verification method"))
-                    .and_then(|s| DIDURL::from_str(s).map_err(|e| e.into()))?;
-                if !self.delegators().contains(&delegator_vm) {
-                    return Err(anyhow!("Delegator not authorized"));
-                };
-                if let Some(ref authorized_invoker) = d.invoker {
-                    if authorized_invoker != &URI::String(invoker_vm.to_string()) {
-                        return Err(anyhow!("Invoker not authorized"));
-                    };
-                };
-                if let Some(exp) = d.property_set.expiration {
-                    if exp < Utc::now() {
-                        return Err(anyhow!("Delegation has Expired"));
-                    }
-                };
-
-                let target = &auth_token.invocation.property_set.invocation_target;
-
-                if !d
-                    .property_set
-                    .capability_action
-                    .iter()
-                    .any(|r| simple_check(target, r).is_ok())
-                {
-                    return Err(anyhow!("Delegation semantics violated"));
+                        .map_err(HeaderFromReqError::from)
+                        .and_then(|s| Ok(serde_json::from_slice(&s)?))
+                }) {
+                    Some(Ok(item)) => Outcome::Success(item),
+                    Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
+                    None => Outcome::Forward(()),
                 }
+            }
+        }
+    };
+}
 
-                let mut res = d
-                    .verify(Default::default(), DID_METHODS.to_resolver())
-                    .await;
-                let mut res2 = auth_token
-                    .invocation
-                    .verify(Default::default(), DID_METHODS.to_resolver(), d)
-                    .await;
-                res.append(&mut res2);
-                res
+impl_fromreq!(Delegation, "x-kepler-delegation");
+impl_fromreq!(Invocation, "x-kepler-invocation");
+impl_fromreq!(Revocation, "x-kepler-invocation");
+
+pub trait CapNode {
+    fn id(&self) -> &[u8];
+    fn parent(&self) -> Result<Option<Delegation>, SerdeError>;
+}
+
+macro_rules! impl_capnode {
+    ($type:ident) => {
+        impl CapNode for $type {
+            fn id(&self) -> &[u8] {
+                use ssi::vc::URI;
+                use uuid::Uuid;
+                match &self.0.id {
+                    URI::String(ref u) if u.starts_with("urn:uuid:") => Uuid::parse_str(&u[8..])
+                        .map(|u| u.as_bytes().as_ref())
+                        .unwrap_or(u.as_bytes()),
+                    URI::String(ref u) if u.starts_with("uuid:") => Uuid::parse_str(&u[4..])
+                        .map(|u| u.as_bytes().as_ref())
+                        .unwrap_or(u.as_bytes()),
+                    URI::String(ref u) => u.as_bytes(),
+                }
             }
-            None => {
-                if !self.invokers().contains(&invoker_vm) {
-                    return Err(anyhow!("Invoker not authorized as Controller"));
-                };
-                auth_token
-                    .invocation
-                    .verify_signature(Default::default(), DID_METHODS.to_resolver())
-                    .await
+            fn parent(&self) -> Result<Option<Delegation>, SerdeError> {
+                Ok(self
+                    .0
+                    .proof
+                    .and_then(|p| p.property_set)
+                    .and_then(|ps| ps.get("capabilityChain"))
+                    .and_then(|chain| match chain {
+                        Value::Array(caps) => caps.last(),
+                        _ => None,
+                    })
+                    .map(|v| serde_json::from_value(v.clone()))
+                    .transpose()?)
             }
-        };
-        res.errors
+        }
+    };
+}
+
+impl_capnode!(Delegation);
+impl_capnode!(Invocation);
+impl_capnode!(Revocation);
+
+#[rocket::async_trait]
+pub trait Verifiable {
+    async fn verify(&self) -> Result<()>;
+}
+
+#[rocket::async_trait]
+impl Verifiable for Delegation {
+    async fn verify(&self) -> Result<()> {
+        if let Some(e) = self
+            .0
+            .verify(Default::default(), DID_METHODS.to_resolver())
+            .await
+            .errors
             .first()
-            .map(|e| Err(anyhow!(e.clone())))
-            .unwrap_or(Ok(()))
+        {
+            Err(anyhow!(e))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[rocket::async_trait]
+impl Verifiable for Invocation {
+    async fn verify(&self) -> Result<()> {
+        let r = self
+            .0
+            .verify_signature(Default::default(), DID_METHODS.to_resolver())
+            .await;
+        if let Some(e) = r.errors.first() {
+            Err(anyhow!(e))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[rocket::async_trait]
+impl Verifiable for Revocation {
+    async fn verify(&self) -> Result<()> {
+        let r = self
+            .0
+            .verify_signature(Default::default(), DID_METHODS.to_resolver())
+            .await;
+        if let Some(e) = r.errors.first() {
+            Err(anyhow!(e))
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[test]
 async fn basic() -> Result<()> {
     let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:8097ab5c-ebd6-4924-b659-5f8009429e4d","invocationTarget":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default/ipfs/#list","proof":{"type":"Ed25519Signature2018","proofPurpose":"capabilityInvocation","verificationMethod":"did:key:z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj#z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj","created":"2022-03-21T13:59:14.455Z","jws":"eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..ybqGJAhCtAPE97cZTLLvX5f5IzJtZLaCmrYAGosckwt9MT5A-ZRQfcZsdwrDUGND5lSTAIAvxWjCOvtMA1RVCw","capability":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default"}}"#;
-    let inv: KeplerInvocation = serde_json::from_str(inv_str)?;
-    let res = inv.verify_signature(None, DID_METHODS.to_resolver()).await;
+    let inv: Invocation = serde_json::from_str(inv_str)?;
+    let res = inv
+        .0
+        .verify_signature(None, DID_METHODS.to_resolver())
+        .await;
     assert!(res.errors.is_empty());
     Ok(())
 }
