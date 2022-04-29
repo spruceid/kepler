@@ -14,7 +14,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Error as SerdeError, Value};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     io::{Cursor, Read, Seek, Write},
@@ -92,7 +92,7 @@ macro_rules! impl_decode_dagcbor {
             {
                 // HACK transliterate via cbor -> ipld -> json -> serde
                 let mut b: Vec<u8> = vec![];
-                Ipld::decode(c, r)?.encode(DagJsonCodec, &mut b);
+                Ipld::decode(c, r)?.encode(DagJsonCodec, &mut b)?;
                 Ok(serde_json::from_slice(&b)?)
             }
         }
@@ -135,43 +135,39 @@ macro_rules! impl_fromreq {
     };
 }
 
-impl_fromreq!(Delegation, "x-kepler-delegation");
-impl_fromreq!(Invocation, "x-kepler-invocation");
-impl_fromreq!(Revocation, "x-kepler-invocation");
+impl_fromreq!(Delegation, "Authorization");
+impl_fromreq!(Invocation, "Authorization");
 
 pub trait CapNode {
-    fn id(&self) -> &[u8];
-    fn parent(&self) -> Result<Option<Delegation>, SerdeError>;
+    fn id(&self) -> Vec<u8>;
+    fn parents(&self) -> NestedDelegationIter;
+    fn parent_ids(&self) -> NestedIdIter;
+}
+
+fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
+    uuid::Uuid::parse_str(
+        s.strip_prefix("urn:uuid:")
+            .or_else(|| s.strip_prefix("uuid:"))
+            .unwrap_or(s),
+    )
+    .map(|u| u.as_bytes().to_vec())
+    .unwrap_or(s.as_bytes().to_vec())
 }
 
 macro_rules! impl_capnode {
     ($type:ident) => {
         impl CapNode for $type {
-            fn id(&self) -> &[u8] {
+            fn id(&self) -> Vec<u8> {
                 use ssi::vc::URI;
-                use uuid::Uuid;
                 match &self.0.id {
-                    URI::String(ref u) if u.starts_with("urn:uuid:") => Uuid::parse_str(&u[8..])
-                        .map(|u| u.as_bytes().as_ref())
-                        .unwrap_or(u.as_bytes()),
-                    URI::String(ref u) if u.starts_with("uuid:") => Uuid::parse_str(&u[4..])
-                        .map(|u| u.as_bytes().as_ref())
-                        .unwrap_or(u.as_bytes()),
-                    URI::String(ref u) => u.as_bytes(),
+                    URI::String(ref u) => uuid_bytes_or_str(u),
                 }
             }
-            fn parent(&self) -> Result<Option<Delegation>, SerdeError> {
-                Ok(self
-                    .0
-                    .proof
-                    .and_then(|p| p.property_set)
-                    .and_then(|ps| ps.get("capabilityChain"))
-                    .and_then(|chain| match chain {
-                        Value::Array(caps) => caps.last(),
-                        _ => None,
-                    })
-                    .map(|v| serde_json::from_value(v.clone()))
-                    .transpose()?)
+            fn parents(&self) -> NestedDelegationIter {
+                NestedDelegationIter(ParentIter::new(self.0.proof.as_ref()))
+            }
+            fn parent_ids(&self) -> NestedIdIter {
+                NestedIdIter(ParentIter::new(self.0.proof.as_ref()))
             }
         }
     };
@@ -180,6 +176,63 @@ macro_rules! impl_capnode {
 impl_capnode!(Delegation);
 impl_capnode!(Invocation);
 impl_capnode!(Revocation);
+
+pub struct ParentIter<'a>(Option<&'a Value>);
+
+impl<'a> ParentIter<'a> {
+    pub fn new(proof: Option<&'a ssi::vc::Proof>) -> Self {
+        Self(
+            proof
+                .and_then(|p| p.property_set.as_ref())
+                .and_then(|ps| ps.get("capabilityChain"))
+                .and_then(|chain| match chain {
+                    Value::Array(caps) => caps.last(),
+                    _ => None,
+                }),
+        )
+    }
+}
+
+impl<'a> Iterator for ParentIter<'a> {
+    type Item = &'a Value;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0 {
+            Some(c) => {
+                self.0 = c
+                    .as_object()
+                    .and_then(|o| o.get("proof"))
+                    .and_then(|p| p.get("capabilityChain"))
+                    .and_then(|c| c.get(0));
+                Some(c)
+            }
+            None => None,
+        }
+    }
+}
+
+pub struct NestedDelegationIter<'a>(ParentIter<'a>);
+
+impl<'a> Iterator for NestedDelegationIter<'a> {
+    type Item = Delegation;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0
+            .next()
+            .and_then(|p| serde_json::from_value(p.clone()).ok())
+    }
+}
+
+pub struct NestedIdIter<'a>(ParentIter<'a>);
+
+impl<'a> Iterator for NestedIdIter<'a> {
+    type Item = Vec<u8>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0
+            .next()
+            .and_then(|p| p.get("id"))
+            .and_then(|f| f.as_str())
+            .map(|id| uuid_bytes_or_str(id))
+    }
+}
 
 #[rocket::async_trait]
 pub trait Verifiable {
@@ -194,7 +247,8 @@ impl Verifiable for Delegation {
             .verify(Default::default(), DID_METHODS.to_resolver())
             .await
             .errors
-            .first()
+            .into_iter()
+            .next()
         {
             Err(anyhow!(e))
         } else {
@@ -206,11 +260,14 @@ impl Verifiable for Delegation {
 #[rocket::async_trait]
 impl Verifiable for Invocation {
     async fn verify(&self) -> Result<()> {
-        let r = self
+        if let Some(e) = self
             .0
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await;
-        if let Some(e) = r.errors.first() {
+            .await
+            .errors
+            .into_iter()
+            .next()
+        {
             Err(anyhow!(e))
         } else {
             Ok(())
@@ -221,11 +278,14 @@ impl Verifiable for Invocation {
 #[rocket::async_trait]
 impl Verifiable for Revocation {
     async fn verify(&self) -> Result<()> {
-        let r = self
+        if let Some(e) = self
             .0
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await;
-        if let Some(e) = r.errors.first() {
+            .await
+            .errors
+            .into_iter()
+            .next()
+        {
             Err(anyhow!(e))
         } else {
             Ok(())

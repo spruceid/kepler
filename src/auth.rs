@@ -5,7 +5,7 @@ use crate::orbit::{load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::resource::{OrbitId, ResourceId};
 use crate::routes::Metadata;
-use crate::zcap::{Delegation, Invocation, Revocation};
+use crate::zcap::{CapNode, Delegation, Invocation, Revocation};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
@@ -115,7 +115,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                     _ => return internal_server_error(anyhow!("could not retrieve open key set")),
                 };
 
-                let orbit_id = token.resource().orbit();
+                let orbit_id = token.resource().orbit().clone();
 
                 let md = match Manifest::resolve_dyn(&orbit_id, None).await {
                     Ok(Some(md)) => md,
@@ -139,7 +139,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                 //     Err(e) => unauthorized(e),
                 // }
                 // TODO orbit creation here
-                return Outcome::Success(Self::OrbitCreation(orbit_id.clone()));
+                return Outcome::Success(Self::OrbitCreation(orbit_id));
             }
             (_, _, _, Ok(None)) => return not_found(anyhow!("No Orbit found")),
             (_, _, _, Ok(Some(o))) => o,
@@ -207,8 +207,9 @@ impl<'l> FromRequest<'l> for KVAction {
                 match target.service() {
                     None => bad_request(anyhow!("missing service in invocation target")),
                     Some("kv") => {
-                        let auth_ref = match orbit.invoke(&token).await {
-                            Ok(auth_ref) => auth_ref,
+                        let tid = token.id().to_vec();
+                        let auth_ref = match orbit.capabilities.invoke([token]).await {
+                            Ok(c) => AuthRef::new(c, tid),
                             Err(e) => return unauthorized(e),
                         };
 

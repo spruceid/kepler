@@ -35,7 +35,7 @@ enum BlockRef {
 }
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
-struct ElementRef(BlockRef, Vec<u8>);
+pub struct ElementRef(BlockRef, Vec<u8>);
 
 const SERVICE_NAME: &str = "capabilities";
 
@@ -149,12 +149,17 @@ impl Store {
         U: DagCbor + CapNode,
     {
         Ok(LinkedUpdate {
-            parents: self
-                .index
-                .element(update.parent())
-                .await?
-                .map(|c: Cid| vec![ElementRef(BlockRef::Block(c), update.parent().to_vec())])
-                .ok_or_else(|| anyhow!("unknown parent capability"))?,
+            parents: try_join_all(update.parent_ids().map(|p| async move {
+                Ok(ElementRef(
+                    self.index
+                        .element(&p)
+                        .await?
+                        .map(|c: Cid| BlockRef::Block(c))
+                        .unwrap_or(BlockRef::SameBlock),
+                    p.to_vec(),
+                )) as Result<ElementRef, crate::indexes::Error<libipld::cid::Error>>
+            }))
+            .await?,
             update,
         })
     }
@@ -212,12 +217,22 @@ impl Store {
     }
 
     pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
+        let (dels, invs): (Vec<Vec<Delegation>>, Vec<Invocation>) =
+            try_join_all(invocations.into_iter().map(|i| async move {
+                i.verify().await?;
+                Ok((self.explode_unseen_parents(&i).await?, i))
+                    as Result<(Vec<Delegation>, Invocation)>
+            }))
+            .await?
+            .into_iter()
+            .unzip();
+        self.transact(Updates::new(dels.into_iter().flatten(), []))
+            .await?;
         let cid = self
             .apply_invocations(Invocations {
                 prev: self.invocation_heads.get_heads().await?.0,
-                invoke: try_join_all(invocations.into_iter().map(|i| async move {
-                    i.verify().await?;
-                    tracing::debug!("invoking {:?}", i.parent());
+                invoke: try_join_all(invs.into_iter().map(|i| async move {
+                    tracing::debug!("invoking {:?}", i.parent_ids().next().unwrap_or(vec![]));
                     self.link_update(i).await
                 }))
                 .await?,
@@ -249,6 +264,11 @@ impl Store {
             revocations,
         }: Updates,
     ) -> Result<Event> {
+        // for all delegations:
+        // 1. extract unseen parents into top levels
+        let rd = try_join_all(revocations.iter().map(|r| self.explode_unseen_parents(r))).await?;
+        let dd = try_join_all(delegations.iter().map(|d| self.explode_unseen_parents(d))).await?;
+        // 2. link all events
         Ok(Event {
             prev: self.delegation_heads.get_heads().await?.0,
             revoke: stream::iter(
@@ -263,6 +283,8 @@ impl Store {
             delegate: stream::iter(
                 delegations
                     .into_iter()
+                    .chain(rd.into_iter().flatten())
+                    .chain(dd.into_iter().flatten())
                     .map(Ok)
                     .collect::<Vec<Result<Delegation>>>(),
             )
@@ -270,6 +292,17 @@ impl Store {
             .try_collect()
             .await?,
         })
+    }
+
+    async fn explode_unseen_parents<C: CapNode>(&self, node: &C) -> Result<Vec<Delegation>> {
+        let mut parents = vec![];
+        for p in node.parents() {
+            match self.index.element::<&[u8], Cid>(&p.id()).await? {
+                Some(_) => break,
+                None => parents.push(p),
+            }
+        }
+        Ok(parents)
     }
 
     async fn broadcast_update_verbatim(&self, event: Event) -> Result<()> {
