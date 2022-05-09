@@ -51,8 +51,8 @@ impl Delegation {
 }
 
 impl Invocation {
-    pub fn resource(&self) -> ResourceId {
-        todo!()
+    pub fn resource(&self) -> &ResourceId {
+        &self.0.property_set.invocation_target
     }
     pub fn invoker(&self) -> &[u8] {
         todo!()

@@ -17,7 +17,7 @@ use std::{
 };
 
 use crate::{
-    auth::{DelegateAuthWrapper, KVAction},
+    auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
 };
@@ -106,8 +106,15 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
 }
 
 #[post("/invoke", data = "<data>")]
-pub async fn invoke(i: KVAction, data: Data<'_>) -> Result<InvocationResponse, (Status, String)> {
-    handle_kv_action(i, data).await
+pub async fn invoke(
+    i: InvokeAuthWrapper,
+    data: Data<'_>,
+) -> Result<InvocationResponse, (Status, String)> {
+    use InvokeAuthWrapper::*;
+    match i {
+        Revoke => Ok(InvocationResponse::Revoked),
+        KV(action) => handle_kv_action(action, data).await,
+    }
 }
 
 pub async fn handle_kv_action(
@@ -189,6 +196,7 @@ pub enum InvocationResponse {
     KVResponse(KVResponse),
     List(Vec<String>),
     Metadata(Metadata),
+    Revoked,
 }
 
 impl<'r> Responder<'r, 'static> for InvocationResponse {
@@ -198,6 +206,7 @@ impl<'r> Responder<'r, 'static> for InvocationResponse {
             InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
+            InvocationResponse::Revoked => ().respond_to(request),
         }
     }
 }

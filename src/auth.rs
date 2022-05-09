@@ -178,8 +178,13 @@ pub enum KVAction {
     },
 }
 
+pub enum InvokeAuthWrapper {
+    KV(KVAction),
+    Revocation,
+}
+
 #[async_trait]
-impl<'l> FromRequest<'l> for KVAction {
+impl<'l> FromRequest<'l> for InvokeAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {
@@ -221,21 +226,25 @@ impl<'l> FromRequest<'l> for KVAction {
                         };
                         match target.fragment() {
                             None => bad_request(anyhow!("missing action in invocation target")),
-                            Some("del") => Outcome::Success(Self::Delete {
+                            Some("del") => Outcome::Success(Self::KV(KVAction::Delete {
                                 orbit,
                                 key,
                                 auth_ref,
-                            }),
-                            Some("get") => Outcome::Success(Self::Get { orbit, key }),
-                            Some("list") => Outcome::Success(Self::List { orbit }),
-                            Some("metadata") => Outcome::Success(Self::Metadata { orbit, key }),
+                            })),
+                            Some("get") => Outcome::Success(Self::KV(KVAction::Get { orbit, key })),
+                            Some("list") => Outcome::Success(Self::KV(KVAction::List { orbit })),
+                            Some("metadata") => {
+                                Outcome::Success(Self::KV(KVAction::Metadata { orbit, key }))
+                            }
                             Some("put") => match Metadata::from_request(req).await {
-                                Outcome::Success(metadata) => Outcome::Success(Self::Put {
-                                    orbit,
-                                    key,
-                                    metadata,
-                                    auth_ref,
-                                }),
+                                Outcome::Success(metadata) => {
+                                    Outcome::Success(Self::KV(KVAction::Put {
+                                        orbit,
+                                        key,
+                                        metadata,
+                                        auth_ref,
+                                    }))
+                                }
                                 Outcome::Failure(e) => Outcome::Failure(e),
                                 Outcome::Forward(_) => internal_server_error(anyhow!(
                                     "unable to parse metadata from request"
