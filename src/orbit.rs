@@ -22,12 +22,7 @@ use libp2p::{
 use rocket::{futures::TryStreamExt, tokio::task::JoinHandle};
 
 use cached::proc_macro::cached;
-use std::{
-    collections::HashMap as Map,
-    convert::TryFrom,
-    ops::Deref,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, ops::Deref, sync::Arc};
 use tokio::spawn;
 
 use super::storage::StorageUtils;
@@ -154,7 +149,7 @@ pub async fn create_orbit(
     config: &config::Config,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
-    keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
+    kp: Ed25519Keypair,
 ) -> Result<Option<Orbit>> {
     let md = match Manifest::resolve_dyn(id, None).await? {
         Some(m) => m,
@@ -166,15 +161,6 @@ pub async fn create_orbit(
     if storage_utils.exists(id.get_cid()).await? {
         return Ok(None);
     }
-
-    let kp = {
-        let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
-        md.bootstrap_peers()
-            .peers
-            .iter()
-            .find_map(|p| keys.remove(&p.id))
-            .unwrap_or_else(Ed25519Keypair::generate)
-    };
 
     storage_utils.setup_orbit(id.clone(), kp, auth).await?;
 

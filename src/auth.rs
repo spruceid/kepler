@@ -1,11 +1,10 @@
 use crate::capabilities::store::{AuthRef, Updates};
 use crate::config;
-use crate::manifest::Manifest;
-use crate::orbit::{load_orbit, Orbit};
+use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::resource::{OrbitId, ResourceId};
 use crate::routes::Metadata;
-use crate::zcap::{CapNode, Delegation, Invocation, Revocation};
+use crate::zcap::{CapNode, Delegation, Invocation, Revocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
@@ -104,7 +103,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             token.resource().fragment(),
             token.resource().path(),
             token.resource().service(),
-            load_orbit(token.resource().orbit().get_cid(), &config, relay).await,
+            load_orbit(token.resource().orbit().get_cid(), &config, relay.clone()).await,
         ) {
             (Some("host"), None, None, Ok(None)) => {
                 let keys = match req
@@ -117,29 +116,30 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 
                 let orbit_id = token.resource().orbit().clone();
 
-                let md = match Manifest::resolve_dyn(&orbit_id, None).await {
-                    Ok(Some(md)) => md,
-                    Ok(None) => return not_found(anyhow!("Orbit Manifest Doesnt Exist")),
-                    Err(e) => return internal_server_error(e),
+                if let Err(e) = token.verify().await {
+                    return unauthorized(e);
                 };
 
-                // match md.authorize(&token).await {
-                //     Ok(()) => (),
-                //     Err(e) => return unauthorized(e),
-                // };
+                let peer_id = match token.delegate().strip_prefix("peer:").map(|s| s.parse()) {
+                    Some(Ok(p)) => p,
+                    _ => return bad_request(anyhow!("Invalid Peer ID")),
+                };
 
-                // let orbit = match create_orbit(&orbit_id, &config, &[], relay, keys).await {
-                //     Ok(Some(orbit)) => orbit,
-                //     Ok(None) => return conflict(anyhow!("Orbit already exists")),
-                //     Err(e) => return internal_server_error(e),
-                // };
+                let kp = match keys.write() {
+                    Ok(mut keys) => match keys.remove(&peer_id) {
+                        Some(k) => k,
+                        _ => return not_found(anyhow!("Peer ID Not Present")),
+                    },
+                    Err(_) => {
+                        return internal_server_error(anyhow!("could not retrieve open key set"))
+                    }
+                };
 
-                // match orbit.invoke(&token).await {
-                //     Ok(_) => Outcome::Success(Self::Create(orbit_id)),
-                //     Err(e) => unauthorized(e),
-                // }
-                // TODO orbit creation here
-                return Outcome::Success(Self::OrbitCreation(orbit_id));
+                match create_orbit(&orbit_id, &config, &[], relay, kp).await {
+                    Ok(Some(orbit)) => orbit,
+                    Ok(None) => return conflict(anyhow!("Orbit already exists")),
+                    Err(e) => return internal_server_error(e),
+                }
             }
             (_, _, _, Ok(None)) => return not_found(anyhow!("No Orbit found")),
             (_, _, _, Ok(Some(o))) => o,
@@ -213,7 +213,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                     None => bad_request(anyhow!("missing service in invocation target")),
                     Some("kv") => {
                         let tid = token.id().to_vec();
-                        let auth_ref = match orbit.capabilities.invoke([token]).await {
+                        let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
                             Ok(c) => AuthRef::new(c, tid),
                             Err(e) => return unauthorized(e),
                         };
