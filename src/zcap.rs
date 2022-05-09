@@ -13,40 +13,61 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use ssi::vc::URI;
 use std::{
     collections::HashMap,
+    convert::{TryFrom, TryInto},
     io::{Cursor, Read, Seek, Write},
+    str::FromStr,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct InvProps {
+pub struct InvProps {
     pub invocation_target: ResourceId,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_fields: Option<HashMap<String, Value>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Delegation(ssi::zcap::Delegation<(), CacaoZcapExtraProps>);
+type InnerDelegation = ssi::zcap::Delegation<(), CacaoZcapExtraProps>;
+type InnerInvocation = ssi::zcap::Invocation<InvProps>;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Invocation(ssi::zcap::Invocation<InvProps>);
+#[derive(Debug, Serialize, Clone)]
+pub struct Delegation(InnerDelegation);
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Revocation(ssi::zcap::Invocation<InvProps>);
+#[derive(Debug, Serialize, Clone)]
+pub struct Invocation(InnerInvocation);
 
+#[derive(Debug, Serialize, Clone)]
+pub struct Revocation(InnerInvocation);
+
+// NOTE many of these methods contain .unwraps
+// these types can only be constructed via checked conversion,
+// to maintain the invariants that make these .unwraps work
 impl Delegation {
     pub fn resource(&self) -> ResourceId {
-        todo!()
+        self.0.property_set.invocation_target.parse().unwrap()
     }
     pub fn delegator(&self) -> &[u8] {
-        todo!()
+        // TODO this is the full did vm not the did itself
+        self.0
+            .proof
+            .as_ref()
+            .and_then(|p| p.creator.as_ref())
+            .map(|c| c.as_bytes())
+            .unwrap()
     }
-    pub fn delegate(&self) -> &[u8] {
-        todo!()
+    pub fn delegate(&self) -> &str {
+        self.0
+            .invoker
+            .as_ref()
+            .map(|i| match i {
+                URI::String(ref s) => s,
+            })
+            .unwrap()
     }
 }
 
@@ -55,18 +76,139 @@ impl Invocation {
         &self.0.property_set.invocation_target
     }
     pub fn invoker(&self) -> &[u8] {
-        todo!()
+        self.0
+            .proof
+            .as_ref()
+            .and_then(|p| p.creator.as_ref())
+            .map(|c| c.as_bytes())
+            .unwrap()
     }
 }
 
 impl Revocation {
     pub fn revoked(&self) -> &[u8] {
-        todo!()
+        &self
+            .0
+            .property_set
+            .invocation_target
+            .path()
+            .unwrap()
+            .as_bytes()
     }
     pub fn revoker(&self) -> &[u8] {
-        todo!()
+        self.0
+            .proof
+            .as_ref()
+            .and_then(|p| p.creator.as_ref())
+            .map(|c| c.as_bytes())
+            .unwrap()
     }
 }
+
+macro_rules! impl_deref {
+    ($type:ident, $target:ident) => {
+        impl std::ops::Deref for $type {
+            type Target = $target;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+    };
+}
+
+impl_deref!(Delegation, InnerDelegation);
+impl_deref!(Invocation, InnerInvocation);
+impl_deref!(Revocation, InnerInvocation);
+
+#[derive(thiserror::Error, Debug)]
+pub enum DelegationError {
+    #[error("Invalid Resource")]
+    InvalidResource,
+    #[error("Missing Delegator")]
+    MissingDelegator,
+    #[error("Missing Delegate")]
+    MissingDelegate,
+}
+
+impl TryFrom<InnerDelegation> for Delegation {
+    type Error = DelegationError;
+    fn try_from(d: InnerDelegation) -> Result<Self, Self::Error> {
+        match (
+            ResourceId::from_str(&d.property_set.invocation_target),
+            &d.proof.as_ref().and_then(|p| p.creator.as_ref()),
+            &d.invoker,
+        ) {
+            (Err(_), _, _) => Err(DelegationError::InvalidResource),
+            (_, None, _) => Err(DelegationError::MissingDelegator),
+            (_, _, None) => Err(DelegationError::MissingDelegate),
+            _ => Ok(Self(d)),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum InvocationError {
+    #[error("Missing Invoker")]
+    MissingInvoker,
+}
+
+impl TryFrom<InnerInvocation> for Invocation {
+    type Error = InvocationError;
+    fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
+        match i.proof.as_ref().and_then(|p| p.creator.as_ref()) {
+            None => Err(InvocationError::MissingInvoker),
+            _ => Ok(Self(i)),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum RevocationError {
+    #[error("Invalid Target")]
+    InvalidTarget,
+    #[error("Missing Revoker")]
+    MissingRevoker,
+}
+
+impl TryFrom<InnerInvocation> for Revocation {
+    type Error = RevocationError;
+    fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
+        match (
+            i.property_set.invocation_target.path(),
+            i.proof.as_ref().and_then(|p| p.creator.as_ref()),
+        ) {
+            (None, _) => Err(RevocationError::InvalidTarget),
+            (_, None) => Err(RevocationError::MissingRevoker),
+            _ => Ok(Self(i)),
+        }
+    }
+}
+
+impl TryFrom<Invocation> for Revocation {
+    type Error = RevocationError;
+    fn try_from(i: Invocation) -> Result<Self, Self::Error> {
+        i.0.try_into()
+    }
+}
+
+macro_rules! impl_deserialize {
+    ($origin:ident, $type:ident) => {
+        impl<'de> Deserialize<'de> for $type {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                $origin::deserialize(deserializer)?
+                    .try_into()
+                    .map_err(D::Error::custom)
+            }
+        }
+    };
+}
+
+impl_deserialize!(InnerDelegation, Delegation);
+impl_deserialize!(InnerInvocation, Invocation);
+impl_deserialize!(InnerInvocation, Revocation);
 
 macro_rules! impl_encode_dagcbor {
     ($type:ident) => {
