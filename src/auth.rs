@@ -188,6 +188,7 @@ pub enum KVAction {
     },
     List {
         orbit: Orbit,
+        prefix: String,
     },
     Metadata {
         orbit: Orbit,
@@ -313,9 +314,10 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                             Some("get") => {
                                 Outcome::Success(Self::KV(Box::new(KVAction::Get { orbit, key })))
                             }
-                            Some("list") => {
-                                Outcome::Success(Self::KV(Box::new(KVAction::List { orbit })))
-                            }
+                            Some("list") => Outcome::Success(Self::KV(Box::new(KVAction::List {
+                                orbit,
+                                prefix: key,
+                            }))),
                             Some("metadata") => {
                                 Outcome::Success(Self::KV(Box::new(KVAction::Metadata {
                                     orbit,
