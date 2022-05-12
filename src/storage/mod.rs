@@ -17,6 +17,7 @@ use libipld::cid::{multibase::Base, Cid};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
 use std::{path::PathBuf, str::FromStr};
+use tracing::instrument;
 
 mod dynamodb;
 mod indexes;
@@ -287,6 +288,7 @@ impl BlockStore for BlockStores {
         }
     }
 
+    #[instrument(skip(self, cid))]
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         match self {
             Self::S3(r) => r.get(cid).await,
@@ -294,6 +296,7 @@ impl BlockStore for BlockStores {
         }
     }
 
+    #[instrument(skip(self, block))]
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         match self {
             Self::S3(r) => r.put(block).await,

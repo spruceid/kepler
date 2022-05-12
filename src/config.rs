@@ -6,11 +6,30 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
+    pub log: Logging,
     pub storage: Storage,
     pub apis: ExternalApis,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
     pub prometheus: Prometheus,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
+pub struct Logging {
+    pub format: LoggingFormat,
+    pub tracing: Tracing,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub enum LoggingFormat {
+    Text,
+    Json,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Tracing {
+    pub traceheader: String,
+    pub enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
@@ -82,6 +101,21 @@ pub struct Relay {
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Prometheus {
     pub port: u16,
+}
+
+impl Default for Tracing {
+    fn default() -> Tracing {
+        Tracing {
+            enabled: false,
+            traceheader: "Spruce-Trace-Id".to_string(),
+        }
+    }
+}
+
+impl Default for LoggingFormat {
+    fn default() -> LoggingFormat {
+        LoggingFormat::Text
+    }
 }
 
 impl Default for BlockStorage {

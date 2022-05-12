@@ -8,7 +8,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use std::{collections::BTreeMap, convert::TryFrom};
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
 use crate::config;
@@ -118,6 +118,8 @@ impl Store {
             heads,
         })
     }
+
+    #[instrument(skip(self))]
     pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
         let elements = match self.index.elements().await {
             Ok(e) => e,
@@ -144,6 +146,8 @@ impl Store {
             .await
             .into_iter()
     }
+
+    #[instrument(skip(self, name))]
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
         match self.index.element(&key).await? {
@@ -161,6 +165,7 @@ impl Store {
         }
     }
 
+    #[instrument(skip(self, key))]
     pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, ObjectReader)>>
     where
         N: AsRef<[u8]>,
@@ -182,6 +187,8 @@ impl Store {
             Err(_) => Ok(None),
         }
     }
+
+    #[instrument(skip(self))]
     pub(crate) async fn request_heads(&self) -> Result<()> {
         debug!("requesting heads");
         self.ipfs
@@ -190,6 +197,7 @@ impl Store {
         Ok(())
     }
 
+    #[instrument(skip(self, add, remove))]
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
@@ -214,6 +222,7 @@ impl Store {
         self.index(indexes, remove).await
     }
 
+    #[instrument(skip(self, add, remove))]
     pub async fn index<N, M>(
         &self,
         // tuples of (obj-name, content cid, auth id)
@@ -262,6 +271,7 @@ impl Store {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.get_heads().await?;
         if !heads.is_empty() {

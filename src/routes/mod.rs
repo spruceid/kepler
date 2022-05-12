@@ -15,12 +15,14 @@ use std::{
     path::PathBuf,
     sync::RwLock,
 };
+use tracing::{info_span, Instrument};
 
 use crate::{
     auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
     resource::OrbitId,
+    tracing::TracingSpan,
 };
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -98,8 +100,12 @@ pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
     i: InvokeAuthWrapper,
+req_span: TracingSpan,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
+let span = info_span!(parent: &req_span.0, "invoke");
+// let _span_guard = span.enter();
+async move {
     use InvokeAuthWrapper::*;
     let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
         .with_label_values(&[i.prometheus_label()])
@@ -112,6 +118,9 @@ pub async fn invoke(
 
     timer.observe_duration();
     res
+}
+.instrument(span)
+.await
 }
 
 pub async fn handle_kv_action(
