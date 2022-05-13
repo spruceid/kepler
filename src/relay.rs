@@ -100,7 +100,6 @@ pub mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn relay() -> Result<()> {
-        crate::tracing_try_init();
         let relay = test_relay().await?;
 
         let dir = tempdir::TempDir::new("relay")?;

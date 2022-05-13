@@ -357,10 +357,8 @@ impl AuthorizationPolicy<SIWETokens> for Manifest {
 
 #[test]
 async fn basic() {
-    use crate::tracing_try_init;
     use rocket::{build, http::Header, local::asynchronous::Client};
 
-    tracing_try_init();
     let d = base64::encode_config(
         r#"["test.org wants you to sign in with your Ethereum account:\n0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79\n\nAuthorize this provider to host your Orbit\n\nURI: peer:12D3KooWSJT2PD5c1rEAD959q9kChGcWUnkkUzku28uY5pqegkuW\nVersion: 1\nChain ID: 1\nNonce: 3A9S4Ar7YibfspTb2\nIssued At: 2022-03-16T15:03:36.775Z\nExpiration Time: 2022-03-16T15:05:36.775Z\nResources:\n- kepler:pkh:eip155:1:0x6c3Ca9380307EEDa246B7606B43b33F3e0786C79://default#peer","0x6909694c1afe49fbe9350da8f89333397657ae46d9898dccdef45a38cf39e8fd1527e81e79b52db3f2ad2239c07cab8888f4882faf453c032c0e4df3d9c4902d1b"]"#,
         base64::URL_SAFE,

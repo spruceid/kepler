@@ -2,7 +2,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Server,
 };
-use kepler::{app, config, prometheus, tracing_try_init};
+use kepler::{app, config, prometheus};
 use rocket::{
     figment::providers::{Env, Format, Serialized, Toml},
     tokio,
@@ -10,8 +10,6 @@ use rocket::{
 
 #[rocket::main]
 async fn main() {
-    tracing_try_init();
-
     let config = rocket::figment::Figment::from(rocket::Config::default())
         .merge(Serialized::defaults(config::Config::default()))
         .merge(Toml::file("kepler.toml").nested())
@@ -27,7 +25,7 @@ async fn main() {
     }));
 
     tokio::select! {
-        r = rocket.launch() => r.unwrap(),
+        r = rocket.launch() => {let _ = r.unwrap();},
         r = prometheus => r.unwrap()
     };
 }

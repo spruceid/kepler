@@ -15,12 +15,14 @@ use std::{
     path::PathBuf,
     sync::RwLock,
 };
+use tracing::{info_span, Instrument};
 
 use crate::{
     auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
     resource::OrbitId,
+    tracing::TracingSpan,
 };
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -98,20 +100,28 @@ pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
     i: InvokeAuthWrapper,
+    req_span: TracingSpan,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
-    use InvokeAuthWrapper::*;
-    let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
-        .with_label_values(&[i.prometheus_label()])
-        .start_timer();
+    let action_label = i.prometheus_label().to_string();
+    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    // Instrumenting async block to handle yielding properly
+    async move {
+        use InvokeAuthWrapper::*;
+        let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+            .with_label_values(&[&action_label])
+            .start_timer();
 
-    let res = match i {
-        Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
-        KV(action) => handle_kv_action(action, data).await,
-    };
+        let res = match i {
+            Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
+            KV(action) => handle_kv_action(action, data).await,
+        };
 
-    timer.observe_duration();
-    res
+        timer.observe_duration();
+        res
+    }
+    .instrument(span)
+    .await
 }
 
 pub async fn handle_kv_action(

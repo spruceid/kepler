@@ -25,6 +25,7 @@ pub mod resource;
 pub mod routes;
 pub mod siwe;
 pub mod storage;
+mod tracing;
 pub mod transport;
 pub mod zcap;
 
@@ -39,15 +40,10 @@ use std::{collections::HashMap, sync::RwLock};
 #[get("/healthz")]
 pub fn healthcheck() {}
 
-pub fn tracing_try_init() {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init()
-        .ok();
-}
-
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;
+
+    tracing::tracing_try_init(&kepler_config.log);
 
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
     storage::StorageUtils::new(kepler_config.storage.blocks.clone())
@@ -80,6 +76,9 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
         }))
+        .attach(tracing::TracingFairing {
+            header_name: kepler_config.log.tracing.traceheader,
+        })
         .manage(relay_node)
         .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new())))
 }
