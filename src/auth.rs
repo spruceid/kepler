@@ -225,7 +225,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
             .as_ref()
             .unwrap();
         let span = info_span!(parent: &req_span.0, "invoke_auth_wrapper");
-        // let _span_guard = span.enter();
+        // Instrumenting async block to handle yielding properly
         async move {
             let timer = crate::prometheus::AUTHORIZATION_HISTOGRAM
                 .with_label_values(&["invoke"])

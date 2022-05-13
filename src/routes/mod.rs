@@ -105,7 +105,7 @@ pub async fn invoke(
 ) -> Result<InvocationResponse, (Status, String)> {
     let action_label = i.prometheus_label().to_string();
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
-    // let _span_guard = span.enter();
+    // Instrumenting async block to handle yielding properly
     async move {
         use InvokeAuthWrapper::*;
         let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
