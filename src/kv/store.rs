@@ -119,7 +119,7 @@ impl Store {
         })
     }
 
-    #[instrument(skip(self))]
+    #[instrument(name = "kv::list", skip_all)]
     pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
         let elements = match self.index.elements().await {
             Ok(e) => e,
@@ -147,7 +147,7 @@ impl Store {
             .into_iter()
     }
 
-    #[instrument(skip(self, name))]
+    #[instrument(name = "kv::get", skip_all)]
     pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
         let key = name;
         match self.index.element(&key).await? {
@@ -165,7 +165,7 @@ impl Store {
         }
     }
 
-    #[instrument(skip(self, key))]
+    #[instrument(name = "kv::read", skip_all)]
     pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, ObjectReader)>>
     where
         N: AsRef<[u8]>,
@@ -188,7 +188,7 @@ impl Store {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(name = "kv::request_heads", skip_all)]
     pub(crate) async fn request_heads(&self) -> Result<()> {
         debug!("requesting heads");
         self.ipfs
@@ -197,7 +197,7 @@ impl Store {
         Ok(())
     }
 
-    #[instrument(skip(self, add, remove))]
+    #[instrument(name = "kv::write", skip_all)]
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
@@ -222,7 +222,7 @@ impl Store {
         self.index(indexes, remove).await
     }
 
-    #[instrument(skip(self, add, remove))]
+    #[instrument(name = "kv::index", skip_all)]
     pub async fn index<N, M>(
         &self,
         // tuples of (obj-name, content cid, auth id)
@@ -271,7 +271,7 @@ impl Store {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(name = "kv::broadcast_heads", skip_all)]
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let (heads, height) = self.heads.get_heads().await?;
         if !heads.is_empty() {

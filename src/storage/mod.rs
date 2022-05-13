@@ -288,7 +288,7 @@ impl BlockStore for BlockStores {
         }
     }
 
-    #[instrument(skip(self, cid))]
+    #[instrument(name = "blocks::get", skip_all)]
     async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
         match self {
             Self::S3(r) => r.get(cid).await,
@@ -296,7 +296,7 @@ impl BlockStore for BlockStores {
         }
     }
 
-    #[instrument(skip(self, block))]
+    #[instrument(name = "blocks::put", skip_all)]
     async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
         match self {
             Self::S3(r) => r.put(block).await,

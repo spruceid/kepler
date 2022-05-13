@@ -100,27 +100,28 @@ pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
     i: InvokeAuthWrapper,
-req_span: TracingSpan,
+    req_span: TracingSpan,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
-let span = info_span!(parent: &req_span.0, "invoke");
-// let _span_guard = span.enter();
-async move {
-    use InvokeAuthWrapper::*;
-    let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
-        .with_label_values(&[i.prometheus_label()])
-        .start_timer();
+    let action_label = i.prometheus_label().to_string();
+    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    // let _span_guard = span.enter();
+    async move {
+        use InvokeAuthWrapper::*;
+        let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+            .with_label_values(&[&action_label])
+            .start_timer();
 
-    let res = match i {
-        Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
-        KV(action) => handle_kv_action(action, data).await,
-    };
+        let res = match i {
+            Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
+            KV(action) => handle_kv_action(action, data).await,
+        };
 
-    timer.observe_duration();
-    res
-}
-.instrument(span)
-.await
+        timer.observe_duration();
+        res
+    }
+    .instrument(span)
+    .await
 }
 
 pub async fn handle_kv_action(
