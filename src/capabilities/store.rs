@@ -35,7 +35,7 @@ enum BlockRef {
 }
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
-pub struct ElementRef(BlockRef, Vec<u8>);
+pub(crate) struct ElementRef(BlockRef, Vec<u8>);
 
 const SERVICE_NAME: &str = "capabilities";
 
@@ -499,7 +499,11 @@ pub(crate) struct Invocations {
 fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
     match (
         target.service(),
-        target.path().unwrap_or("").strip_prefix("/delegations/"),
+        target
+            .path()
+            .unwrap_or("")
+            .strip_prefix("/delegations/")
+            .map(uuid_bytes_or_str),
     ) {
         // TODO what exactly do we expect here
         (Some("capabilities"), Some(p)) => Some(p.into()),

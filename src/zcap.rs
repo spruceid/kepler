@@ -51,13 +51,12 @@ impl Delegation {
     pub fn resource(&self) -> ResourceId {
         self.0.property_set.invocation_target.parse().unwrap()
     }
-    pub fn delegator(&self) -> &[u8] {
-        // TODO this is the full did vm not the did itself
+    pub fn delegator(&self) -> &str {
+        // NOTE this returns the full did VM URL e.g. did:example:alice#alice-key-1
         self.0
             .proof
             .as_ref()
             .and_then(|p| p.creator.as_ref())
-            .map(|c| c.as_bytes())
             .unwrap()
     }
     pub fn delegate(&self) -> &str {
@@ -75,32 +74,24 @@ impl Invocation {
     pub fn resource(&self) -> &ResourceId {
         &self.0.property_set.invocation_target
     }
-    pub fn invoker(&self) -> &[u8] {
+    pub fn invoker(&self) -> &str {
         self.0
             .proof
             .as_ref()
             .and_then(|p| p.creator.as_ref())
-            .map(|c| c.as_bytes())
             .unwrap()
     }
 }
 
 impl Revocation {
-    pub fn revoked(&self) -> &[u8] {
-        &self
-            .0
-            .property_set
-            .invocation_target
-            .path()
-            .unwrap()
-            .as_bytes()
+    pub fn revoked(&self) -> Vec<u8> {
+        check_target_is_delegation(&self.0.property_set.invocation_target).unwrap()
     }
-    pub fn revoker(&self) -> &[u8] {
+    pub fn revoker(&self) -> &str {
         self.0
             .proof
             .as_ref()
             .and_then(|p| p.creator.as_ref())
-            .map(|c| c.as_bytes())
             .unwrap()
     }
 }
@@ -432,6 +423,20 @@ impl Verifiable for Revocation {
         } else {
             Ok(())
         }
+    }
+}
+
+fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
+    match (
+        target.service(),
+        target
+            .path()
+            .and_then(|p| p.strip_prefix("/delegations/"))
+            .map(uuid_bytes_or_str),
+    ) {
+        // TODO what exactly do we expect here
+        (Some("capabilities"), Some(p)) => Some(p.into()),
+        _ => None,
     }
 }
 
