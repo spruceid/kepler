@@ -21,10 +21,10 @@ pub mod domain {
     where
         D: Deserializer<'de>,
     {
-        String::deserialize(d).and_then(|url_string| {
-            url_string
+        String::deserialize(d).and_then(|url| {
+            url.as_str()
                 .try_into()
-                .map_err(|e| D::Error::custom(format!("failed to parse domain: {}", e)))
+                .map_err(|e| D::Error::custom(format!("failed to parse domain '{}': {}", url, e)))
         })
     }
 }
