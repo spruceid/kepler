@@ -34,7 +34,7 @@ pub async fn make_invocation(
 ) -> Result<KeplerInvocation, Error> {
     let invocation = {
         let context = Contexts::default();
-        let id = URI::String(Uuid::new_v4().to_string());
+        let id = URI::String(format!("urn::uuid:{}", Uuid::new_v4()));
         let property_set = InvProps {
             invocation_target,
             extra_fields: None,

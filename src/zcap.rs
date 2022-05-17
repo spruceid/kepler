@@ -126,7 +126,9 @@ impl TryFrom<InnerDelegation> for Delegation {
     fn try_from(d: InnerDelegation) -> Result<Self, Self::Error> {
         match (
             ResourceId::from_str(&d.property_set.invocation_target),
-            &d.proof.as_ref().and_then(|p| p.creator.as_ref()),
+            &d.proof
+                .as_ref()
+                .and_then(|p| p.verification_method.as_ref()),
             &d.invoker,
         ) {
             (Err(_), _, _) => Err(DelegationError::InvalidResource),
@@ -146,7 +148,11 @@ pub enum InvocationError {
 impl TryFrom<InnerInvocation> for Invocation {
     type Error = InvocationError;
     fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
-        match i.proof.as_ref().and_then(|p| p.creator.as_ref()) {
+        match i
+            .proof
+            .as_ref()
+            .and_then(|p| p.verification_method.as_ref())
+        {
             None => Err(InvocationError::MissingInvoker),
             _ => Ok(Self(i)),
         }

@@ -5,7 +5,7 @@ use crate::session::Session;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DelegationHeaders {
-    #[serde(with = "serde_b64", rename = "Authorisation")]
+    #[serde(with = "serde_b64", rename = "Authorization")]
     delegation: KeplerDelegation,
 }
 

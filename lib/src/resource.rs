@@ -164,7 +164,7 @@ impl fmt::Display for ResourceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.orbit)?;
         if let Some(s) = &self.service {
-            write!(f, "/{}", s)?
+            write!(f, "/{}/", s)?
         };
         if let Some(p) = &self.path {
             write!(f, "{}", p)?

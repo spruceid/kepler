@@ -57,7 +57,9 @@ impl TryFrom<HostConfig> for Message {
                 .try_into()
                 .map_err(|e| format!("error parsing peer as a URI: {}", e))?,
             nonce: generate_nonce(),
-            statement: Some(String::from("Authorize this provider to host your Orbit")),
+            statement: Some(
+                "Authorize action (host): Authorize this peer to host your orbit.".into(),
+            ),
             resources: vec![
                 ResourceId::new(c.orbit_id, None, None, Some(String::from("host")))
                     .to_string()
