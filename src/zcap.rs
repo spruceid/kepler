@@ -56,7 +56,7 @@ impl Delegation {
         self.0
             .proof
             .as_ref()
-            .and_then(|p| p.creator.as_ref())
+            .and_then(|p| p.verification_method.as_ref())
             .unwrap()
     }
     pub fn delegate(&self) -> &str {
@@ -78,7 +78,7 @@ impl Invocation {
         self.0
             .proof
             .as_ref()
-            .and_then(|p| p.creator.as_ref())
+            .and_then(|p| p.verification_method.as_ref())
             .unwrap()
     }
 }
@@ -91,7 +91,7 @@ impl Revocation {
         self.0
             .proof
             .as_ref()
-            .and_then(|p| p.creator.as_ref())
+            .and_then(|p| p.verification_method.as_ref())
             .unwrap()
     }
 }
@@ -126,7 +126,9 @@ impl TryFrom<InnerDelegation> for Delegation {
     fn try_from(d: InnerDelegation) -> Result<Self, Self::Error> {
         match (
             ResourceId::from_str(&d.property_set.invocation_target),
-            &d.proof.as_ref().and_then(|p| p.creator.as_ref()),
+            &d.proof
+                .as_ref()
+                .and_then(|p| p.verification_method.as_ref()),
             &d.invoker,
         ) {
             (Err(_), _, _) => Err(DelegationError::InvalidResource),
@@ -146,7 +148,11 @@ pub enum InvocationError {
 impl TryFrom<InnerInvocation> for Invocation {
     type Error = InvocationError;
     fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
-        match i.proof.as_ref().and_then(|p| p.creator.as_ref()) {
+        match i
+            .proof
+            .as_ref()
+            .and_then(|p| p.verification_method.as_ref())
+        {
             None => Err(InvocationError::MissingInvoker),
             _ => Ok(Self(i)),
         }
@@ -166,7 +172,9 @@ impl TryFrom<InnerInvocation> for Revocation {
     fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
         match (
             i.property_set.invocation_target.path(),
-            i.proof.as_ref().and_then(|p| p.creator.as_ref()),
+            i.proof
+                .as_ref()
+                .and_then(|p| p.verification_method.as_ref()),
         ) {
             (None, _) => Err(RevocationError::InvalidTarget),
             (_, None) => Err(RevocationError::MissingRevoker),
@@ -444,10 +452,6 @@ fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
 async fn basic() -> Result<()> {
     let inv_str = r#"{"@context":["https://w3id.org/security/v2",{"capabilityAction":{"@id":"sec:capabilityAction","@type":"@json"}}],"id":"uuid:8097ab5c-ebd6-4924-b659-5f8009429e4d","invocationTarget":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default/ipfs/#list","proof":{"type":"Ed25519Signature2018","proofPurpose":"capabilityInvocation","verificationMethod":"did:key:z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj#z6MkuMN5NfBrN6YbGjzsc5ekSQBVGut3Q6inc8aEtY2AoHZj","created":"2022-03-21T13:59:14.455Z","jws":"eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..ybqGJAhCtAPE97cZTLLvX5f5IzJtZLaCmrYAGosckwt9MT5A-ZRQfcZsdwrDUGND5lSTAIAvxWjCOvtMA1RVCw","capability":"kepler:pkh:eip155:1:0x3401fBE360502F420D5c27CB8AED88E86cc4a726://default"}}"#;
     let inv: Invocation = serde_json::from_str(inv_str)?;
-    let res = inv
-        .0
-        .verify_signature(None, DID_METHODS.to_resolver())
-        .await;
-    assert!(res.errors.is_empty());
+    inv.verify().await?;
     Ok(())
 }

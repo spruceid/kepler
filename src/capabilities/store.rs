@@ -496,21 +496,6 @@ pub(crate) struct Invocations {
     pub invoke: Vec<LinkedUpdate<Invocation>>,
 }
 
-fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
-    match (
-        target.service(),
-        target
-            .path()
-            .unwrap_or("")
-            .strip_prefix("/delegations/")
-            .map(uuid_bytes_or_str),
-    ) {
-        // TODO what exactly do we expect here
-        (Some("capabilities"), Some(p)) => Some(p.into()),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod test {
     // use super::*;
