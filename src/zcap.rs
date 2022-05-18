@@ -383,6 +383,9 @@ pub trait Verifiable {
 #[rocket::async_trait]
 impl Verifiable for Delegation {
     async fn verify(&self) -> Result<()> {
+        if let Some(p) = self.parents().next() {
+            p.verify(time).await?;
+        };
         if let Some(e) = self
             .0
             .verify(Default::default(), DID_METHODS.to_resolver())
@@ -401,6 +404,9 @@ impl Verifiable for Delegation {
 #[rocket::async_trait]
 impl Verifiable for Invocation {
     async fn verify(&self) -> Result<()> {
+        if let Some(p) = self.parents().next() {
+            p.verify().await?;
+        };
         if let Some(e) = self
             .0
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
@@ -419,6 +425,9 @@ impl Verifiable for Invocation {
 #[rocket::async_trait]
 impl Verifiable for Revocation {
     async fn verify(&self) -> Result<()> {
+        if let Some(p) = self.parents().next() {
+            p.verify().await?;
+        };
         if let Some(e) = self
             .0
             .verify_signature(Default::default(), DID_METHODS.to_resolver())
