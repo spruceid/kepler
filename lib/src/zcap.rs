@@ -3,6 +3,7 @@ use didkit::DID_METHODS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssi::{
+    cacao_zcap::CacaoZcap2022Delegation,
     jwk::JWK,
     ldp::LinkedDataProofs,
     vc::{LinkedDataProofOptions, ProofPurpose, URI},
@@ -24,7 +25,7 @@ pub struct InvProps {
     pub extra_fields: Option<HashMap<String, Value>>,
 }
 
-pub type KeplerDelegation = cacao_zcap::CacaoZcap2022Delegation;
+pub type KeplerDelegation = CacaoZcap2022Delegation;
 pub type KeplerInvocation = Invocation<InvProps>;
 
 pub async fn make_invocation(
@@ -35,7 +36,7 @@ pub async fn make_invocation(
 ) -> Result<KeplerInvocation, Error> {
     let invocation = {
         let context = Contexts::default();
-        let id = URI::String(format!("urn::uuid:{}", Uuid::new_v4()));
+        let id = URI::String(format!("urn:uuid:{}", Uuid::new_v4()));
         let property_set = InvProps {
             invocation_target,
             expires: None,
@@ -78,4 +79,67 @@ pub enum Error {
     DelegationToJsonValueConversion(serde_json::Error),
     #[error("failed to generate proof for invocation: {0}")]
     FailedToGenerateProof(ssi::error::Error),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use ssi::did::Source;
+    use ssi::vc::get_verification_method;
+
+    async fn make_invocation(
+        invocation_target: ResourceId,
+        jwk: &JWK,
+        verification_method: String,
+    ) -> Result<KeplerInvocation, Error> {
+        let invocation = {
+            let context = Contexts::default();
+            let id = URI::String(format!("urn:uuid:{}", Uuid::new_v4()));
+            let property_set = InvProps {
+                invocation_target,
+                extra_fields: None,
+            };
+            KeplerInvocation {
+                context,
+                id,
+                property_set,
+                proof: None,
+            }
+        };
+
+        let ldp_options = LinkedDataProofOptions {
+            verification_method: Some(URI::String(verification_method)),
+            proof_purpose: Some(ProofPurpose::CapabilityInvocation),
+            ..Default::default()
+        };
+        let resolver = DID_METHODS.to_resolver();
+
+        let proof = LinkedDataProofs::sign(&invocation, &ldp_options, resolver, jwk, None)
+            .await
+            .map_err(Error::FailedToGenerateProof)
+            .unwrap();
+
+        Ok(invocation.set_proof(proof))
+    }
+
+    #[tokio::test]
+    async fn test() {
+        let invocation_target = "kepler:ens:example.eth://default/kv/#list".parse().unwrap();
+        let jwk = JWK::generate_ed25519().unwrap();
+        let did = DID_METHODS
+            .generate(&Source::KeyAndPattern(&jwk, "key"))
+            .unwrap();
+        let did_resolver = DID_METHODS.to_resolver();
+        let verification_method = get_verification_method(&did, did_resolver).await.unwrap();
+        if let Some(e) = make_invocation(invocation_target, &jwk, verification_method)
+            .await
+            .unwrap()
+            .verify_signature(Default::default(), did_resolver)
+            .await
+            .errors
+            .first()
+        {
+            panic!("{}", e)
+        }
+    }
 }

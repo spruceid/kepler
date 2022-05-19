@@ -6,11 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 "ed25519" = ["ssi/ed25519-dalek"]
-"cacao_to_zcap" = ["cacao-zcap/cacao_to_zcap"]
-"verify" = ["cacao-zcap/verify", "async-trait"]
 
 [dependencies]
-async-trait = { version = "*", optional = true }
+async-trait = "0.1"
 chrono = { version = "0.4", features = ["wasmbind"] }
 iri-string = "0.5"
 libipld = "0.12"
@@ -19,21 +17,19 @@ serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 
+[dev-dependencies.tokio]
+version = "1"
+features = ["macros"]
+
 [dependencies.didkit]
 path = "../../didkit/lib"
 default-features = false
 features = ["wasm", "no-ring"]
 
-[dependencies.cacao-zcap]
-path = "../../cacao-zcap-rs"
-#git = "https://github.com/spruceid/cacao-zcap-rs.git"
-#rev = "272a937"
-default-features = false
-
 [dependencies.ssi]
 path = "../../ssi"
 default-features = false
-features = ["ed25519-dalek", "sha2", "rsa", "rand"]
+features = ["ed25519-dalek", "sha2", "rsa", "rand", "cacao-zcap"]
 
 [dependencies.uuid]
 version = "1"

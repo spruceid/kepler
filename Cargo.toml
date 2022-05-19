@@ -56,7 +56,6 @@ percent-encoding = "2.1"
 
 [dependencies.lib]
 path = "lib/"
-features = ["verify"]
 
 [dev-dependencies]
 tempdir = "0.3.7"

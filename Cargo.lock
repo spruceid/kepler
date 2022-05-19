@@ -1022,31 +1022,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cacao-zcap"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-std",
- "async-trait",
- "base64 0.12.3",
- "cacaos",
- "chrono",
- "hex",
- "iri-string 0.4.1",
- "libipld",
- "multibase 0.8.0",
- "percent-encoding",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2 0.9.9",
- "ssi 0.4.0",
- "thiserror",
- "uint",
- "uuid 0.8.2",
-]
-
-[[package]]
 name = "cacaos"
 version = "0.2.0"
 source = "git+https://github.com/spruceid/cacao-rs.git?rev=2715184#27151841dd5701bf2a5ea48d221f2b048aebdbc8"
@@ -3319,7 +3294,6 @@ name = "lib"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "cacao-zcap",
  "chrono",
  "didkit",
  "iri-string 0.5.4",
@@ -3329,6 +3303,7 @@ dependencies = [
  "serde_with",
  "ssi 0.4.0",
  "thiserror",
+ "tokio",
  "uuid 1.1.1",
 ]
 
@@ -6037,6 +6012,7 @@ dependencies = [
  "bitvec 0.20.4",
  "blake2b_simd",
  "bs58",
+ "cacaos",
  "chrono",
  "clear_on_drop",
  "combination",
@@ -6055,9 +6031,11 @@ dependencies = [
  "json",
  "json-ld",
  "lazy_static",
+ "libipld",
  "multibase 0.8.0",
  "num-bigint 0.4.3",
  "pairing-plus",
+ "percent-encoding",
  "pest",
  "pest_derive",
  "rand 0.7.3",
@@ -6077,6 +6055,7 @@ dependencies = [
  "thiserror",
  "uint",
  "url",
+ "uuid 0.8.2",
  "zeroize",
 ]
 
