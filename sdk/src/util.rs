@@ -1,7 +1,12 @@
 use lib::{
-    cacao_zcap::{cacao_to_zcap, CacaoToZcapError},
-    cacaos::{BasicSignature, SIWESignature, SignInWithEthereum, CACAO},
-    siwe::Message,
+    ssi::cacao_zcap::{
+        cacaos::{
+            siwe::Message,
+            siwe_cacao::{SIWESignature, SignInWithEthereum},
+            BasicSignature, CACAO,
+        },
+        translation::cacao_to_zcap::{cacao_to_zcap, CacaoToZcapError},
+    },
     zcap::KeplerDelegation,
 };
 

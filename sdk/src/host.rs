@@ -1,9 +1,12 @@
 use http::uri::Authority;
 use lib::resource::{OrbitId, ResourceId};
-use lib::{
-    cacao_zcap::CacaoToZcapError,
-    cacaos::{BasicSignature, SIWESignature},
-    siwe::{generate_nonce, Message, TimeStamp, Version},
+use lib::ssi::cacao_zcap::{
+    cacaos::{
+        siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
+        siwe_cacao::SIWESignature,
+        BasicSignature,
+    },
+    translation::cacao_to_zcap::CacaoToZcapError,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;

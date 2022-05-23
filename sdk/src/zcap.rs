@@ -21,6 +21,10 @@ impl InvocationHeaders {
             invocation: session
                 .invoke(path, action)
                 .await
+                .map(|i| {
+                    println!("{:?}", i);
+                    i
+                })
                 .map_err(Error::FailedToMakeInvocation)?,
         })
     }

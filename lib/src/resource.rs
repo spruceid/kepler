@@ -241,7 +241,7 @@ impl FromStr for ResourceId {
                     id: host.into(),
                 },
                 service: path.map(|(s, _)| s.into()),
-                path: path.map(|(_, pa)| ["/", pa].join("")),
+                path: path.map(|(_, pa)| pa.into()),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!("did:ens:example.eth", res.orbit().did());
         assert_eq!("orbit0", res.orbit().name());
         assert_eq!("kv", res.service().unwrap());
-        assert_eq!("/path/to/image.jpg", res.path().unwrap());
+        assert_eq!("path/to/image.jpg", res.path().unwrap());
         assert_eq!(None, res.fragment().as_ref());
 
         let res2: ResourceId = "kepler:ens:example.eth://orbit0#peer".parse().unwrap();
@@ -296,13 +296,13 @@ mod tests {
         let res3: ResourceId = "kepler:ens:example.eth://orbit0/kv#list".parse().unwrap();
 
         assert_eq!("kv", res3.service().unwrap());
-        assert_eq!("/", res3.path().unwrap());
+        assert_eq!("", res3.path().unwrap());
         assert_eq!("list", res3.fragment().unwrap());
 
         let res4: ResourceId = "kepler:ens:example.eth://orbit0/kv/#list".parse().unwrap();
 
         assert_eq!("kv", res4.service().unwrap());
-        assert_eq!("/", res4.path().unwrap());
+        assert_eq!("", res4.path().unwrap());
         assert_eq!("list", res4.fragment().unwrap());
     }
 
@@ -314,5 +314,12 @@ mod tests {
         let invalid_name: Result<ResourceId, _> =
             "kepler:ens:example.eth://or:bit0/kv/path/to/image.jpg".parse();
         assert!(invalid_name.is_err());
+    }
+
+    #[test]
+    fn roundtrip() {
+        let resource_uri: String = "kepler:ens:example.eth://orbit0/kv/prefix#list".into();
+        let res4: ResourceId = resource_uri.parse().unwrap();
+        assert_eq!(resource_uri, res4.to_string());
     }
 }

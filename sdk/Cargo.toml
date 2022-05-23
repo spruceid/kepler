@@ -25,4 +25,5 @@ tokio = { version = "1", features = ["macros"]}
 
 [dependencies.lib]
 path = "../lib"
-features = ["ed25519"]
+default-features = false
+features = ["wasm"]

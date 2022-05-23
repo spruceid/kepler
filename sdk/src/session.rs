@@ -1,11 +1,20 @@
 use http::uri::Authority;
 use lib::{
-    cacao_zcap::CacaoToZcapError,
-    cacaos::{BasicSignature, SIWESignature},
     didkit::DID_METHODS,
     resource::{OrbitId, ResourceId},
-    siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
-    ssi::{did::Source, jwk::JWK, vc::get_verification_method},
+    ssi::{
+        cacao_zcap::{
+            cacaos::{
+                siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+                siwe_cacao::SIWESignature,
+                BasicSignature,
+            },
+            translation::cacao_to_zcap::CacaoToZcapError,
+        },
+        did::Source,
+        jwk::JWK,
+        vc::get_verification_method,
+    },
     zcap::{make_invocation, Error as ZcapError, KeplerDelegation, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
@@ -31,21 +40,6 @@ pub struct SessionConfig {
     expiration_time: TimeStamp,
     service: String,
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const TS_DEF: &'static str = r#"
-export type SessionConfig = {
-  actions: string[],
-  address: string,
-  chainId: number,
-  domain: string,
-  issuedAt: string,
-  orbitId: string,
-  notBefore?: string,
-  expirationTime: string,
-  service: string,
-}
-"#;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
