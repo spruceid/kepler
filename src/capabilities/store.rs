@@ -49,14 +49,31 @@ pub struct Store {
     invocation_heads: HeadStore,
 }
 
+fn encode_root(s: &str) -> String {
+    use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+    // Emulate encodeURIComponent
+    const CHARS: &AsciiSet = &CONTROLS
+        .add(b' ')
+        .add(b'"')
+        .add(b'<')
+        .add(b'>')
+        .add(b'`')
+        .add(b':')
+        .add(b'/');
+    let target_encoded = utf8_percent_encode(s, CHARS);
+    format!("urn:zcap:root:{}#host", target_encoded)
+}
+
 impl Store {
-    pub async fn new(id: &OrbitId, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
-        let id = id
+    pub async fn new(oid: &OrbitId, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
+        let id = oid
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
-        let root = id.to_string().into_bytes();
+        let oid_string = oid.to_string();
+        let root = encode_root(&oid_string);
+        tracing::debug!("{}", root);
         let index =
-            AddRemoveSetStore::new(id.get_cid(), "capabilities".to_string(), config.clone())
+            AddRemoveSetStore::new(oid.get_cid(), "capabilities".to_string(), config.clone())
                 .await?;
 
         let (cid, n) = to_block_raw(&root)?.into_inner();
@@ -66,7 +83,7 @@ impl Store {
         };
         // heads tracking for delegations
         let delegation_heads = HeadStore::new(
-            id.get_cid(),
+            oid.get_cid(),
             "capabilities".to_string(),
             "delegations".to_string(),
             config.clone(),
@@ -74,7 +91,7 @@ impl Store {
         .await?;
         // heads tracking for invocations
         let invocation_heads = HeadStore::new(
-            id.get_cid(),
+            oid.get_cid(),
             "capabilities".to_string(),
             "invocations".to_string(),
             config.clone(),
@@ -86,7 +103,7 @@ impl Store {
             index,
             delegation_heads,
             invocation_heads,
-            root,
+            root: root.into_bytes(),
         })
     }
     pub async fn is_revoked(&self, d: &[u8]) -> Result<bool> {
@@ -207,8 +224,6 @@ impl Store {
     }
 
     async fn verify(&self, event: &Event) -> Result<()> {
-        // TODO recursively check embedded parent delegations to see if they are valid
-        // and/or already indexed
         // TODO ensure all uris extend parent uris
         try_join_all(event.delegate.iter().map(|u| self.verify_single(&u.update))).await?;
         // TODO ensure revocation permission (issuer or delegator)
@@ -217,6 +232,7 @@ impl Store {
     }
 
     async fn verify_single<D: CapNode + Verifiable>(&self, d: &D) -> Result<()> {
+        tracing::debug!("{:?}", d.root());
         match d.root() {
             Some(r) if r.as_bytes() == self.root => d.verify(None).await,
             _ => Err(anyhow!("Incorrect Root Capability")),

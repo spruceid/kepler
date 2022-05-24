@@ -1765,22 +1765,18 @@ dependencies = [
 [[package]]
 name = "did-ethr"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d6da6929c78abb19be225ad1b622dddc548801ede3031978e8ce517c26ded96"
 dependencies = [
  "async-trait",
  "chrono",
  "hex",
  "serde",
  "serde_json",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
 ]
 
 [[package]]
 name = "did-ion"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f317438c906a0d38274b3febfa50f04bec96f3239cafcdf774f5e5314b82ee17"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1791,15 +1787,13 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2 0.10.2",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
  "thiserror",
 ]
 
 [[package]]
 name = "did-method-key"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf03d1703d560427d78fc1d9232d812a04da3025d65c270d55d132c2c3e9f853"
 dependencies = [
  "async-trait",
  "k256",
@@ -1807,28 +1801,24 @@ dependencies = [
  "p256 0.9.0",
  "serde_json",
  "simple_asn1 0.5.4",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
  "thiserror",
 ]
 
 [[package]]
 name = "did-onion"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2c9a9d02e125cf307c352442a95274ef462b48cb24808dd9ad5bbec18250c4"
 dependencies = [
  "async-trait",
  "http",
  "reqwest",
  "serde_json",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
 ]
 
 [[package]]
 name = "did-pkh"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71f96db992eaf8412a3d56153de602a00866bbfc1833c0be1788529f74429a8f"
 dependencies = [
  "async-trait",
  "bech32",
@@ -1836,14 +1826,12 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
 ]
 
 [[package]]
 name = "did-tz"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2abcc513cb97a7f7798398680f355374f93a2bd4b15a9434089c9e96f4ceb985"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1853,28 +1841,24 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
  "url",
 ]
 
 [[package]]
 name = "did-web"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f13113c947b800cf0653b6f960e71a87049e9398876265d083eab93c1c2aa8"
 dependencies = [
  "async-trait",
  "http",
  "reqwest",
  "serde_json",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
 ]
 
 [[package]]
 name = "did-webkey"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af946cad78793319e0c86a644d17415f019eb84095f188406a183910cad7a308"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1885,14 +1869,12 @@ dependencies = [
  "serde",
  "serde_json",
  "sshkeys",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
 ]
 
 [[package]]
 name = "didkit"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a914f275e9e25c3b12420390d0b45b52f3081c4cfef2d58d9ebfa7d4d932c13"
 dependencies = [
  "base64 0.12.3",
  "bytes",
@@ -1909,7 +1891,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sshkeys",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
  "thiserror",
  "tokio",
 ]
@@ -3202,6 +3184,7 @@ dependencies = [
  "libipld",
  "libp2p",
  "nom 6.1.2",
+ "percent-encoding",
  "regex",
  "reqwest",
  "rocket",
@@ -3210,7 +3193,7 @@ dependencies = [
  "serde_with",
  "siwe 0.2.0",
  "sled",
- "ssi 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi 0.4.0",
  "tempdir",
  "thiserror",
  "tokio",
@@ -5951,8 +5934,6 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36ccfbc7699e02228ef0b2505a42604a7d6a6a96732253f2a71894013ab5d6bb"
 dependencies = [
  "anyhow",
  "async-std",
@@ -5963,6 +5944,7 @@ dependencies = [
  "bitvec 0.20.4",
  "blake2b_simd",
  "bs58",
+ "cacaos",
  "chrono",
  "clear_on_drop",
  "combination",
@@ -5977,11 +5959,13 @@ dependencies = [
  "hkdf",
  "http",
  "iref",
+ "iri-string 0.4.1",
  "json",
  "json-ld",
  "k256",
  "keccak-hash",
  "lazy_static",
+ "libipld",
  "multibase 0.8.0",
  "num-bigint 0.4.3",
  "p256 0.9.0",
@@ -6000,11 +5984,14 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha2 0.8.2",
+ "sha2 0.9.9",
  "simple_asn1 0.5.4",
  "sshkeys",
- "ssi-contexts 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssi-contexts 0.1.3",
  "thiserror",
+ "uint",
  "url",
+ "uuid 0.8.2",
  "zeroize",
 ]
 
@@ -6063,8 +6050,6 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c5cc45c2b1fcd5ee3c09b30369a585c811c92403f708a2f0816a1bcd09b193"
 
 [[package]]
 name = "ssi-contexts"
