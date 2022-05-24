@@ -1,6 +1,7 @@
 use crate::resource::ResourceId;
 use anyhow::Result;
 use cacao_zcap::CacaoZcapExtraProps;
+use chrono::{DateTime, Utc};
 use didkit::DID_METHODS;
 use libipld::{
     cbor::DagCborCodec,
@@ -27,6 +28,10 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct InvProps {
     pub invocation_target: ResourceId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<String>,
     #[serde(flatten)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_fields: Option<HashMap<String, Value>>,
@@ -283,6 +288,7 @@ pub trait CapNode {
     fn id(&self) -> Vec<u8>;
     fn parents(&self) -> NestedDelegationIter;
     fn parent_ids(&self) -> NestedIdIter;
+    fn root(&self) -> Option<&str>;
 }
 
 fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
@@ -310,6 +316,15 @@ macro_rules! impl_capnode {
             fn parent_ids(&self) -> NestedIdIter {
                 NestedIdIter(ParentIter::new(self.0.proof.as_ref()))
             }
+            fn root(&self) -> Option<&str> {
+                self.0
+                    .proof
+                    .as_ref()
+                    .and_then(|p| p.property_set.as_ref())
+                    .and_then(|ps| ps.get("capabilityChain"))
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.as_str())
+            }
         }
     };
 }
@@ -325,11 +340,9 @@ impl<'a> ParentIter<'a> {
         Self(
             proof
                 .and_then(|p| p.property_set.as_ref())
-                .and_then(|ps| ps.get("capabilityChain"))
-                .and_then(|chain| match chain {
-                    Value::Array(caps) => caps.last(),
-                    _ => None,
-                }),
+                .and_then(|p| p.get("capabilityChain"))
+                .and_then(|c| c.as_array())
+                .and_then(|c| c.last()),
         )
     }
 }
@@ -337,17 +350,11 @@ impl<'a> ParentIter<'a> {
 impl<'a> Iterator for ParentIter<'a> {
     type Item = &'a Value;
     fn next(&mut self) -> Option<Self::Item> {
-        match self.0 {
-            Some(c) => {
-                self.0 = c
-                    .as_object()
-                    .and_then(|o| o.get("proof"))
-                    .and_then(|p| p.get("capabilityChain"))
-                    .and_then(|c| c.get(0));
-                Some(c)
-            }
-            None => None,
-        }
+        self.0
+            .and_then(|v| v.get("proof"))
+            .and_then(|p| p.get("capabilityChain"))
+            .and_then(|c| c.as_array())
+            .and_then(|c| c.last())
     }
 }
 
@@ -377,14 +384,24 @@ impl<'a> Iterator for NestedIdIter<'a> {
 
 #[rocket::async_trait]
 pub trait Verifiable {
-    async fn verify(&self) -> Result<()>;
+    async fn verify(&self, timestamp: Option<DateTime<Utc>>) -> Result<()>;
+}
+
+fn check_time(t: Option<&String>) -> Result<Option<DateTime<Utc>>> {
+    Ok(t.map(|s| s.parse()).transpose()?)
 }
 
 #[rocket::async_trait]
 impl Verifiable for Delegation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(p) = self.parents().next() {
-            p.verify(time).await?;
+    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
+        let t = time.unwrap_or_else(Utc::now);
+        match check_time(self.0.property_set.expires.as_ref())? {
+            Some(exp) if t > exp => bail!("Expired"),
+            _ => (),
+        };
+        match check_time(self.0.property_set.valid_from.as_ref())? {
+            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
+            _ => (),
         };
         if let Some(e) = self
             .0
@@ -394,18 +411,32 @@ impl Verifiable for Delegation {
             .into_iter()
             .next()
         {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
+            bail!(e)
+        };
+        if let Some(p) = self.parents().next() {
+            if p.delegate() != self.delegator() {
+                bail!("Delegator Not Authorized")
+            };
+            if p.root() != self.root() {
+                bail!("Auth root caps do not match")
+            };
+            p.verify(time).await?;
+        };
+        Ok(())
     }
 }
 
 #[rocket::async_trait]
 impl Verifiable for Invocation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(p) = self.parents().next() {
-            p.verify().await?;
+    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
+        let t = time.unwrap_or_else(Utc::now);
+        match check_time(self.0.property_set.expires.as_ref())? {
+            Some(exp) if t > exp => bail!("Expired"),
+            _ => (),
+        };
+        match check_time(self.0.property_set.valid_from.as_ref())? {
+            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
+            _ => (),
         };
         if let Some(e) = self
             .0
@@ -415,18 +446,32 @@ impl Verifiable for Invocation {
             .into_iter()
             .next()
         {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
+            bail!(e)
+        };
+        if let Some(p) = self.parents().next() {
+            if p.delegate() != self.invoker() {
+                bail!("Invoker Not Authorized")
+            };
+            if p.root() != self.root() {
+                bail!("Auth root caps do not match")
+            };
+            p.verify(time).await?;
+        };
+        Ok(())
     }
 }
 
 #[rocket::async_trait]
 impl Verifiable for Revocation {
-    async fn verify(&self) -> Result<()> {
-        if let Some(p) = self.parents().next() {
-            p.verify().await?;
+    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
+        let t = time.unwrap_or_else(Utc::now);
+        match check_time(self.0.property_set.expires.as_ref())? {
+            Some(exp) if t > exp => bail!("Expired"),
+            _ => (),
+        };
+        match check_time(self.0.property_set.valid_from.as_ref())? {
+            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
+            _ => (),
         };
         if let Some(e) = self
             .0
@@ -436,10 +481,20 @@ impl Verifiable for Revocation {
             .into_iter()
             .next()
         {
-            Err(anyhow!(e))
-        } else {
-            Ok(())
-        }
+            bail!(e)
+        };
+        if let Some(p) = self.parents().next() {
+            // TODO we should check if the revoker is the delegate/delegator of ANY
+            // of the parent delegations
+            if p.delegate() != self.revoker() {
+                bail!("Revoker Not Authorized")
+            };
+            if p.root() != self.root() {
+                bail!("Auth root caps do not match")
+            };
+            p.verify(time).await?;
+        };
+        Ok(())
     }
 }
 

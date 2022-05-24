@@ -116,7 +116,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 
                 let orbit_id = token.resource().orbit().clone();
 
-                if let Err(e) = token.verify().await {
+                if let Err(e) = token.verify(None).await {
                     return unauthorized(e);
                 };
 

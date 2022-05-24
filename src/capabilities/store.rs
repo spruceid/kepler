@@ -210,16 +210,23 @@ impl Store {
         // TODO recursively check embedded parent delegations to see if they are valid
         // and/or already indexed
         // TODO ensure all uris extend parent uris
-        try_join_all(event.delegate.iter().map(|u| u.update.verify())).await?;
+        try_join_all(event.delegate.iter().map(|u| self.verify_single(&u.update))).await?;
         // TODO ensure revocation permission (issuer or delegator)
-        try_join_all(event.revoke.iter().map(|u| u.update.verify())).await?;
+        try_join_all(event.revoke.iter().map(|u| self.verify_single(&u.update))).await?;
         Ok(())
+    }
+
+    async fn verify_single<D: CapNode + Verifiable>(&self, d: &D) -> Result<()> {
+        match d.root() {
+            Some(r) if r.as_bytes() == self.root => d.verify(None).await,
+            _ => Err(anyhow!("Incorrect Root Capability")),
+        }
     }
 
     pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
         let (dels, invs): (Vec<Vec<Delegation>>, Vec<Invocation>) =
             try_join_all(invocations.into_iter().map(|i| async move {
-                i.verify().await?;
+                i.verify(None).await?;
                 Ok((self.explode_unseen_parents(&i).await?, i))
                     as Result<(Vec<Delegation>, Invocation)>
             }))
