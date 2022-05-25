@@ -49,7 +49,7 @@ pub struct Store {
     invocation_heads: HeadStore,
 }
 
-fn encode_root(s: &str) -> String {
+pub(crate) fn encode_root(s: &str) -> String {
     use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
     // Emulate encodeURIComponent
     const CHARS: &AsciiSet = &CONTROLS
@@ -61,7 +61,17 @@ fn encode_root(s: &str) -> String {
         .add(b':')
         .add(b'/');
     let target_encoded = utf8_percent_encode(s, CHARS);
-    format!("urn:zcap:root:{}#host", target_encoded)
+    format!("urn:zcap:root:{}", target_encoded)
+}
+
+pub(crate) fn decode_root(s: &str) -> Result<OrbitId> {
+    use percent_encoding::percent_decode_str;
+    let r: ResourceId = percent_decode_str(s)
+        .decode_utf8()?
+        .strip_prefix("urn:zcap:root:")
+        .ok_or_else(|| anyhow!("Invalid Root Zcap Prefix"))?
+        .parse()?;
+    Ok(r.orbit().clone())
 }
 
 impl Store {
@@ -71,7 +81,6 @@ impl Store {
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
         let oid_string = oid.to_string();
         let root = encode_root(&oid_string);
-        tracing::debug!("{}", root);
         let index =
             AddRemoveSetStore::new(oid.get_cid(), "capabilities".to_string(), config.clone())
                 .await?;

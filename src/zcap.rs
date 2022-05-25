@@ -1,3 +1,4 @@
+use crate::capabilities::store::{decode_root, encode_root};
 use crate::resource::ResourceId;
 use anyhow::Result;
 use cacao_zcap::CacaoZcapExtraProps;
@@ -447,6 +448,8 @@ impl Verifiable for Delegation {
                 bail!("Authorization not granted by parent")
             };
             p.verify(Some(t)).await?;
+        } else if !compare_root_with_issuer(self.root(), self.delegator()).is_ok() {
+            bail!("Delegator Not Authorized by root Orbit Capability")
         };
         Ok(())
     }
@@ -489,8 +492,24 @@ impl Verifiable for Invocation {
                 bail!("Authorization not granted by parent")
             };
             p.verify(Some(t)).await?;
+        } else if !compare_root_with_issuer(self.root(), self.invoker()).is_ok() {
+            bail!("Invoker Not Authorized by root Orbit Capability")
         };
         Ok(())
+    }
+}
+
+fn compare_root_with_issuer(root: Option<&str>, vm: &str) -> Result<()> {
+    match root.map(decode_root).transpose()?.map(|r| r.did()) {
+        Some(r) if r == vm.split_once('#').map(|s| s.0).unwrap_or(vm) => {
+            debug!("{}", r);
+            Ok(())
+        }
+        Some(r) => {
+            debug!("{}", r);
+            Err(anyhow!("Issuer not authorized by Root"))
+        }
+        _ => Err(anyhow!("Issuer not authorized by Root")),
     }
 }
 
@@ -526,6 +545,8 @@ impl Verifiable for Revocation {
                 bail!("Auth root caps do not match")
             };
             p.verify(Some(t)).await?;
+        } else if !compare_root_with_issuer(self.root(), self.revoker()).is_ok() {
+            bail!("Revoker Not Authorized by root Orbit Capability")
         };
         Ok(())
     }

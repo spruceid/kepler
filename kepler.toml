@@ -7,10 +7,10 @@
 [global.storage]
     ###### Document shared aws config (`aws_config::from_env()`)
     [global.storage.blocks]
-    # type = "local"
+    # type = "Local"
     # path = "/tmp/kepler/blocks"
     [global.storage.indexes]
-    # type = "local"
+    # type = "Local"
     # path = "/tmp/kepler/indexes"
 
 [global.orbits]

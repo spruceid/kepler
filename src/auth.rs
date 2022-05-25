@@ -99,13 +99,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
         };
 
+        debug!("{}", serde_json::to_string_pretty(&token).unwrap()):
         let orbit = match (
-            token.resource().fragment(),
-            token.resource().path(),
-            token.resource().service(),
+            token
+                .resources()
+                .into_iter()
+                .any(|r| (r.fragment(), r.path(), r.service()) == (Some("host"), None, None)),
             load_orbit(token.resource().orbit().get_cid(), &config, relay.clone()).await,
         ) {
-            (Some("host"), None, None, Ok(None)) => {
+            (true, Ok(None)) => {
                 let keys = match req
                     .rocket()
                     .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
@@ -113,8 +115,6 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                     Some(k) => k,
                     _ => return internal_server_error(anyhow!("could not retrieve open key set")),
                 };
-
-                let orbit_id = token.resource().orbit().clone();
 
                 if let Err(e) = token.verify(None).await {
                     return unauthorized(e);
@@ -135,15 +135,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                     }
                 };
 
-                match create_orbit(&orbit_id, &config, &[], relay, kp).await {
+                match create_orbit(token.resource().orbit(), &config, &[], relay, kp).await {
                     Ok(Some(orbit)) => orbit,
                     Ok(None) => return conflict(anyhow!("Orbit already exists")),
                     Err(e) => return internal_server_error(e),
                 }
             }
-            (_, _, _, Ok(None)) => return not_found(anyhow!("No Orbit found")),
-            (_, _, _, Ok(Some(o))) => o,
-            (_, _, _, Err(e)) => return unauthorized(e),
+            (_, Ok(None)) => return not_found(anyhow!("No Orbit found")),
+            (_, Ok(Some(o))) => o,
+            (_, Err(e)) => return unauthorized(e),
         };
 
         if let Err(e) = orbit.capabilities.transact(Updates::new([token], [])).await {
