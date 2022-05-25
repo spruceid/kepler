@@ -56,6 +56,25 @@ impl Delegation {
     pub fn resource(&self) -> ResourceId {
         self.0.property_set.invocation_target.parse().unwrap()
     }
+    pub fn resources(&self) -> Vec<ResourceId> {
+        let r = self.resource();
+        self.0
+            .property_set
+            .allowed_action
+            .as_ref()
+            .map(|aa| {
+                aa.into_iter()
+                    .map(|a| {
+                        r.orbit().clone().to_resource(
+                            r.service().map(|s| s.to_string()),
+                            r.path().map(|p| p.to_string()),
+                            Some(a.to_string()),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(Vec::new)
+    }
     pub fn delegator(&self) -> &str {
         // NOTE this returns the full did VM URL e.g. did:example:alice#alice-key-1
         self.0
@@ -420,7 +439,14 @@ impl Verifiable for Delegation {
             if p.root() != self.root() {
                 bail!("Auth root caps do not match")
             };
-            p.verify(time).await?;
+            if !self
+                .resources()
+                .iter()
+                .all(|r| p.resources().iter().any(|pr| r.extends(pr).is_ok()))
+            {
+                bail!("Authorization not granted by parent")
+            };
+            p.verify(Some(t)).await?;
         };
         Ok(())
     }
@@ -455,7 +481,14 @@ impl Verifiable for Invocation {
             if p.root() != self.root() {
                 bail!("Auth root caps do not match")
             };
-            p.verify(time).await?;
+            if !p
+                .resources()
+                .iter()
+                .any(|pr| self.resource().extends(pr).is_ok())
+            {
+                bail!("Authorization not granted by parent")
+            };
+            p.verify(Some(t)).await?;
         };
         Ok(())
     }
@@ -492,7 +525,7 @@ impl Verifiable for Revocation {
             if p.root() != self.root() {
                 bail!("Auth root caps do not match")
             };
-            p.verify(time).await?;
+            p.verify(Some(t)).await?;
         };
         Ok(())
     }
