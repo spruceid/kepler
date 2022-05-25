@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-PKG_NAME="kepler_sdk_wasm"
+PKG_NAME="sdk"
 PKG_DIR="pkg"
 
 if ! [ -x "$(command -v jq)" ]; then
@@ -45,4 +45,4 @@ do
     cat $PKG_DIR/package.json | jq --arg f "$F" '.files += [$f]' > TMP_FILE && mv TMP_FILE $PKG_DIR/package.json
 done
 
-sed -i 's/"didkit-wasm"/"@spruceid\/didkit-wasm"/g' $PKG_DIR/package.json
+sed -i 's/"name": "sdk"/"name": "kepler-wasm"/' $PKG_DIR/package.json

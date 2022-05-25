@@ -63,12 +63,11 @@ impl TryFrom<HostConfig> for Message {
             statement: Some(
                 "Authorize action (host): Authorize this peer to host your orbit.".into(),
             ),
-            resources: vec![
-                ResourceId::new(c.orbit_id, None, None, Some(String::from("host")))
-                    .to_string()
-                    .try_into()
-                    .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?,
-            ],
+            resources: vec![c
+                .orbit_id
+                .to_string()
+                .try_into()
+                .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?],
             version: Version::V1,
             not_before: None,
             expiration_time: None,

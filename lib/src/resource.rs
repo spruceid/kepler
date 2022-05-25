@@ -99,7 +99,13 @@ impl ResourceId {
         Self {
             orbit,
             service,
-            path,
+            path: path.map(|p| {
+                if p.starts_with('/') {
+                    p
+                } else {
+                    format!("/{}", p)
+                }
+            }),
             fragment,
         }
     }
@@ -164,7 +170,7 @@ impl fmt::Display for ResourceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.orbit)?;
         if let Some(s) = &self.service {
-            write!(f, "/{}/", s)?
+            write!(f, "/{}", s)?
         };
         if let Some(p) = &self.path {
             write!(f, "{}", p)?
@@ -241,7 +247,7 @@ impl FromStr for ResourceId {
                     id: host.into(),
                 },
                 service: path.map(|(s, _)| s.into()),
-                path: path.map(|(_, pa)| pa.into()),
+                path: path.map(|(_, pa)| format!("/{}", pa)),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),
@@ -281,7 +287,7 @@ mod tests {
         assert_eq!("did:ens:example.eth", res.orbit().did());
         assert_eq!("orbit0", res.orbit().name());
         assert_eq!("kv", res.service().unwrap());
-        assert_eq!("path/to/image.jpg", res.path().unwrap());
+        assert_eq!("/path/to/image.jpg", res.path().unwrap());
         assert_eq!(None, res.fragment().as_ref());
 
         let res2: ResourceId = "kepler:ens:example.eth://orbit0#peer".parse().unwrap();
@@ -296,13 +302,13 @@ mod tests {
         let res3: ResourceId = "kepler:ens:example.eth://orbit0/kv#list".parse().unwrap();
 
         assert_eq!("kv", res3.service().unwrap());
-        assert_eq!("", res3.path().unwrap());
+        assert_eq!("/", res3.path().unwrap());
         assert_eq!("list", res3.fragment().unwrap());
 
         let res4: ResourceId = "kepler:ens:example.eth://orbit0/kv/#list".parse().unwrap();
 
         assert_eq!("kv", res4.service().unwrap());
-        assert_eq!("", res4.path().unwrap());
+        assert_eq!("/", res4.path().unwrap());
         assert_eq!("list", res4.fragment().unwrap());
     }
 
