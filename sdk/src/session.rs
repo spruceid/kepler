@@ -1,7 +1,7 @@
 use http::uri::Authority;
 use lib::{
     didkit::DID_METHODS,
-    resource::{OrbitId, ResourceId},
+    resource::OrbitId,
     ssi::{
         cacao_zcap::{
             cacaos::{
@@ -18,7 +18,6 @@ use lib::{
     zcap::{make_invocation, Error as ZcapError, KeplerDelegation, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
 
 use crate::util::siwe_to_zcap;
 
@@ -77,6 +76,17 @@ pub struct Session {
 
 impl SessionConfig {
     fn to_message(self, delegate: &str) -> Result<Message, String> {
+        let root_cap = self
+            .orbit_id
+            .to_string()
+            .try_into()
+            .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
+        let invocation_target = self
+            .orbit_id
+            .to_resource(Some(self.service), None, None)
+            .to_string()
+            .try_into()
+            .map_err(|e| format!("failed to parse invocation target as a URI: {}", e))?;
         Ok(Message {
             address: self.address,
             chain_id: self.chain_id,
@@ -86,12 +96,7 @@ impl SessionConfig {
             nonce: generate_nonce(),
             not_before: self.not_before,
             request_id: None,
-            resources: vec![
-                ResourceId::new(self.orbit_id, Some(self.service), None, None)
-                    .to_string()
-                    .try_into()
-                    .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?,
-            ],
+            resources: vec![invocation_target, root_cap],
             statement: Some(format!(
                 "Authorize action{}: Allow access to your Kepler orbit using this session key.",
                 {
@@ -112,7 +117,9 @@ impl SessionConfig {
 
 impl Session {
     pub async fn invoke(self, path: String, action: String) -> Result<KeplerInvocation, ZcapError> {
-        let target = ResourceId::new(self.orbit_id, Some(self.service), Some(path), Some(action));
+        let target = self
+            .orbit_id
+            .to_resource(Some(self.service), Some(path), Some(action));
         make_invocation(target, self.delegation, &self.jwk, self.verification_method).await
     }
 }

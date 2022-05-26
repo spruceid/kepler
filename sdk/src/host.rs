@@ -1,5 +1,5 @@
 use http::uri::Authority;
-use lib::resource::{OrbitId, ResourceId};
+use lib::resource::OrbitId;
 use lib::ssi::cacao_zcap::{
     cacaos::{
         siwe::{nonce::generate_nonce, Message, TimeStamp, Version},

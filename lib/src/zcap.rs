@@ -57,13 +57,21 @@ pub async fn make_invocation(
         ..Default::default()
     };
     let resolver = DID_METHODS.to_resolver();
-    let capability_chain = serde_json::to_value([
-        serde_json::to_value(delegation).map_err(Error::DelegationToJsonValueConversion)?
-    ])
-    .map_err(Error::DelegationToJsonValueConversion)?;
+    let mut capability_chain = delegation
+        .proof
+        .as_ref()
+        .and_then(|proof| proof.property_set.as_ref())
+        .and_then(|props| props.get("capabilityChain"))
+        .and_then(|chain| chain.as_array().cloned())
+        .unwrap_or(vec![]);
+    capability_chain
+        .push(serde_json::to_value(&delegation).map_err(Error::DelegationToJsonValueConversion)?);
 
     let mut proof_props = std::collections::HashMap::<String, Value>::new();
-    proof_props.insert("capabilityChain".into(), capability_chain);
+    proof_props.insert(
+        "capabilityChain".into(),
+        serde_json::to_value(capability_chain).map_err(Error::DelegationToJsonValueConversion)?,
+    );
 
     let proof = LinkedDataProofs::sign(&invocation, &ldp_options, resolver, jwk, Some(proof_props))
         .await
@@ -97,6 +105,8 @@ mod test {
             let id = URI::String(format!("urn:uuid:{}", Uuid::new_v4()));
             let property_set = InvProps {
                 invocation_target,
+                expires: None,
+                valid_from: None,
                 extra_fields: None,
             };
             KeplerInvocation {

@@ -62,7 +62,13 @@ impl OrbitId {
         ResourceId {
             orbit: self,
             service,
-            path,
+            path: path.map(|p| {
+                if p.starts_with('/') {
+                    p
+                } else {
+                    format!("/{}", p)
+                }
+            }),
             fragment,
         }
     }
@@ -90,26 +96,6 @@ pub struct ResourceId {
 }
 
 impl ResourceId {
-    pub fn new(
-        orbit: OrbitId,
-        service: Option<String>,
-        path: Option<String>,
-        fragment: Option<String>,
-    ) -> Self {
-        Self {
-            orbit,
-            service,
-            path: path.map(|p| {
-                if p.starts_with('/') {
-                    p
-                } else {
-                    format!("/{}", p)
-                }
-            }),
-            fragment,
-        }
-    }
-
     pub fn orbit(&self) -> &OrbitId {
         &self.orbit
     }
