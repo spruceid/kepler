@@ -131,11 +131,11 @@ mod test {
     use ipfs::IpfsOptions;
 
     use super::*;
-    use crate::kv::DagCborCodec;
+    use crate::{config, kv::DagCborCodec, tracing::tracing_try_init};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn write() -> Result<(), anyhow::Error> {
-        crate::tracing_try_init();
+        tracing_try_init(&config::Logging::default());
         let tmp = tempdir::TempDir::new("test_streams")?;
         let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
 

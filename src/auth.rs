@@ -4,7 +4,7 @@ use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::resource::{OrbitId, ResourceId};
 use crate::routes::Metadata;
-use crate::zcap::{CapNode, Delegation, Invocation, Revocation, Verifiable};
+use crate::zcap::{CapNode, Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
@@ -14,6 +14,7 @@ use rocket::{
 };
 use std::{collections::HashMap, sync::RwLock};
 use thiserror::Error;
+use tracing::{info_span, Instrument};
 
 pub fn simple_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
     check_orbit_and_service(target, capability)?;
@@ -152,6 +153,20 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
     }
 }
 
+pub enum InvokeAuthWrapper {
+    KV(Box<KVAction>),
+    Revocation,
+}
+
+impl InvokeAuthWrapper {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            InvokeAuthWrapper::Revocation => "revoke_delegation",
+            InvokeAuthWrapper::KV(kv) => kv.prometheus_label(),
+        }
+    }
+}
+
 pub enum KVAction {
     Delete {
         orbit: Orbit,
@@ -164,6 +179,7 @@ pub enum KVAction {
     },
     List {
         orbit: Orbit,
+        prefix: String,
     },
     Metadata {
         orbit: Orbit,
@@ -177,9 +193,16 @@ pub enum KVAction {
     },
 }
 
-pub enum InvokeAuthWrapper {
-    KV(KVAction),
-    Revocation,
+impl KVAction {
+    pub fn prometheus_label(&self) -> &str {
+        match self {
+            KVAction::Delete { .. } => "kv_delete",
+            KVAction::Get { .. } => "kv_get",
+            KVAction::List { .. } => "kv_list",
+            KVAction::Metadata { .. } => "kv_metadata",
+            KVAction::Put { .. } => "kv_put",
+        }
+    }
 }
 
 #[async_trait]
@@ -187,80 +210,114 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {
-        let (config, relay) = match get_state(req) {
-            Ok(s) => s,
-            Err(e) => return internal_server_error(e),
-        };
+        let req_span = req
+            .local_cache(|| Option::<crate::tracing::TracingSpan>::None)
+            .as_ref()
+            .unwrap();
+        let span = info_span!(parent: &req_span.0, "invoke_auth_wrapper");
+        // Instrumenting async block to handle yielding properly
+        async move {
+            let timer = crate::prometheus::AUTHORIZATION_HISTOGRAM
+                .with_label_values(&["invoke"])
+                .start_timer();
 
-        let token = match Invocation::from_request(req).await {
-            Outcome::Success(t) => t,
-            Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
-            Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
-        };
+            let (config, relay) = match get_state(req) {
+                Ok(s) => s,
+                Err(e) => return internal_server_error(e),
+            };
 
-        let target = token.resource();
+            let token = match Invocation::from_request(req).await {
+                Outcome::Success(t) => t,
+                Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
+                Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
+            };
 
-        match target.fragment() {
-            None => unauthorized(anyhow!("target resource is missing action")),
-            _ => {
-                let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
-                    Ok(Some(o)) => o,
-                    Ok(None) => return not_found(anyhow!("No Orbit found")),
-                    Err(e) => return internal_server_error(e),
-                };
-                match target.service() {
-                    None => bad_request(anyhow!("missing service in invocation target")),
-                    Some("kv") => {
-                        let tid = token.id().to_vec();
-                        let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
-                            Ok(c) => AuthRef::new(c, tid),
-                            Err(e) => return unauthorized(e),
-                        };
+            let target = token.resource();
 
-                        let key = match target.path() {
-                            Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
-                            None => {
-                                return bad_request(anyhow!("missing path in invocation target"))
-                            }
-                        };
-                        match target.fragment() {
-                            None => bad_request(anyhow!("missing action in invocation target")),
-                            Some("del") => Outcome::Success(Self::KV(KVAction::Delete {
-                                orbit,
-                                key,
-                                auth_ref,
-                            })),
-                            Some("get") => Outcome::Success(Self::KV(KVAction::Get { orbit, key })),
-                            Some("list") => Outcome::Success(Self::KV(KVAction::List { orbit })),
-                            Some("metadata") => {
-                                Outcome::Success(Self::KV(KVAction::Metadata { orbit, key }))
-                            }
-                            Some("put") => match Metadata::from_request(req).await {
-                                Outcome::Success(metadata) => {
-                                    Outcome::Success(Self::KV(KVAction::Put {
+            let res = match target.fragment() {
+                None => unauthorized(anyhow!("target resource is missing action")),
+                _ => {
+                    let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
+                        Ok(Some(o)) => o,
+                        Ok(None) => return not_found(anyhow!("No Orbit found")),
+                        Err(e) => return internal_server_error(e),
+                    };
+                    match target.service() {
+                        None => bad_request(anyhow!("missing service in invocation target")),
+                        Some("kv") => {
+                            let tid = token.id().to_vec();
+                            let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
+                                Ok(c) => AuthRef::new(c, tid),
+                                Err(e) => return unauthorized(e),
+                            };
+
+                            let key = match target.path() {
+                                Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
+                                None => {
+                                    return bad_request(anyhow!(
+                                        "missing path in invocation target"
+                                    ))
+                                }
+                            };
+                            match target.fragment() {
+                                None => bad_request(anyhow!("missing action in invocation target")),
+                                Some("del") => {
+                                    Outcome::Success(Self::KV(Box::new(KVAction::Delete {
                                         orbit,
                                         key,
-                                        metadata,
                                         auth_ref,
-                                    }))
+                                    })))
                                 }
-                                Outcome::Failure(e) => Outcome::Failure(e),
-                                Outcome::Forward(_) => internal_server_error(anyhow!(
-                                    "unable to parse metadata from request"
+                                Some("get") => {
+                                    Outcome::Success(Self::KV(Box::new(KVAction::Get {
+                                        orbit,
+                                        key,
+                                    })))
+                                }
+                                Some("list") => {
+                                    Outcome::Success(Self::KV(Box::new(KVAction::List {
+                                        orbit,
+                                        prefix: key,
+                                    })))
+                                }
+                                Some("metadata") => {
+                                    Outcome::Success(Self::KV(Box::new(KVAction::Metadata {
+                                        orbit,
+                                        key,
+                                    })))
+                                }
+                                Some("put") => match Metadata::from_request(req).await {
+                                    Outcome::Success(metadata) => {
+                                        Outcome::Success(Self::KV(Box::new(KVAction::Put {
+                                            orbit,
+                                            key,
+                                            metadata,
+                                            auth_ref,
+                                        })))
+                                    }
+                                    Outcome::Failure(e) => Outcome::Failure(e),
+                                    Outcome::Forward(_) => internal_server_error(anyhow!(
+                                        "unable to parse metadata from request"
+                                    )),
+                                },
+                                Some(a) => bad_request(anyhow!(
+                                    "unsupported action in invocation target {}",
+                                    a
                                 )),
-                            },
-                            Some(a) => bad_request(anyhow!(
-                                "unsupported action in invocation target {}",
-                                a
-                            )),
+                            }
+                        }
+                        Some(s) => {
+                            bad_request(anyhow!("unsupported service in invocation target {}", s))
                         }
                     }
-                    Some(s) => {
-                        bad_request(anyhow!("unsupported service in invocation target {}", s))
-                    }
                 }
-            }
+            };
+
+            timer.observe_duration();
+            res
         }
+        .instrument(span)
+        .await
     }
 }
 

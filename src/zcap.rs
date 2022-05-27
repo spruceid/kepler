@@ -1,4 +1,4 @@
-use crate::capabilities::store::{decode_root, encode_root};
+use crate::capabilities::store::decode_root;
 use crate::resource::ResourceId;
 use anyhow::Result;
 use cacao_zcap::CacaoZcapExtraProps;
@@ -318,7 +318,7 @@ fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
             .unwrap_or(s),
     )
     .map(|u| u.as_bytes().to_vec())
-    .unwrap_or(s.as_bytes().to_vec())
+    .unwrap_or_else(|_| s.as_bytes().to_vec())
 }
 
 macro_rules! impl_capnode {
@@ -401,7 +401,7 @@ impl<'a> Iterator for NestedIdIter<'a> {
             .next()
             .and_then(|p| p.get("id"))
             .and_then(|f| f.as_str())
-            .map(|id| uuid_bytes_or_str(id))
+            .map(uuid_bytes_or_str)
     }
 }
 
@@ -451,7 +451,7 @@ impl Verifiable for Delegation {
                 bail!("Authorization not granted by parent")
             };
             p.verify(Some(t)).await?;
-        } else if !compare_root_with_issuer(self.root(), self.delegator()).is_ok() {
+        } else if compare_root_with_issuer(self.root(), self.delegator()).is_err() {
             bail!("Delegator Not Authorized by root Orbit Capability")
         };
         Ok(())
@@ -495,7 +495,7 @@ impl Verifiable for Invocation {
                 bail!("Authorization not granted by parent")
             };
             p.verify(Some(t)).await?;
-        } else if !compare_root_with_issuer(self.root(), self.invoker()).is_ok() {
+        } else if compare_root_with_issuer(self.root(), self.invoker()).is_err() {
             bail!("Invoker Not Authorized by root Orbit Capability")
         };
         Ok(())
@@ -548,7 +548,7 @@ impl Verifiable for Revocation {
                 bail!("Auth root caps do not match")
             };
             p.verify(Some(t)).await?;
-        } else if !compare_root_with_issuer(self.root(), self.revoker()).is_ok() {
+        } else if compare_root_with_issuer(self.root(), self.revoker()).is_err() {
             bail!("Revoker Not Authorized by root Orbit Capability")
         };
         Ok(())
@@ -564,7 +564,7 @@ fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
             .map(uuid_bytes_or_str),
     ) {
         // TODO what exactly do we expect here
-        (Some("capabilities"), Some(p)) => Some(p.into()),
+        (Some("capabilities"), Some(p)) => Some(p),
         _ => None,
     }
 }

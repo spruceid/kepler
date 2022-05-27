@@ -15,11 +15,13 @@ use std::{
     path::PathBuf,
     sync::RwLock,
 };
+use tracing::{info_span, Instrument};
 
 use crate::{
     auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
+    tracing::TracingSpan,
 };
 
 pub struct Metadata(pub BTreeMap<String, String>);
@@ -108,12 +110,27 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
     i: InvokeAuthWrapper,
+    req_span: TracingSpan,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
-    match i {
-        InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
-        InvokeAuthWrapper::KV(action) => handle_kv_action(action, data).await,
+    let action_label = i.prometheus_label().to_string();
+    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    // Instrumenting async block to handle yielding properly
+    async move {
+        let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+            .with_label_values(&[&action_label])
+            .start_timer();
+
+        let res = match i {
+            InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
+            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
+        };
+
+        timer.observe_duration();
+        res
     }
+    .instrument(span)
+    .await
 }
 
 pub async fn handle_kv_action(
@@ -146,16 +163,27 @@ pub async fn handle_kv_action(
             ))),
             _ => Ok(InvocationResponse::Empty),
         },
-        KVAction::List { orbit } => {
+        KVAction::List { orbit, prefix } => {
             Ok(InvocationResponse::List(
                 orbit
                     .service
                     .list()
                     .await
                     .filter_map(|r| {
-                        // filter out any non-utf8 keys
-                        r.map(|v| std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()))
-                            .transpose()
+                        // filter out non-utf8 keys and those not matching the prefix
+                        r.map(|v| {
+                            match std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()) {
+                                None => None,
+                                Some(key) => {
+                                    if key.starts_with(&prefix) {
+                                        Some(key)
+                                    } else {
+                                        None
+                                    }
+                                }
+                            }
+                        })
+                        .transpose()
                     })
                     .collect::<Result<Vec<String>>>()
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?,

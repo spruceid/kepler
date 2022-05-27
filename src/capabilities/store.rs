@@ -180,7 +180,7 @@ impl Store {
                     self.index
                         .element(&p)
                         .await?
-                        .map(|c: Cid| BlockRef::Block(c))
+                        .map(BlockRef::Block)
                         .unwrap_or(BlockRef::SameBlock),
                     p.to_vec(),
                 )) as Result<ElementRef, crate::indexes::Error<libipld::cid::Error>>
@@ -202,7 +202,7 @@ impl Store {
         let cid = self.ipfs.put_block(block).await?;
 
         // verify everything
-        self.verify(&event).await?;
+        self.verify(event).await?;
 
         // write element indexes
         for e in event.delegate.iter() {
@@ -263,7 +263,7 @@ impl Store {
             .apply_invocations(Invocations {
                 prev: self.invocation_heads.get_heads().await?.0,
                 invoke: try_join_all(invs.into_iter().map(|i| async move {
-                    tracing::debug!("invoking {:?}", i.parent_ids().next().unwrap_or(vec![]));
+                    tracing::debug!("invoking {:?}", i.parent_ids().next().unwrap_or_default());
                     self.link_update(i).await
                 }))
                 .await?,

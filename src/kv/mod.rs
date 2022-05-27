@@ -135,9 +135,7 @@ mod test {
     use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
-    use crate::{
-        capabilities::AuthRef, config, ipfs::create_ipfs, relay::test::test_relay, tracing_try_init,
-    };
+    use crate::{capabilities::AuthRef, config, ipfs::create_ipfs, relay::test::test_relay};
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
     };
@@ -174,7 +172,6 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test() -> Result<(), anyhow::Error> {
-        tracing_try_init();
         let relay = test_relay().await?;
         let relay_peer_id = relay.id.clone();
         let relay_internal = relay.internal();

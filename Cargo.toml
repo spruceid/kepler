@@ -2,9 +2,8 @@
 name = "kepler"
 version = "0.1.0"
 authors = ["Spruce Systems, Inc."]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
-resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -25,14 +24,19 @@ didkit = { path = "../didkit/lib" }
 ethers-core = "0.6"
 futures = { default-features = false, version = "0.3.9", features = ["alloc", "std"] }
 hex = "0.4"
+hyper = "0.14" # Prometheus server
 ipfs = { git = "https://github.com/spruceid/rust-ipfs", branch = "kepler-libp2p" }
 iri-string = "0.5"
+lazy_static = "1.4.0"
 libipld = "0.12"
 libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mplex", "noise", "ping", "yamux", "dns-tokio", "relay"], version = "0.43.0" }
 nom = "6"
+opentelemetry = { version = "0.17.0", features = ["rt-tokio"] }
+opentelemetry-jaeger = { version = "0.16.0", features = ["rt-tokio", "reqwest_collector_client"] }
+prometheus = { version = "0.13.0", features = ["process"] }
 regex = "1.5"
 reqwest = { version = "0.11", features = ["json"] }
-rocket = { version = "0.5.0-rc.1", features = ["json"] }
+rocket = { version = "0.5.0-rc.2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_with = { version = "1", features = ["hex"] }
@@ -44,7 +48,9 @@ tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["fs"] }
 tokio-util = "0.6.9"
 tracing = "0.1"
-tracing-subscriber = "0.2"
+tracing-log = "0.1"
+tracing-opentelemetry = "0.17.2"
+tracing-subscriber = { version = "0.3.11", features = ["env-filter", "json"] }
 urlencoding = "2.1"
 void = "1"
 cacao-zcap = { path = "../cacao-zcap-rs" }

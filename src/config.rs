@@ -6,9 +6,29 @@ use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
+    pub log: Logging,
     pub storage: Storage,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
+    pub prometheus: Prometheus,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
+pub struct Logging {
+    pub format: LoggingFormat,
+    pub tracing: Tracing,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub enum LoggingFormat {
+    Text,
+    Json,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Tracing {
+    pub traceheader: String,
+    pub enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
@@ -72,6 +92,26 @@ pub struct Relay {
     pub port: u16,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Prometheus {
+    pub port: u16,
+}
+
+impl Default for Tracing {
+    fn default() -> Tracing {
+        Tracing {
+            enabled: false,
+            traceheader: "Spruce-Trace-Id".to_string(),
+        }
+    }
+}
+
+impl Default for LoggingFormat {
+    fn default() -> LoggingFormat {
+        LoggingFormat::Text
+    }
+}
+
 impl Default for BlockStorage {
     fn default() -> BlockStorage {
         BlockStorage::Local(LocalBlockStorage::default())
@@ -106,5 +146,11 @@ impl Default for Relay {
             address: "127.0.0.1".into(),
             port: 8081,
         }
+    }
+}
+
+impl Default for Prometheus {
+    fn default() -> Self {
+        Self { port: 8001 }
     }
 }
