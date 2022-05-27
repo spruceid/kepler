@@ -370,11 +370,14 @@ impl<'a> ParentIter<'a> {
 impl<'a> Iterator for ParentIter<'a> {
     type Item = &'a Value;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0
+        let c = self.0;
+        let n = c
             .and_then(|v| v.get("proof"))
             .and_then(|p| p.get("capabilityChain"))
             .and_then(|c| c.as_array())
-            .and_then(|c| c.last())
+            .and_then(|c| c.last());
+        self.0 = n;
+        c
     }
 }
 

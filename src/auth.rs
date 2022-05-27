@@ -99,7 +99,6 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
         };
 
-        debug!("{}", serde_json::to_string_pretty(&token).unwrap()):
         let orbit = match (
             token
                 .resources()
