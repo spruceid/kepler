@@ -241,7 +241,6 @@ impl Store {
     }
 
     async fn verify_single<D: CapNode + Verifiable>(&self, d: &D) -> Result<()> {
-        tracing::debug!("{:?}", d.root());
         match d.root() {
             Some(r) if r.as_bytes() == self.root => d.verify(None).await,
             _ => Err(anyhow!("Incorrect Root Capability")),

@@ -102,7 +102,7 @@ impl ResourceId {
             Err(ResourceCheckError::IncorrectService)
         } else if base.fragment() != self.fragment() {
             Err(ResourceCheckError::IncorrectFragment)
-        } else if self
+        } else if !self
             .path()
             .unwrap_or("")
             .starts_with(base.path().unwrap_or(""))
