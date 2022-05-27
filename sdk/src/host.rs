@@ -1,4 +1,5 @@
 use http::uri::Authority;
+use iri_string::types::UriString;
 use lib::resource::OrbitId;
 use lib::ssi::cacao_zcap::{
     cacaos::{
@@ -51,6 +52,11 @@ pub struct SignedMessage {
 impl TryFrom<HostConfig> for Message {
     type Error = String;
     fn try_from(c: HostConfig) -> Result<Self, String> {
+        let root_cap: UriString = c
+            .orbit_id
+            .to_string()
+            .try_into()
+            .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
         Ok(Self {
             address: c.address,
             chain_id: c.chain_id,
@@ -63,11 +69,7 @@ impl TryFrom<HostConfig> for Message {
             statement: Some(
                 "Authorize action (host): Authorize this peer to host your orbit.".into(),
             ),
-            resources: vec![c
-                .orbit_id
-                .to_string()
-                .try_into()
-                .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?],
+            resources: vec![root_cap.clone(), root_cap],
             version: Version::V1,
             not_before: None,
             expiration_time: None,

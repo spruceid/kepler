@@ -12,8 +12,8 @@ fi
 rm -rf ./ts
 mkdir -p ./ts
 
-wasm-pack build  --out-dir $PKG_DIR/web
-wasm-pack build  --target nodejs --out-dir $PKG_DIR/node
+wasm-pack build --dev --out-dir $PKG_DIR/web
+wasm-pack build --dev --target nodejs --out-dir $PKG_DIR/node
 
 mv $PKG_DIR/web/package.json $PKG_DIR/
 rm $PKG_DIR/node/package.json

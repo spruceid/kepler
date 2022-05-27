@@ -5569,6 +5569,7 @@ dependencies = [
  "chrono",
  "hex",
  "http",
+ "iri-string 0.4.1",
  "js-sys",
  "lib",
  "serde",
