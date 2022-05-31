@@ -4,8 +4,10 @@ use chrono::{DateTime, Utc};
 use lib::{
     didkit::DID_METHODS,
     resource::ResourceId,
-    ssi::{vc::{Proof, URI},
-cacao_zcap::CacaoZcapExtraProps},
+    ssi::{
+        cacao_zcap::CacaoZcapExtraProps,
+        vc::{Proof, URI},
+    },
     zcap::{KeplerDelegation as InnerDelegation, KeplerInvocation as InnerInvocation},
 };
 use libipld::{

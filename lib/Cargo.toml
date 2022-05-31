@@ -23,11 +23,13 @@ version = "1"
 features = ["macros"]
 
 [dependencies.didkit]
-path = "../../didkit/lib"
+git = "https://github.com/spruceid/didkit"
+branch = "cacao-zcap-kepler"
 default-features = false
 
 [dependencies.ssi]
-path = "../../ssi"
+git = "https://github.com/spruceid/ssi"
+branch = "cacao-zcap-kepler"
 default-features = false
 features = ["cacao-zcap"]
 

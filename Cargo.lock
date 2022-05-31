@@ -1024,7 +1024,7 @@ dependencies = [
 [[package]]
 name = "cacaos"
 version = "0.2.0"
-source = "git+https://github.com/spruceid/cacao-rs.git?rev=2715184#27151841dd5701bf2a5ea48d221f2b048aebdbc8"
+source = "git+https://github.com/spruceid/cacao-rs.git?rev=b8cf7da#b8cf7da6402700c278d3f35168830866e3ada3fc"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1738,7 +1738,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_json",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
 ]
 
 [[package]]
@@ -1755,7 +1755,7 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "sha2 0.10.2",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
  "thiserror",
 ]
 
@@ -1768,7 +1768,7 @@ dependencies = [
  "multibase 0.8.0",
  "serde_json",
  "simple_asn1 0.5.4",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
  "thiserror",
 ]
 
@@ -1781,7 +1781,7 @@ dependencies = [
  "http",
  "reqwest",
  "serde_json",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
 ]
 
 [[package]]
@@ -1795,7 +1795,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
 ]
 
 [[package]]
@@ -1811,7 +1811,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
  "url",
 ]
 
@@ -1824,7 +1824,7 @@ dependencies = [
  "http",
  "reqwest",
  "serde_json",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
 ]
 
 [[package]]
@@ -1841,12 +1841,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sshkeys",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
 ]
 
 [[package]]
 name = "didkit"
 version = "0.4.0"
+source = "git+https://github.com/spruceid/didkit?branch=cacao-zcap-kepler#9123d7f1217a31593009eda44843aead6f121861"
 dependencies = [
  "base64 0.12.3",
  "bytes",
@@ -1863,7 +1864,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sshkeys",
- "ssi 0.4.0 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi",
  "thiserror",
  "tokio",
 ]
@@ -3301,7 +3302,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "ssi 0.4.0",
+ "ssi",
  "thiserror",
  "tokio",
  "uuid 1.1.1",
@@ -6003,6 +6004,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.4.0"
+source = "git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler#7a866b9ef798ccb8e805f206039dbf5d74070fdf"
 dependencies = [
  "anyhow",
  "async-std",
@@ -6027,66 +6029,6 @@ dependencies = [
  "getrandom 0.2.6",
  "hex",
  "hkdf 0.8.0",
- "iref",
- "iri-string 0.4.1",
- "json",
- "json-ld",
- "lazy_static",
- "libipld",
- "multibase 0.8.0",
- "num-bigint 0.4.3",
- "pairing-plus",
- "percent-encoding",
- "pest",
- "pest_derive",
- "rand 0.7.3",
- "rand 0.8.5",
- "rand_xorshift 0.3.0",
- "reqwest",
- "rsa",
- "serde",
- "serde_jcs",
- "serde_json",
- "serde_urlencoded",
- "sha2 0.8.2",
- "sha2 0.9.9",
- "simple_asn1 0.5.4",
- "sshkeys",
- "ssi-contexts 0.1.3",
- "thiserror",
- "uint",
- "url",
- "uuid 0.8.2",
- "zeroize",
-]
-
-[[package]]
-name = "ssi"
-version = "0.4.0"
-source = "git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler#7a866b9ef798ccb8e805f206039dbf5d74070fdf"
-dependencies = [
- "anyhow",
- "async-std",
- "async-trait",
- "base64 0.12.3",
- "bbs",
- "bech32",
- "bitvec 0.20.4",
- "blake2b_simd",
- "bs58",
- "chrono",
- "clear_on_drop",
- "combination",
- "derive_builder",
- "digest 0.9.0",
- "ecdsa 0.11.1",
- "ed25519-dalek",
- "ff-zeroize",
- "flate2",
- "futures",
- "getrandom 0.2.6",
- "hex",
- "hkdf 0.8.0",
  "http",
  "iref",
  "iri-string 0.4.1",
@@ -6095,6 +6037,7 @@ dependencies = [
  "k256",
  "keccak-hash",
  "lazy_static",
+ "libipld",
  "multibase 0.8.0",
  "num-bigint 0.4.3",
  "p256 0.9.0",
@@ -6117,16 +6060,13 @@ dependencies = [
  "sha2 0.9.9",
  "simple_asn1 0.5.4",
  "sshkeys",
- "ssi-contexts 0.1.3 (git+https://github.com/spruceid/ssi?branch=cacao-zcap-kepler)",
+ "ssi-contexts",
  "thiserror",
  "uint",
  "url",
+ "uuid 0.8.2",
  "zeroize",
 ]
-
-[[package]]
-name = "ssi-contexts"
-version = "0.1.3"
 
 [[package]]
 name = "ssi-contexts"
