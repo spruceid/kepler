@@ -136,7 +136,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                 };
 
                 match create_orbit(token.resource().orbit(), &config, &[], relay, kp).await {
-                    Ok(Some(orbit)) => orbit,
+                    Ok(Some(orbit)) => {
+                        return if let Err(e) =
+                            orbit.capabilities.transact(Updates::new([token], [])).await
+                        {
+                            internal_server_error(e)
+                        } else {
+                            Outcome::Success(Self::OrbitCreation(orbit.id().clone()))
+                        }
+                    }
                     Ok(None) => return conflict(anyhow!("Orbit already exists")),
                     Err(e) => return internal_server_error(e),
                 }
