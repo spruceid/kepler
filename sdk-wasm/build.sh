@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
-PKG_NAME="kepler-sdk-wasm"
+PKG_NAME="kepler_sdk_wasm"
 PKG_DIR="wasm"
 
 if ! [ -x "$(command -v jq)" ]; then
     echo "jq is not installed" >& 2
     exit 1
 fi
-
-rm -rf ./ts
-mkdir -p ./ts
 
 wasm-pack build --out-dir $PKG_DIR/web
 wasm-pack build --target nodejs --out-dir $PKG_DIR/node
@@ -45,4 +42,6 @@ do
     cat $PKG_DIR/package.json | jq --arg f "$F" '.files += [$f]' > TMP_FILE && mv TMP_FILE $PKG_DIR/package.json
 done
 
-rm ./$PKG_DIR/.gitignore ./$PKG_DIR/**/.gitignore
+rm ./$PKG_DIR/**/.gitignore
+
+sed -i 's/kepler-sdk-wasm/@spruceid\/kepler-sdk-wasm/g' $PKG_DIR/package.json

@@ -9,42 +9,32 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-defaults:
-  run:
-    working-directory: kepler
-
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
       uses: actions/checkout@v2
       with:
         path: kepler
-
-    - name: Checkout SSI library
-      uses: actions/checkout@v2
-      with:
-        repository: spruceid/ssi
-        path: ssi
-        ref: 21c13cc96a28c36fa6d1cb8407fc235035fb9f6d
-        submodules: true
-
-    - name: Checkout DIDKit library
-      uses: actions/checkout@v2
-      with:
-        repository: spruceid/didkit
-        path: didkit
-        ref: 436f53baa875564dccf8c04deb57a424290358af
-        submodules: true
         
-    - name: Build
+    - name: Build 
+      working-directory: ${{ matrix.pkg }}
       run: cargo build --verbose
 
     - name: Run tests
+      working-directory: ${{ matrix.pkg }}
       run: cargo test --verbose
 
   clippy:
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
@@ -53,13 +43,19 @@ jobs:
         path: kepler
     
     - name: Configure rust
+      working-directory: ${{ matrix.pkg }}
       run: |
         rustup component add clippy
       
     - name: Clippy
+      working-directory: ${{ matrix.pkg }}
       run: RUSTFLAGS="-Dwarnings" cargo clippy
 
   fmt:
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
@@ -68,8 +64,10 @@ jobs:
         path: kepler
     
     - name: Configure rust
+      working-directory: ${{ matrix.pkg }}
       run: |
         rustup component add rustfmt
 
     - name: Fmt
+      working-directory: ${{ matrix.pkg }}
       run: cargo fmt -- --check
