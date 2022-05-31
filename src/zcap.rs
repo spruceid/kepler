@@ -1,7 +1,6 @@
 use crate::capabilities::store::decode_root;
 use crate::resource::ResourceId;
 use anyhow::Result;
-use cacao_zcap::CacaoZcapExtraProps;
 use chrono::{DateTime, Utc};
 use didkit::DID_METHODS;
 use libipld::{
@@ -17,7 +16,7 @@ use rocket::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssi::vc::URI;
+use ssi::{cacao_zcap::CacaoZcapExtraProps, vc::URI};
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
