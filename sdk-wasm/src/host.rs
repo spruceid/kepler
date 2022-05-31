@@ -1,7 +1,7 @@
 use http::uri::Authority;
 use iri_string::types::UriString;
-use lib::resource::OrbitId;
-use lib::ssi::cacao_zcap::{
+use kepler_lib::resource::OrbitId;
+use kepler_lib::ssi::cacao_zcap::{
     cacaos::{
         siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
         siwe_cacao::SIWESignature,

@@ -6,7 +6,7 @@ use crate::routes::Metadata;
 use crate::zcap::{CapNode, Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
-use lib::resource::{OrbitId, ResourceId};
+use kepler_lib::resource::{OrbitId, ResourceId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     http::Status,

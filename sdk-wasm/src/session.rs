@@ -1,5 +1,5 @@
 use http::uri::Authority;
-use lib::{
+use kepler_lib::{
     didkit::DID_METHODS,
     resource::OrbitId,
     ssi::{
@@ -75,7 +75,7 @@ pub struct Session {
 }
 
 impl SessionConfig {
-    fn to_message(self, delegate: &str) -> Result<Message, String> {
+    fn into_message(self, delegate: &str) -> Result<Message, String> {
         let root_cap = self
             .orbit_id
             .to_string()
@@ -139,7 +139,7 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
     let service = config.service.clone();
 
     let siwe = config
-        .to_message(&verification_method)
+        .into_message(&verification_method)
         .map_err(Error::UnableToGenerateSIWEMessage)?;
 
     Ok(PreparedSession {
@@ -165,7 +165,7 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate session key: {0}")]
-    UnableToGenerateKey(lib::ssi::error::Error),
+    UnableToGenerateKey(kepler_lib::ssi::error::Error),
     #[error("unable to generate the DID of the session key")]
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]
@@ -208,7 +208,7 @@ pub mod test {
 
     #[tokio::test]
     async fn create_session_and_invoke() {
-        &test_session()
+        test_session()
             .await
             .invoke("path".into(), "get".into())
             .await

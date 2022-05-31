@@ -1,4 +1,4 @@
-use lib::{
+use kepler_lib::{
     ssi::cacao_zcap::{
         cacaos::{
             siwe::Message,
@@ -18,7 +18,7 @@ fn make_orbit_id(did_suffix: String, name: Option<String>) -> String {
     format!(
         "kepler:{}://{}",
         did_suffix,
-        name.unwrap_or(String::from("default"))
+        name.unwrap_or_else(|| String::from("default"))
     )
 }
 

@@ -1,5 +1,5 @@
 [package]
-name = "sdk"
+name = "kepler-sdk-wasm"
 version = "0.1.0"
 edition = "2021"
 
@@ -24,7 +24,7 @@ wasm-bindgen-futures = "0.4"
 [dev-dependencies]
 tokio = { version = "1", features = ["macros"]}
 
-[dependencies.lib]
+[dependencies.kepler-lib]
 path = "../lib"
 default-features = false
 features = ["wasm"]

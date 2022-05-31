@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
-use lib::resource::OrbitId;
+use kepler_lib::resource::OrbitId;
 use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
@@ -253,8 +253,8 @@ impl Deref for Orbit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lib::didkit::DID_METHODS;
-    use lib::ssi::{
+    use kepler_lib::didkit::DID_METHODS;
+    use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,
     };

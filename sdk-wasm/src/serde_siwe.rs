@@ -32,7 +32,7 @@ pub mod domain {
 pub mod optional_timestamp {
     use std::str::FromStr;
 
-    use lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
+    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<Option<TimeStamp>, D::Error>
@@ -50,7 +50,7 @@ pub mod optional_timestamp {
 pub mod timestamp {
     use std::str::FromStr;
 
-    use lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
+    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<TimeStamp, D::Error>
@@ -67,7 +67,7 @@ pub mod timestamp {
 pub mod message {
     use std::str::FromStr;
 
-    use lib::ssi::cacao_zcap::cacaos::siwe::Message;
+    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::Message;
     use serde::{
         de::{Deserialize, Deserializer, Error as DeError},
         ser::{Serialize, Serializer},
@@ -93,7 +93,7 @@ pub mod message {
 
 pub mod signature {
     use hex::FromHex;
-    use lib::ssi::cacao_zcap::cacaos::{siwe_cacao::SIWESignature, BasicSignature};
+    use kepler_lib::ssi::cacao_zcap::cacaos::{siwe_cacao::SIWESignature, BasicSignature};
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<BasicSignature<SIWESignature>, D::Error>

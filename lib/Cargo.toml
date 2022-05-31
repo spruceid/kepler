@@ -1,16 +1,16 @@
 [package]
-name = "lib"
+name = "kepler-lib"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 "default" = ["didkit/ring"]
-"wasm" = ["didkit/no-ring", "didkit/wasm"]
+"wasm" = ["didkit/no-ring", "didkit/wasm", "chrono/wasmbind", "uuid/js"]
 
 [dependencies]
 async-trait = "0.1"
-chrono = { version = "0.4", features = ["wasmbind"] }
+chrono = "0.4"
 iri-string = "0.5"
 libipld = "0.12"
 serde = { version = "1.0", features = ["derive"] }
@@ -37,5 +37,4 @@ features = ["cacao-zcap"]
 version = "1"
 features = [
     "v4",
-    "js",
 ]

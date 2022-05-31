@@ -7,7 +7,7 @@ use crate::{
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, TryStreamExt};
-use lib::resource::{OrbitId, ResourceId};
+use kepler_lib::resource::{OrbitId, ResourceId};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},

@@ -13,7 +13,7 @@ use ipfs::{
     },
     Block, RepoTypes,
 };
-use lib::resource::OrbitId;
+use kepler_lib::resource::OrbitId;
 use libipld::cid::{multibase::Base, Cid};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
