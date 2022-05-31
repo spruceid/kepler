@@ -435,6 +435,24 @@ impl Verifiable for Delegation {
         {
             bail!(e)
         };
+        if self
+            .0
+            .property_set
+            .allowed_action
+            .as_ref()
+            .map(|a| a.any(|h| h == "host"))
+            .unwrap_or(false)
+        {
+            if Some("Authorize this peer to host your orbit.")
+                != self.0.property_set.cacao_zcap_substatement.as_deref()
+            {
+                bail!("Incorrect Substatement for Host Delegation")
+            };
+        } else if self.0.property_set.cacao_zcap_substatement.as_deref()
+            != Some("Allow access to your Kepler orbit using this session key.")
+        {
+            bail!("Incorrect Substatement for Delegated Resources")
+        };
         if let Some(p) = self.parents().next() {
             if p.delegate() != self.delegator() {
                 bail!("Delegator Not Authorized")
@@ -503,14 +521,7 @@ impl Verifiable for Invocation {
 
 fn compare_root_with_issuer(root: Option<&str>, vm: &str) -> Result<()> {
     match root.map(decode_root).transpose()?.map(|r| r.did()) {
-        Some(r) if r == vm.split_once('#').map(|s| s.0).unwrap_or(vm) => {
-            debug!("{}", r);
-            Ok(())
-        }
-        Some(r) => {
-            debug!("{}", r);
-            Err(anyhow!("Issuer not authorized by Root"))
-        }
+        Some(r) if r == vm.split_once('#').map(|s| s.0).unwrap_or(vm) => Ok(()),
         _ => Err(anyhow!("Issuer not authorized by Root")),
     }
 }
