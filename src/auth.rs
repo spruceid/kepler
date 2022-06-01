@@ -1,12 +1,10 @@
-use crate::capabilities::store::Updates;
-use crate::capabilities::{store::AuthRef, Invoke};
+use crate::capabilities::store::{AuthRef, Updates};
 use crate::config;
-use crate::manifest::Manifest;
-use crate::orbit::{create_orbit, load_orbit, AuthTokens, Orbit};
+use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::resource::{OrbitId, ResourceId};
 use crate::routes::Metadata;
-use crate::siwe::SIWEDelegation;
+use crate::zcap::{CapNode, Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
@@ -14,15 +12,9 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use std::convert::TryInto;
-use std::str::FromStr;
 use std::{collections::HashMap, sync::RwLock};
 use thiserror::Error;
 use tracing::{info_span, Instrument};
-
-pub trait AuthorizationToken {
-    fn resource(&self) -> &ResourceId;
-}
 
 pub fn simple_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
     check_orbit_and_service(target, capability)?;
@@ -74,11 +66,6 @@ pub fn check_orbit_and_service(
     }
 }
 
-#[rocket::async_trait]
-pub trait AuthorizationPolicy<T> {
-    async fn authorize(&self, auth_token: &T) -> Result<()>;
-}
-
 fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))> {
     Ok((
         req.rocket()
@@ -92,7 +79,10 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
     ))
 }
 
-pub struct DelegateAuthWrapper;
+pub enum DelegateAuthWrapper {
+    OrbitCreation(OrbitId),
+    Delegation,
+}
 
 #[async_trait]
 impl<'l> FromRequest<'l> for DelegateAuthWrapper {
@@ -104,74 +94,82 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             Err(e) => return internal_server_error(e),
         };
 
-        // TODO: Support only zcaps.
-        let token = match SIWEDelegation::from_request(req).await {
+        let token = match Delegation::from_request(req).await {
             Outcome::Success(t) => t,
-            Outcome::Failure(e) => return Outcome::Failure(e),
+            Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
             Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
         };
 
-        let resource = match token
-            .delegation
-            .resources
-            .first()
-            .ok_or_else(|| anyhow!("delegation has empty resource list"))
-            .map(|uri| uri.as_str())
-            .map(ResourceId::from_str)
-        {
-            Err(e) => return bad_request(e),
-            Ok(Err(e)) => return bad_request(e),
-            Ok(Ok(resource)) => resource,
+        let orbit = match (
+            token
+                .resources()
+                .into_iter()
+                .any(|r| (r.fragment(), r.path(), r.service()) == (Some("host"), None, None)),
+            load_orbit(token.resource().orbit().get_cid(), &config, relay.clone()).await,
+        ) {
+            (true, Ok(None)) => {
+                let keys = match req
+                    .rocket()
+                    .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
+                {
+                    Some(k) => k,
+                    _ => return internal_server_error(anyhow!("could not retrieve open key set")),
+                };
+
+                if let Err(e) = token.verify(None).await {
+                    return unauthorized(e);
+                };
+
+                let peer_id = match token.delegate().strip_prefix("peer:").map(|s| s.parse()) {
+                    Some(Ok(p)) => p,
+                    _ => return bad_request(anyhow!("Invalid Peer ID")),
+                };
+
+                let kp = match keys.write() {
+                    Ok(mut keys) => match keys.remove(&peer_id) {
+                        Some(k) => k,
+                        _ => return not_found(anyhow!("Peer ID Not Present")),
+                    },
+                    Err(_) => {
+                        return internal_server_error(anyhow!("could not retrieve open key set"))
+                    }
+                };
+
+                match create_orbit(token.resource().orbit(), &config, &[], relay, kp).await {
+                    Ok(Some(orbit)) => {
+                        return if let Err(e) =
+                            orbit.capabilities.transact(Updates::new([token], [])).await
+                        {
+                            internal_server_error(e)
+                        } else {
+                            Outcome::Success(Self::OrbitCreation(orbit.id().clone()))
+                        }
+                    }
+                    Ok(None) => return conflict(anyhow!("Orbit already exists")),
+                    Err(e) => return internal_server_error(e),
+                }
+            }
+            (_, Ok(None)) => return not_found(anyhow!("No Orbit found")),
+            (_, Ok(Some(o))) => o,
+            (_, Err(e)) => return unauthorized(e),
         };
-        let orbit_id = resource.orbit();
 
-        //let token = match ZCAPDelegation::from_request(req).await {
-        //    Outcome::Success(t) => t,
-        //    Outcome::Failure(e) => return Outcome::Failure(e),
-        //    Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
-        //};
-
-        //let orbit_id = match token.delegation.property_set.capability_action.first() {
-        //    None => return unauthorized(anyhow!("delegation has empty capability action list")),
-        //    Some(resource) => resource.orbit(),
-        //};
-
-        let orbit = match load_orbit(orbit_id.get_cid(), &config, relay).await {
-            Ok(Some(o)) => o,
-            Ok(None) => return not_found(anyhow!("No Orbit found")),
-            Err(e) => return unauthorized(e),
-        };
-
-        let delegation = match (orbit.capabilities.root.clone(), token.delegation).try_into() {
-            Err(e) => return unauthorized(e),
-            Ok(d) => d,
-        };
-
-        //let delegation = match (token.delegation).try_into() {
-        //    Err(e) => return unauthorized(e),
-        //    Ok(d) => d,
-        //};
-
-        if let Err(e) = orbit
-            .capabilities
-            .transact(Updates::new([delegation], []))
-            .await
-        {
+        if let Err(e) = orbit.capabilities.transact(Updates::new([token], [])).await {
             return internal_server_error(e);
         }
-        Outcome::Success(Self)
+        Outcome::Success(Self::Delegation)
     }
 }
 
 pub enum InvokeAuthWrapper {
-    Create(OrbitId),
     KV(Box<KVAction>),
+    Revocation,
 }
 
 impl InvokeAuthWrapper {
     pub fn prometheus_label(&self) -> &str {
         match self {
-            InvokeAuthWrapper::Create(_) => "orbit_create",
+            InvokeAuthWrapper::Revocation => "revoke_delegation",
             InvokeAuthWrapper::KV(kv) => kv.prometheus_label(),
         }
     }
@@ -236,9 +234,9 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                 Err(e) => return internal_server_error(e),
             };
 
-            let token = match AuthTokens::from_request(req).await {
+            let token = match Invocation::from_request(req).await {
                 Outcome::Success(t) => t,
-                Outcome::Failure(e) => return Outcome::Failure(e),
+                Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
                 Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
             };
 
@@ -246,71 +244,21 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
 
             let res = match target.fragment() {
                 None => unauthorized(anyhow!("target resource is missing action")),
-                // TODO: Refactor '#peer` invocations to be delegations to the peer id.
-                Some("peer") => {
-                    match (target.path(), target.service()) {
-                        (None, None) => (),
-                        _ => return bad_request(anyhow!("token action not matching endpoint")),
-                    }
-
-                    let keys = match req
-                        .rocket()
-                        .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
-                    {
-                        Some(k) => k,
-                        _ => {
-                            return internal_server_error(anyhow!(
-                                "could not retrieve open key set"
-                            ))
-                        }
-                    };
-
-                    let orbit_id = target.orbit().clone();
-
-                    let md = match Manifest::resolve_dyn(&orbit_id, None).await {
-                        Ok(Some(md)) => md,
-                        Ok(None) => return not_found(anyhow!("Orbit Manifest Doesnt Exist")),
-                        Err(e) => return internal_server_error(e),
-                    };
-
-                    match md.authorize(&token).await {
-                        Ok(()) => (),
-                        Err(e) => return unauthorized(e),
-                    };
-
-                    // Do we even use this any more? It's just stored in the access_log on disk, which I think is unused?
-                    // Also the orbits I have on disk have empty access logs, so it seems we don't receive this header anyway (from the sdk).
-                    let auth_data = req
-                        .headers()
-                        .get_one("Authorization")
-                        .unwrap_or("")
-                        .as_bytes();
-
-                    let orbit = match create_orbit(&orbit_id, &config, auth_data, relay, keys).await
-                    {
-                        Ok(Some(orbit)) => orbit,
-                        Ok(None) => return conflict(anyhow!("Orbit already exists")),
-                        Err(e) => return internal_server_error(e),
-                    };
-
-                    match orbit.invoke(&token).await {
-                        Ok(_) => Outcome::Success(Self::Create(orbit_id)),
-                        Err(e) => unauthorized(e),
-                    }
-                }
                 _ => {
                     let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
                         Ok(Some(o)) => o,
                         Ok(None) => return not_found(anyhow!("No Orbit found")),
                         Err(e) => return internal_server_error(e),
                     };
-                    let auth_ref = match orbit.invoke(&token).await {
-                        Ok(auth_ref) => auth_ref,
-                        Err(e) => return unauthorized(e),
-                    };
                     match target.service() {
                         None => bad_request(anyhow!("missing service in invocation target")),
                         Some("kv") => {
+                            let tid = token.id().to_vec();
+                            let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
+                                Ok(c) => AuthRef::new(c, tid),
+                                Err(e) => return unauthorized(e),
+                            };
+
                             let key = match target.path() {
                                 Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
                                 None => {

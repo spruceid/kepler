@@ -1,7 +1,7 @@
 use libipld::cid::{multibase::Base, Cid, Error as CidError};
 use libp2p::{Multiaddr, PeerId};
 
-use crate::{auth::AuthorizationPolicy, orbit::AuthTokens, resource::OrbitId};
+use crate::resource::OrbitId;
 use ssi::{
     did::{Document, RelativeDIDURL, Service, VerificationMethod, DIDURL},
     did_resolve::DIDResolver,
@@ -206,17 +206,6 @@ fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
                     ..Default::default()
                 }
             }
-        }
-    }
-}
-
-#[rocket::async_trait]
-impl AuthorizationPolicy<AuthTokens> for Manifest {
-    async fn authorize(&self, auth_token: &AuthTokens) -> anyhow::Result<()> {
-        match auth_token {
-            AuthTokens::ZCAP(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEDelegated(token) => self.authorize(token.as_ref()).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.authorize(token.as_ref()).await,
         }
     }
 }

@@ -8,7 +8,6 @@ use std::path::PathBuf;
 pub struct Config {
     pub log: Logging,
     pub storage: Storage,
-    pub apis: ExternalApis,
     pub orbits: OrbitsConfig,
     pub relay: Relay,
     pub prometheus: Prometheus,
@@ -85,11 +84,6 @@ pub struct DynamoStorage {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub endpoint: Option<Uri>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default, Hash, PartialEq, Eq)]
-pub struct ExternalApis {
-    pub tzkt: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]

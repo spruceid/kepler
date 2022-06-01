@@ -23,7 +23,6 @@ pub mod prometheus;
 pub mod relay;
 pub mod resource;
 pub mod routes;
-pub mod siwe;
 pub mod storage;
 mod tracing;
 pub mod transport;

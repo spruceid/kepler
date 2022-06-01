@@ -21,7 +21,6 @@ use crate::{
     auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
-    resource::OrbitId,
     tracing::TracingSpan,
 };
 
@@ -93,8 +92,19 @@ pub fn open_host_key(
 }
 
 #[post("/delegate")]
-pub fn delegate(_d: DelegateAuthWrapper) -> Result<(), (Status, &'static str)> {
-    Ok(())
+pub fn delegate(d: DelegateAuthWrapper) -> DelegateAuthWrapper {
+    d
+}
+
+impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        match self {
+            DelegateAuthWrapper::OrbitCreation(orbit_id) => {
+                orbit_id.to_string().respond_to(request)
+            }
+            DelegateAuthWrapper::Delegation => ().respond_to(request),
+        }
+    }
 }
 
 #[post("/invoke", data = "<data>")]
@@ -107,14 +117,13 @@ pub async fn invoke(
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
     // Instrumenting async block to handle yielding properly
     async move {
-        use InvokeAuthWrapper::*;
         let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
             .with_label_values(&[&action_label])
             .start_timer();
 
         let res = match i {
-            Create(orbit_id) => Ok(InvocationResponse::OrbitId(orbit_id)),
-            KV(action) => handle_kv_action(action, data).await,
+            InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
+            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
         };
 
         timer.observe_duration();
@@ -125,10 +134,10 @@ pub async fn invoke(
 }
 
 pub async fn handle_kv_action(
-    action: Box<KVAction>,
+    action: KVAction,
     data: Data<'_>,
 ) -> Result<InvocationResponse, (Status, String)> {
-    match *action {
+    match action {
         KVAction::Delete {
             orbit,
             key,
@@ -210,21 +219,21 @@ pub async fn handle_kv_action(
 }
 
 pub enum InvocationResponse {
-    OrbitId(OrbitId),
     Empty,
     KVResponse(KVResponse),
     List(Vec<String>),
     Metadata(Metadata),
+    Revoked,
 }
 
 impl<'r> Responder<'r, 'static> for InvocationResponse {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         match self {
-            InvocationResponse::OrbitId(orbit_id) => orbit_id.to_string().respond_to(request),
             InvocationResponse::Empty => ().respond_to(request),
             InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
+            InvocationResponse::Revoked => ().respond_to(request),
         }
     }
 }

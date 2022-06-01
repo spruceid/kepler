@@ -1,15 +1,12 @@
 use crate::{
-    auth::AuthorizationToken,
-    capabilities::{store::Store as CapStore, AuthRef, Invoke, Service as CapService},
+    capabilities::{store::Store as CapStore, Service as CapService},
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
     ipfs::create_ipfs,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
-    resource::{OrbitId, ResourceId},
-    siwe::{SIWETokens, SIWEZcapTokens},
-    zcap::ZCAPInvocation,
+    resource::OrbitId,
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
@@ -22,60 +19,13 @@ use libp2p::{
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
     PeerId,
 };
-use rocket::{
-    futures::TryStreamExt,
-    http::Status,
-    request::{FromRequest, Outcome, Request},
-    tokio::task::JoinHandle,
-};
+use rocket::{futures::TryStreamExt, tokio::task::JoinHandle};
 
 use cached::proc_macro::cached;
-use std::{
-    collections::HashMap as Map,
-    convert::TryFrom,
-    ops::Deref,
-    sync::{Arc, RwLock},
-};
+use std::{convert::TryFrom, ops::Deref, sync::Arc};
 use tokio::spawn;
 
 use super::storage::StorageUtils;
-
-pub enum AuthTokens {
-    ZCAP(Box<ZCAPInvocation>),
-    SIWEZcapDelegated(Box<SIWEZcapTokens>),
-    SIWEDelegated(Box<SIWETokens>),
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for AuthTokens {
-    type Error = anyhow::Error;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let ats = if let Outcome::Success(siwe) = SIWETokens::from_request(request).await {
-            Self::SIWEDelegated(Box::new(siwe))
-        } else if let Outcome::Success(siwe) = SIWEZcapTokens::from_request(request).await {
-            Self::SIWEZcapDelegated(Box::new(siwe))
-        } else if let Outcome::Success(zcap) = ZCAPInvocation::from_request(request).await {
-            Self::ZCAP(Box::new(zcap))
-        } else {
-            return Outcome::Failure((
-                Status::Unauthorized,
-                anyhow!("No valid authorization headers"),
-            ));
-        };
-        Outcome::Success(ats)
-    }
-}
-
-impl AuthorizationToken for AuthTokens {
-    fn resource(&self) -> &ResourceId {
-        match self {
-            Self::ZCAP(token) => token.resource(),
-            Self::SIWEDelegated(token) => token.resource(),
-            Self::SIWEZcapDelegated(token) => token.resource(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct AbortOnDrop<T>(JoinHandle<T>);
@@ -199,7 +149,7 @@ pub async fn create_orbit(
     config: &config::Config,
     auth: &[u8],
     relay: (PeerId, Multiaddr),
-    keys_lock: &RwLock<Map<PeerId, Ed25519Keypair>>,
+    kp: Ed25519Keypair,
 ) -> Result<Option<Orbit>> {
     let md = match Manifest::resolve_dyn(id, None).await? {
         Some(m) => m,
@@ -211,15 +161,6 @@ pub async fn create_orbit(
     if storage_utils.exists(id.get_cid()).await? {
         return Ok(None);
     }
-
-    let kp = {
-        let mut keys = keys_lock.write().map_err(|e| anyhow!(e.to_string()))?;
-        md.bootstrap_peers()
-            .peers
-            .iter()
-            .find_map(|p| keys.remove(&p.id))
-            .unwrap_or_else(Ed25519Keypair::generate)
-    };
 
     storage_utils.setup_orbit(id.clone(), kp, auth).await?;
 
@@ -306,17 +247,6 @@ impl Deref for Orbit {
     type Target = Manifest;
     fn deref(&self) -> &Self::Target {
         &self.manifest
-    }
-}
-
-#[rocket::async_trait]
-impl Invoke<AuthTokens> for Orbit {
-    async fn invoke(&self, invocation: &AuthTokens) -> anyhow::Result<AuthRef> {
-        match invocation {
-            AuthTokens::ZCAP(token) => self.invoke(token.as_ref()).await,
-            AuthTokens::SIWEDelegated(token) => self.invoke(token.as_ref()).await,
-            AuthTokens::SIWEZcapDelegated(token) => self.invoke(token.as_ref()).await,
-        }
     }
 }
 
