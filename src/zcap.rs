@@ -1,8 +1,12 @@
 use crate::capabilities::store::decode_root;
-use crate::resource::ResourceId;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use didkit::DID_METHODS;
+use kepler_lib::{
+    didkit::DID_METHODS,
+    resource::ResourceId,
+    ssi::vc::{Proof, URI},
+    zcap::{KeplerDelegation as InnerDelegation, KeplerInvocation as InnerInvocation},
+};
 use libipld::{
     cbor::DagCborCodec,
     codec::{Decode, Encode},
@@ -16,29 +20,11 @@ use rocket::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssi::{cacao_zcap::CacaoZcapExtraProps, vc::URI};
 use std::{
-    collections::HashMap,
     convert::{TryFrom, TryInto},
     io::{Cursor, Read, Seek, Write},
     str::FromStr,
 };
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct InvProps {
-    pub invocation_target: ResourceId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_from: Option<String>,
-    #[serde(flatten)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_fields: Option<HashMap<String, Value>>,
-}
-
-type InnerDelegation = ssi::zcap::Delegation<(), CacaoZcapExtraProps>;
-type InnerInvocation = ssi::zcap::Invocation<InvProps>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Delegation(InnerDelegation);
@@ -324,7 +310,6 @@ macro_rules! impl_capnode {
     ($type:ident) => {
         impl CapNode for $type {
             fn id(&self) -> Vec<u8> {
-                use ssi::vc::URI;
                 match &self.0.id {
                     URI::String(ref u) => uuid_bytes_or_str(u),
                 }
@@ -355,7 +340,7 @@ impl_capnode!(Revocation);
 pub struct ParentIter<'a>(Option<&'a Value>);
 
 impl<'a> ParentIter<'a> {
-    pub fn new(proof: Option<&'a ssi::vc::Proof>) -> Self {
+    pub fn new(proof: Option<&'a Proof>) -> Self {
         Self(
             proof
                 .and_then(|p| p.property_set.as_ref())
@@ -579,15 +564,70 @@ fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
     }
 }
 
-#[test]
-async fn basic() -> Result<()> {
-    let inv_str = r#"{"@context":"https://w3id.org/security/v2","id":"urn:uuid:5daa6422-4636-4009-a13a-a2c2799e66dd","invocationTarget":"kepler:pkh:eip155:1:0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2://default/kv/#list","proof":{"type":"Ed25519Signature2018","proofPurpose":"capabilityInvocation","verificationMethod":"did:key:z6MkhKej386g7b4RHtDdjGiNKfjDAsTPCDNtCMRKHmdVBAYD#z6MkhKej386g7b4RHtDdjGiNKfjDAsTPCDNtCMRKHmdVBAYD","created":"2022-05-31T14:02:45.153Z","jws":"eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..Otm5jN6Ax7mUStbX8kljvBKyKnDR1-Hg8TO_fAX8Reravq0ePbvim_xBzflQApMEwrfVWVZRKEkue7joVNw5Dw","capabilityChain":["urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2%3A%2F%2Fdefault",{"@context":["https://w3id.org/security/v2","https://demo.didkit.dev/2022/cacao-zcap/contexts/v1.json"],"allowedAction":["put","get","list","del","metadata"],"cacaoPayloadType":"eip4361","cacaoZcapSubstatement":"Allow access to your Kepler orbit using this session key.","expires":"2022-05-31T15:02:45.096Z","id":"urn:uuid:74a482e8-b972-45fe-ae97-a7b62e641642","invocationTarget":"kepler:pkh:eip155:1:0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2://default/kv","invoker":"did:key:z6MkhKej386g7b4RHtDdjGiNKfjDAsTPCDNtCMRKHmdVBAYD#z6MkhKej386g7b4RHtDdjGiNKfjDAsTPCDNtCMRKHmdVBAYD","parentCapability":"urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2%3A%2F%2Fdefault","proof":{"cacaoSignatureType":"eip191","capabilityChain":["urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2%3A%2F%2Fdefault"],"created":"2022-05-31T14:02:45.096Z","domain":"example2.com","nonce":"TFQrkNtGohC","proofPurpose":"capabilityDelegation","proofValue":"f33c57e2564f51ba267db7843b437592c00d1f9c789d29f06876a8d5aefb21d9477ddefc2ddd765c7aae3acff32a43b3e105f85b571efa4c5feecd7b8b105385d1b","type":"CacaoZcapProof2022","verificationMethod":"did:pkh:eip155:1:0xe54Ce520fc6ea6Db0f75A6f66A22db7a427D9bD2#blockchainAccountId"},"type":"CacaoZcap2022"}]}}"#;
-    let inv: Invocation = serde_json::from_str(inv_str)?;
-    inv.verify(Some("2022-05-31T14:02:45.836Z".parse()?))
-        .await?;
-    assert!(inv
-        .verify(Some("2023-05-31T14:02:45.836Z".parse()?))
-        .await
-        .is_err());
-    Ok(())
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    async fn basic() -> Result<()> {
+        let inv_str = r#"{
+          "@context": "https://w3id.org/security/v2",
+          "id": "urn:uuid:689d5b45-3852-4587-9631-6f806659b16a",
+          "invocationTarget": "kepler:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78://default/kv/plaintext#get",
+          "proof": {
+            "type": "Ed25519Signature2018",
+            "proofPurpose": "capabilityInvocation",
+            "verificationMethod": "did:key:z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG#z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG",
+            "created": "2022-05-31T18:01:50.391Z",
+            "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..LqkVDoIzkKeB0aUv5aOtP8Jpj_fpeZya3fsBUAQzph81Io_wQ1iSb-a1l1OEu6nfLF5qQX63MrSfjYwK6HUrDQ",
+            "capabilityChain": [
+              "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault",
+              {
+                "@context": [
+                  "https://w3id.org/security/v2",
+                  "https://demo.didkit.dev/2022/cacao-zcap/contexts/v1.json"
+                ],
+                "allowedAction": [
+                  "put",
+                  "get",
+                  "list",
+                  "del",
+                  "metadata"
+                ],
+                "cacaoPayloadType": "eip4361",
+                "cacaoZcapSubstatement": "Allow access to your Kepler orbit using this session key.",
+                "expires": "2022-05-31T19:01:49.766Z",
+                "id": "urn:uuid:8fef6410-b8f3-401e-89ba-93878cd36c11",
+                "invocationTarget": "kepler:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78://default/kv",
+                "invoker": "did:key:z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG#z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG",
+                "parentCapability": "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault",
+                "proof": {
+                  "cacaoSignatureType": "eip191",
+                  "capabilityChain": [
+                    "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault"
+                  ],
+                  "created": "2022-05-31T18:01:49.766Z",
+                  "domain": "example.com",
+                  "nonce": "NJWIlpPuAXh",
+                  "proofPurpose": "capabilityDelegation",
+                  "proofValue": "f149ea9e2b6b4e804552c7b18d596461ed886e79fa187525149e422ac1f5ec16d0849f780107362169f4b0f51fc9b71cbd035d6f101f706c1a28c0cea07432fd71c",
+                  "type": "CacaoZcapProof2022",
+                  "verificationMethod": "did:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78#blockchainAccountId"
+                },
+                "type": "CacaoZcap2022"
+              }
+            ]
+          }
+        }"#;
+        let inv: Invocation =
+            serde_json::from_str(inv_str).expect("failed to deserialize invocation");
+        inv.verify(Some("2022-05-31T14:02:45.836Z".parse()?))
+            .await
+            .expect("failed to verify invocation");
+        assert!(inv
+            .verify(Some("2023-05-31T14:02:45.836Z".parse()?))
+            .await
+            .is_err());
+        Ok(())
+    }
 }

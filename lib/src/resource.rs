@@ -1,4 +1,3 @@
-use crate::codec::SupportedCodecs;
 use iri_string::{types::UriString, validate::Error as UriError};
 use libipld::{
     cbor::DagCborCodec,
@@ -15,6 +14,14 @@ use ssi::did::DIDURL;
 use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
+
+#[derive(Clone, Copy, Debug)]
+pub enum SupportedCodecs {
+    Raw = 0x55,
+    Json = 0x0200,
+    MsgPack = 0x0201,
+    Cbor = 0x51,
+}
 
 #[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
 pub struct OrbitId {
@@ -55,7 +62,13 @@ impl OrbitId {
         ResourceId {
             orbit: self,
             service,
-            path,
+            path: path.map(|p| {
+                if p.starts_with('/') {
+                    p
+                } else {
+                    format!("/{}", p)
+                }
+            }),
             fragment,
         }
     }
@@ -220,7 +233,7 @@ impl FromStr for ResourceId {
                     id: host.into(),
                 },
                 service: path.map(|(s, _)| s.into()),
-                path: path.map(|(_, pa)| ["/", pa].join("")),
+                path: path.map(|(_, pa)| format!("/{}", pa)),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),
@@ -251,7 +264,7 @@ mod tests {
     use super::*;
 
     #[test]
-    async fn basic() {
+    fn basic() {
         let res: ResourceId = "kepler:ens:example.eth://orbit0/kv/path/to/image.jpg"
             .parse()
             .unwrap();
@@ -286,12 +299,19 @@ mod tests {
     }
 
     #[test]
-    async fn failures() {
+    fn failures() {
         let no_suffix: Result<ResourceId, _> = "kepler:://orbit0/kv/path/to/image.jpg".parse();
         assert!(no_suffix.is_err());
 
         let invalid_name: Result<ResourceId, _> =
             "kepler:ens:example.eth://or:bit0/kv/path/to/image.jpg".parse();
         assert!(invalid_name.is_err());
+    }
+
+    #[test]
+    fn roundtrip() {
+        let resource_uri: String = "kepler:ens:example.eth://orbit0/kv/prefix#list".into();
+        let res4: ResourceId = resource_uri.parse().unwrap();
+        assert_eq!(resource_uri, res4.to_string());
     }
 }

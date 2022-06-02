@@ -2,6 +2,7 @@
 extern crate rocket;
 #[macro_use]
 extern crate anyhow;
+#[cfg(test)]
 #[macro_use]
 extern crate tokio;
 
@@ -21,7 +22,6 @@ pub mod manifest;
 pub mod orbit;
 pub mod prometheus;
 pub mod relay;
-pub mod resource;
 pub mod routes;
 pub mod storage;
 mod tracing;

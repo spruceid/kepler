@@ -1,0 +1,30 @@
+[package]
+name = "kepler-sdk-wasm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+base64 = "0.13"
+chrono = { version = "0.4", features = ["wasmbind"] }
+hex = "0.4"
+http = "0.2"
+iri-string = "0.4"
+js-sys = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros"]}
+
+[dependencies.kepler-lib]
+path = "../lib"
+default-features = false
+features = ["wasm"]

@@ -2,12 +2,12 @@ use crate::{
     indexes::{AddRemoveSetStore, HeadStore},
     ipfs::{Block, Ipfs},
     kv::to_block_raw,
-    resource::{OrbitId, ResourceId},
     zcap::{CapNode, Delegation, Invocation, Revocation, Verifiable},
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, TryStreamExt};
+use kepler_lib::resource::{OrbitId, ResourceId};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},
