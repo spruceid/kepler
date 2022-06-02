@@ -12,6 +12,8 @@ RUN cargo install cargo-chef
 COPY ./Cargo.lock ./
 COPY ./Cargo.toml ./
 COPY ./src/ ./src/
+COPY ./lib/ ./lib/
+COPY ./sdk-wasm/ ./sdk-wasm/
 RUN cargo chef prepare  --recipe-path recipe.json
 
 FROM $BASE_IMAGE as dep_cacher
