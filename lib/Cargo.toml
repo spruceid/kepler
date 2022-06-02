@@ -5,8 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-"default" = ["didkit/ring"]
-"wasm" = ["didkit/no-ring", "didkit/wasm", "chrono/wasmbind", "uuid/js"]
+"wasm" = ["didkit/wasm", "chrono/wasmbind", "uuid/js"]
 
 [dependencies]
 async-trait = "0.1"
@@ -26,6 +25,7 @@ features = ["macros"]
 git = "https://github.com/spruceid/didkit"
 branch = "cacao-zcap-kepler"
 default-features = false
+features = ["no-ring"]
 
 [dependencies.ssi]
 git = "https://github.com/spruceid/ssi"

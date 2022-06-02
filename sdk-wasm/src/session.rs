@@ -18,6 +18,7 @@ use kepler_lib::{
     zcap::{make_invocation, Error as ZcapError, KeplerDelegation, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 use crate::util::siwe_to_zcap;
 
@@ -39,6 +40,33 @@ pub struct SessionConfig {
     expiration_time: TimeStamp,
     service: String,
 }
+
+#[wasm_bindgen(typescript_custom_section)]
+const TS_DEF: &'static str = r#"
+/**
+ * Configuration object for starting a Kepler session.
+ */
+export type SessionConfig = {
+  /** Actions that the session key will be permitted to perform. */
+  actions: string[],
+  /** Ethereum address. */
+  address: string,
+  /** Chain ID. */
+  chainId: number,
+  /** Domain of the webpage. */
+  domain: string,
+  /** Current time for SIWE message. */
+  issuedAt: string,
+  /** The orbit that is the target resource of the delegation. */
+  orbitId: string,
+  /** The earliest time that the session will be valid from. */
+  notBefore?: string,
+  /** The latest time that the session will be valid until. */
+  expirationTime: string,
+  /** The service that the session key will be permitted to perform actions against. */
+  service: string,
+}
+"#;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +101,25 @@ pub struct Session {
     service: String,
     verification_method: String,
 }
+
+#[wasm_bindgen(typescript_custom_section)]
+const TS_DEF: &'static str = r#"
+/**
+ * A Kepler session.
+ */
+export type Session = {
+  /** The delegation from the user to the session key. */
+  delegation: object,
+  /** The session key. */
+  jwk: object,
+  /** The orbit that the session key is permitted to perform actions against. */
+  orbitId: string,
+  /** The service that the session key is permitted to perform actions against. */
+  service: string,
+  /** The verification method of the session key. */
+  verificationMethod: string,
+}
+"#;
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {

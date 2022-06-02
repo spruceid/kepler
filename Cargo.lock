@@ -6048,7 +6048,6 @@ dependencies = [
  "rand 0.8.5",
  "rand_xorshift 0.3.0",
  "reqwest",
- "ring",
  "ripemd160",
  "rsa",
  "serde",

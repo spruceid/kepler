@@ -30,12 +30,21 @@ pub struct HostConfig {
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_DEF: &'static str = r#"
+/**
+ * Configuration object for generating a Orbit Host Delegation SIWE message.
+ */
 export type HostConfig = {
+  /** Ethereum address. */
   address: string,
+  /** Chain ID. */
   chainId: number,
+  /** Domain of the webpage. */
   domain: string,
+  /** Current time for SIWE message. */
   issuedAt: string,
+  /** The orbit that is the target resource of the delegation. */
   orbitId: string,
+  /** The peer that is the target/invoker in the delegation. */
   peerId: string,
 }
 "#;

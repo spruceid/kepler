@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
+DEVMODE=$([[ "$1" == "--dev" ]] && echo "--dev")
 set -e
 
 PKG_NAME="kepler_sdk_wasm"
 PKG_DIR="wasm"
+
 
 if ! [ -x "$(command -v jq)" ]; then
     echo "jq is not installed" >& 2
     exit 1
 fi
 
-wasm-pack build --out-dir $PKG_DIR/web
-wasm-pack build --target nodejs --out-dir $PKG_DIR/node
+wasm-pack build $DEVMODE --out-dir $PKG_DIR/web
+wasm-pack build $DEVMODE --target nodejs --out-dir $PKG_DIR/node
 
 mv $PKG_DIR/web/package.json $PKG_DIR/
 rm $PKG_DIR/node/package.json
