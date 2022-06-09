@@ -18,7 +18,9 @@ services:
       KEPLER_STORAGE_BLOCKS_TYPE: S3
       KEPLER_STORAGE_BLOCKS_ENDPOINT: "http://localstack:4566"
       KEPLER_STORAGE_BLOCKS_DYNAMODB_ENDPOINT: "http://localstack:4566"
-      KEPLER_STORAGE_INDEXES_PATH: "/kepler"
+      KEPLER_STORAGE_INDEXES_TYPE: DynamoDB
+      KEPLER_STORAGE_INDEXES_TABLE: "kepler-indexing"
+      KEPLER_STORAGE_INDEXES_ENDPOINT: "http://localstack:4566"
       AWS_ACCESS_KEY_ID: "test"
       AWS_SECRET_ACCESS_KEY: "test"
       AWS_DEFAULT_REGION: "us-east-1"
