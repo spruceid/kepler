@@ -11,27 +11,28 @@ edition = "2021"
 async-trait = "0.1"
 chrono = "0.4"
 iri-string = "0.5"
-libipld = "0.12"
+libipld = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
+base64 = "0.13"
+cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/update" }
 
 [dev-dependencies.tokio]
 version = "1"
 features = ["macros"]
 
 [dependencies.didkit]
-git = "https://github.com/spruceid/didkit"
-branch = "cacao-zcap-kepler"
+# git = "https://github.com/spruceid/didkit"
+path = "../../didkit/lib"
 default-features = false
 features = ["no-ring"]
 
 [dependencies.ssi]
-git = "https://github.com/spruceid/ssi"
-branch = "cacao-zcap-kepler"
+# git = "https://github.com/spruceid/ssi"
+path = "../../ssi"
 default-features = false
-features = ["cacao-zcap"]
 
 [dependencies.uuid]
 version = "1"

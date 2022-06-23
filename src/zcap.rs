@@ -1,24 +1,23 @@
-use crate::capabilities::store::decode_root;
+use crate::{capabilities::store::decode_root, ipfs::Block};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use kepler_lib::{
     didkit::DID_METHODS,
     resource::ResourceId,
     ssi::vc::{Proof, URI},
-    zcap::{KeplerDelegation as InnerDelegation, KeplerInvocation as InnerInvocation},
+    zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation},
 };
 use libipld::{
     cbor::DagCborCodec,
     codec::{Decode, Encode},
     error::Error as IpldError,
     json::DagJsonCodec,
-    Ipld,
+    Cid, Ipld,
 };
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{
     convert::{TryFrom, TryInto},
@@ -26,100 +25,30 @@ use std::{
     str::FromStr,
 };
 
-#[derive(Debug, Serialize, Clone)]
-pub struct Delegation(InnerDelegation);
-
-#[derive(Debug, Serialize, Clone)]
-pub struct Invocation(InnerInvocation);
-
-#[derive(Debug, Serialize, Clone)]
-pub struct Revocation(InnerInvocation);
-
-// NOTE many of these methods contain .unwraps
-// these types can only be constructed via checked conversion,
-// to maintain the invariants that make these .unwraps work
-impl Delegation {
-    pub fn resource(&self) -> ResourceId {
-        self.0.property_set.invocation_target.parse().unwrap()
-    }
-    pub fn resources(&self) -> Vec<ResourceId> {
-        let r = self.resource();
-        self.0
-            .property_set
-            .allowed_action
-            .as_ref()
-            .map(|aa| {
-                aa.into_iter()
-                    .map(|a| {
-                        r.orbit().clone().to_resource(
-                            r.service().map(|s| s.to_string()),
-                            r.path().map(|p| p.to_string()),
-                            Some(a.to_string()),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_else(Vec::new)
-    }
-    pub fn delegator(&self) -> &str {
-        // NOTE this returns the full did VM URL e.g. did:example:alice#alice-key-1
-        self.0
-            .proof
-            .as_ref()
-            .and_then(|p| p.verification_method.as_ref())
-            .unwrap()
-    }
-    pub fn delegate(&self) -> &str {
-        self.0
-            .invoker
-            .as_ref()
-            .map(|i| match i {
-                URI::String(ref s) => s,
-            })
-            .unwrap()
-    }
+#[derive(Debug, Clone)]
+pub struct Delegation {
+    pub resources: Vec<ResourceId>,
+    pub delegator: String,
+    pub delegate: String,
+    pub parents: Vec<Cid>,
+    pub delegation: KeplerDelegation,
 }
 
-impl Invocation {
-    pub fn resource(&self) -> &ResourceId {
-        &self.0.property_set.invocation_target
-    }
-    pub fn invoker(&self) -> &str {
-        self.0
-            .proof
-            .as_ref()
-            .and_then(|p| p.verification_method.as_ref())
-            .unwrap()
-    }
+#[derive(Debug, Clone)]
+pub struct Invocation {
+    pub resource: ResourceId,
+    pub invoker: String,
+    pub parents: Vec<Cid>,
+    pub invocation: KeplerInvocation,
 }
 
-impl Revocation {
-    pub fn revoked(&self) -> Vec<u8> {
-        check_target_is_delegation(&self.0.property_set.invocation_target).unwrap()
-    }
-    pub fn revoker(&self) -> &str {
-        self.0
-            .proof
-            .as_ref()
-            .and_then(|p| p.verification_method.as_ref())
-            .unwrap()
-    }
+#[derive(Debug, Clone)]
+pub struct Revocation {
+    pub parents: Vec<Cid>,
+    pub revoked: Vec<Cid>,
+    pub revoker: String,
+    // pub revocation: KeplerInvocation,
 }
-
-macro_rules! impl_deref {
-    ($type:ident, $target:ident) => {
-        impl std::ops::Deref for $type {
-            type Target = $target;
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-    };
-}
-
-impl_deref!(Delegation, InnerDelegation);
-impl_deref!(Invocation, InnerInvocation);
-impl_deref!(Revocation, InnerInvocation);
 
 #[derive(thiserror::Error, Debug)]
 pub enum DelegationError {
@@ -131,41 +60,58 @@ pub enum DelegationError {
     MissingDelegate,
 }
 
-impl TryFrom<InnerDelegation> for Delegation {
+impl TryFrom<KeplerDelegation> for Delegation {
     type Error = DelegationError;
-    fn try_from(d: InnerDelegation) -> Result<Self, Self::Error> {
-        match (
-            ResourceId::from_str(&d.property_set.invocation_target),
-            &d.proof
-                .as_ref()
-                .and_then(|p| p.verification_method.as_ref()),
-            &d.invoker,
-        ) {
-            (Err(_), _, _) => Err(DelegationError::InvalidResource),
-            (_, None, _) => Err(DelegationError::MissingDelegator),
-            (_, _, None) => Err(DelegationError::MissingDelegate),
-            _ => Ok(Self(d)),
-        }
+    fn try_from(d: KeplerDelegation) -> Result<Self, Self::Error> {
+        Ok(match d {
+            KeplerDelegation::Ucan(u) => Self {
+                resources: u
+                    .payload
+                    .attenuation
+                    .iter()
+                    .map(ResourceId::try_from)
+                    .collect()?,
+                delegator: u.payload.issuer,
+                delegate: u.payload.audience,
+                delegation: d,
+                parents: u.payload.proof.clone(),
+            },
+            KeplerDelegation::Cacao(c) => Self {
+                resources: c
+                    .payload()
+                    .resources
+                    .iter()
+                    .map(|u| ResourceId::from_str(&u))
+                    .collect()?,
+                delegator: c.payload().iss.to_string(),
+                delegate: c.payload().aud.to_string(),
+                delegation: d,
+                parents: Vec::new(),
+            },
+        })
     }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum InvocationError {
-    #[error("Missing Invoker")]
-    MissingInvoker,
+    #[error("Missing Resource")]
+    MissingResource,
 }
 
-impl TryFrom<InnerInvocation> for Invocation {
+impl TryFrom<KeplerInvocation> for Invocation {
     type Error = InvocationError;
-    fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
-        match i
-            .proof
-            .as_ref()
-            .and_then(|p| p.verification_method.as_ref())
-        {
-            None => Err(InvocationError::MissingInvoker),
-            _ => Ok(Self(i)),
-        }
+    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
+        Ok(Self {
+            resource: i
+                .payload
+                .attenuation
+                .iter()
+                .find_map(|c| ResourceId::try_from(*c).ok())
+                .ok_or(InvocationError::MissingResource)?,
+            invoker: i.payload.issuer.clone(),
+            parents: i.payload.proof.clone(),
+            invocation: i,
+        })
     }
 }
 
@@ -177,19 +123,20 @@ pub enum RevocationError {
     MissingRevoker,
 }
 
-impl TryFrom<InnerInvocation> for Revocation {
+impl TryFrom<KeplerInvocation> for Revocation {
     type Error = RevocationError;
-    fn try_from(i: InnerInvocation) -> Result<Self, Self::Error> {
-        match (
-            i.property_set.invocation_target.path(),
-            i.proof
-                .as_ref()
-                .and_then(|p| p.verification_method.as_ref()),
-        ) {
-            (None, _) => Err(RevocationError::InvalidTarget),
-            (_, None) => Err(RevocationError::MissingRevoker),
-            _ => Ok(Self(i)),
-        }
+    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
+        todo!()
+        // match (
+        //     i.property_set.invocation_target.path(),
+        //     i.proof
+        //         .as_ref()
+        //         .and_then(|p| p.verification_method.as_ref()),
+        // ) {
+        //     (None, _) => Err(RevocationError::InvalidTarget),
+        //     (_, None) => Err(RevocationError::MissingRevoker),
+        //     _ => Ok(Self(i)),
+        // }
     }
 }
 
@@ -200,100 +147,28 @@ impl TryFrom<Invocation> for Revocation {
     }
 }
 
-macro_rules! impl_deserialize {
-    ($origin:ident, $type:ident) => {
-        impl<'de> Deserialize<'de> for $type {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                $origin::deserialize(deserializer)?
-                    .try_into()
-                    .map_err(D::Error::custom)
-            }
-        }
-    };
-}
+// macro_rules! impl_fromreq {
+//     ($type:ident, $name:tt) => {
+//         #[rocket::async_trait]
+//         impl<'r> FromRequest<'r> for $type {
+//             type Error = EncodingError;
+//             async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+//                 match request.headers().get_one($name).map($type::decode) {
+//                     Some(Ok(item)) => Outcome::Success(item),
+//                     Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
+//                     None => Outcome::Forward(()),
+//                 }
+//             }
+//         }
+//     };
+// }
 
-impl_deserialize!(InnerDelegation, Delegation);
-impl_deserialize!(InnerInvocation, Invocation);
-impl_deserialize!(InnerInvocation, Revocation);
-
-macro_rules! impl_encode_dagcbor {
-    ($type:ident) => {
-        impl Encode<DagCborCodec> for $type {
-            fn encode<W>(&self, c: DagCborCodec, w: &mut W) -> Result<(), IpldError>
-            where
-                W: Write,
-            {
-                // HACK transliterate via serde -> json -> ipld -> cbor
-                Ipld::decode(DagJsonCodec, &mut Cursor::new(serde_json::to_vec(self)?))?
-                    .encode(c, w)
-            }
-        }
-    };
-}
-
-macro_rules! impl_decode_dagcbor {
-    ($type:ident) => {
-        impl Decode<DagCborCodec> for $type {
-            fn decode<R>(c: DagCborCodec, r: &mut R) -> Result<Self, IpldError>
-            where
-                R: Read + Seek,
-            {
-                // HACK transliterate via cbor -> ipld -> json -> serde
-                let mut b: Vec<u8> = vec![];
-                Ipld::decode(c, r)?.encode(DagJsonCodec, &mut b)?;
-                Ok(serde_json::from_slice(&b)?)
-            }
-        }
-    };
-}
-
-impl_encode_dagcbor!(Delegation);
-impl_encode_dagcbor!(Invocation);
-impl_encode_dagcbor!(Revocation);
-
-impl_decode_dagcbor!(Delegation);
-impl_decode_dagcbor!(Invocation);
-impl_decode_dagcbor!(Revocation);
-
-#[derive(thiserror::Error, Debug)]
-pub enum HeaderFromReqError {
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    #[error(transparent)]
-    B64(#[from] base64::DecodeError),
-}
-
-macro_rules! impl_fromreq {
-    ($type:ident, $name:tt) => {
-        #[rocket::async_trait]
-        impl<'r> FromRequest<'r> for $type {
-            type Error = HeaderFromReqError;
-            async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                match request.headers().get_one($name).map(|b64| {
-                    base64::decode_config(b64, base64::URL_SAFE)
-                        .map_err(HeaderFromReqError::from)
-                        .and_then(|s| Ok(serde_json::from_slice(&s)?))
-                }) {
-                    Some(Ok(item)) => Outcome::Success(item),
-                    Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
-                    None => Outcome::Forward(()),
-                }
-            }
-        }
-    };
-}
-
-impl_fromreq!(Delegation, "Authorization");
-impl_fromreq!(Invocation, "Authorization");
+// impl_fromreq!(KeplerDelegation, "Authorization");
+// impl_fromreq!(KeplerInvocation, "Authorization");
 
 pub trait CapNode {
-    fn id(&self) -> Vec<u8>;
-    fn parents(&self) -> NestedDelegationIter;
+    fn id(&self) -> &Cid;
     fn parent_ids(&self) -> NestedIdIter;
-    fn root(&self) -> Option<&str>;
 }
 
 fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
@@ -309,25 +184,11 @@ fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
 macro_rules! impl_capnode {
     ($type:ident) => {
         impl CapNode for $type {
-            fn id(&self) -> Vec<u8> {
-                match &self.0.id {
-                    URI::String(ref u) => uuid_bytes_or_str(u),
-                }
-            }
-            fn parents(&self) -> NestedDelegationIter {
-                NestedDelegationIter(ParentIter::new(self.0.proof.as_ref()))
+            fn id(&self) -> &Cid {
+                &self.cid
             }
             fn parent_ids(&self) -> NestedIdIter {
-                NestedIdIter(ParentIter::new(self.0.proof.as_ref()))
-            }
-            fn root(&self) -> Option<&str> {
-                self.0
-                    .proof
-                    .as_ref()
-                    .and_then(|p| p.property_set.as_ref())
-                    .and_then(|ps| ps.get("capabilityChain"))
-                    .and_then(|c| c.get(0))
-                    .and_then(|c| c.as_str())
+                NestedIdIter(self.parents.iter())
             }
         }
     };
@@ -337,55 +198,12 @@ impl_capnode!(Delegation);
 impl_capnode!(Invocation);
 impl_capnode!(Revocation);
 
-pub struct ParentIter<'a>(Option<&'a Value>);
-
-impl<'a> ParentIter<'a> {
-    pub fn new(proof: Option<&'a Proof>) -> Self {
-        Self(
-            proof
-                .and_then(|p| p.property_set.as_ref())
-                .and_then(|p| p.get("capabilityChain"))
-                .and_then(|c| c.as_array())
-                .and_then(|c| c.last()),
-        )
-    }
-}
-
-impl<'a> Iterator for ParentIter<'a> {
-    type Item = &'a Value;
-    fn next(&mut self) -> Option<Self::Item> {
-        let c = self.0;
-        let n = c
-            .and_then(|v| v.get("proof"))
-            .and_then(|p| p.get("capabilityChain"))
-            .and_then(|c| c.as_array())
-            .and_then(|c| c.last());
-        self.0 = n;
-        c
-    }
-}
-
-pub struct NestedDelegationIter<'a>(ParentIter<'a>);
-
-impl<'a> Iterator for NestedDelegationIter<'a> {
-    type Item = Delegation;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0
-            .next()
-            .and_then(|p| serde_json::from_value(p.clone()).ok())
-    }
-}
-
-pub struct NestedIdIter<'a>(ParentIter<'a>);
+pub struct NestedIdIter<'a>(std::slice::Iter<'a, Cid>);
 
 impl<'a> Iterator for NestedIdIter<'a> {
-    type Item = Vec<u8>;
+    type Item = &'a Cid;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0
-            .next()
-            .and_then(|p| p.get("id"))
-            .and_then(|f| f.as_str())
-            .map(uuid_bytes_or_str)
+        self.0.next()
     }
 }
 
@@ -399,7 +217,7 @@ fn check_time(t: Option<&String>) -> Result<Option<DateTime<Utc>>> {
 }
 
 #[rocket::async_trait]
-impl Verifiable for Delegation {
+impl Verifiable for KeplerDelegation {
     async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
         let t = time.unwrap_or_else(Utc::now);
         match check_time(self.0.property_set.expires.as_ref())? {
@@ -483,7 +301,7 @@ impl Verifiable for Invocation {
             bail!(e)
         };
         if let Some(p) = self.parents().next() {
-            if p.delegate() != self.invoker() {
+            if p.delegate != self.invoker {
                 bail!("Invoker Not Authorized")
             };
             if p.root() != self.root() {
@@ -497,7 +315,7 @@ impl Verifiable for Invocation {
                 bail!("Authorization not granted by parent")
             };
             p.verify(Some(t)).await?;
-        } else if compare_root_with_issuer(self.root(), self.invoker()).is_err() {
+        } else if compare_root_with_issuer(self.root(), &self.invoker).is_err() {
             bail!("Invoker Not Authorized by root Orbit Capability")
         };
         Ok(())

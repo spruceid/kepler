@@ -9,7 +9,10 @@ use libipld::{
     error::Error as IpldError,
 };
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use ssi::did::DIDURL;
+use ssi::{
+    did::DIDURL,
+    ucan::{Capability, UcanResource, UcanScope},
+};
 
 use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
@@ -131,6 +134,52 @@ impl ResourceId {
             SupportedCodecs::Raw as u64,
             Code::Blake2b256.digest(self.to_string().as_bytes()),
         )
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ResourceCapErr {
+    #[error("Missing ResourceId fragment")]
+    MissingAction,
+}
+
+impl TryInto<Capability> for ResourceId {
+    type Error = ResourceCapErr;
+    fn try_into(self) -> Result<Capability, Self::Error> {
+        Ok(Capability {
+            with: UcanResource::URI(ssi::vc::URI::String(format!(
+                "{}/{}{}",
+                &self.orbit,
+                &self.service.as_deref().unwrap_or(""),
+                &self.path.as_deref().unwrap_or("")
+            ))),
+            can: UcanScope {
+                namespace: match self.service {
+                    Some(s) => format!("kepler.{}", s),
+                    None => "kepler".to_string(),
+                },
+                capability: self.fragment.ok_or(ResourceCapErr::MissingAction)?,
+            },
+            additional_fields: None,
+        })
+    }
+}
+
+impl<T> TryFrom<&Capability<T>> for ResourceId {
+    type Error = KRIParseError;
+    fn try_from(c: &Capability<T>) -> Result<Self, Self::Error> {
+        use std::fmt::Display;
+        let n = &c.can.namespace;
+        let mut r = Self::from_str(&c.with.to_string())?;
+        if n.starts_with("kepler")
+            && ((n.get(6..7) == Some(".") && n.get(7..) == r.service.as_deref())
+                || (n.get(6..7).is_none() && r.service.is_none()))
+        {
+            r.fragment = Some(c.can.capability.clone());
+            Ok(r)
+        } else {
+            Err(KRIParseError::IncorrectForm)
+        }
     }
 }
 

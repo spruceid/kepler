@@ -7,7 +7,10 @@ use crate::{
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, TryStreamExt};
-use kepler_lib::resource::{OrbitId, ResourceId};
+use kepler_lib::{
+    resource::{OrbitId, ResourceId},
+    KeplerDelegation, KeplerInvocation, KeplerRevocation,
+};
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
     codec::{Decode, Encode},
@@ -507,8 +510,8 @@ where
 #[derive(DagCbor, Debug, Clone)]
 pub(crate) struct Event {
     pub prev: Vec<Cid>,
-    pub delegate: Vec<LinkedUpdate<Delegation>>,
-    pub revoke: Vec<LinkedUpdate<Revocation>>,
+    pub delegate: Vec<LinkedUpdate<KeplerDelegation>>,
+    pub revoke: Vec<LinkedUpdate<KeplerRevocation>>,
 }
 
 /// References a Policy Event and it's Parent LinkedUpdate
@@ -524,7 +527,7 @@ where
 #[derive(DagCbor, Debug)]
 pub(crate) struct Invocations {
     pub prev: Vec<Cid>,
-    pub invoke: Vec<LinkedUpdate<Invocation>>,
+    pub invoke: Vec<LinkedUpdate<KeplerInvocation>>,
 }
 
 #[cfg(test)]

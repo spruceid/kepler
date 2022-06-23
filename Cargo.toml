@@ -24,10 +24,11 @@ ethers-core = "0.6"
 futures = { default-features = false, version = "0.3.9", features = ["alloc", "std"] }
 hex = "0.4"
 hyper = "0.14" # Prometheus server
-ipfs = { git = "https://github.com/spruceid/rust-ipfs", branch = "kepler-libp2p" }
+ipfs = { git = "https://github.com/spruceid/rust-ipfs", branch = "feat/update-libipld" }
+# ipfs = { path = "../rust-ipfs" }
 iri-string = "0.5"
 lazy_static = "1.4.0"
-libipld = "0.12"
+libipld = "0.13"
 libp2p = { default-features = false, features = ["floodsub", "identify", "kad", "tcp-tokio", "mplex", "noise", "ping", "yamux", "dns-tokio", "relay"], version = "0.43.0" }
 nom = "6"
 opentelemetry = { version = "0.17.0", features = ["rt-tokio"] }
@@ -52,6 +53,7 @@ urlencoding = "2.1"
 void = "1"
 uuid = "1"
 percent-encoding = "2.1"
+cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/update" }
 
 [dependencies.kepler-lib]
 path = "lib/"
