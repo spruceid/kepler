@@ -6,6 +6,33 @@
 
 Kepler is self-sovereign storage. It is architected as a decentralized storage system that uses DIDs and Authorization Capabilities to define Orbits, where your data lives and who has access. Any DID controller (e.g. people, applications, DAOs) can administer their own Kepler Orbit.
 
+## Quickstart
+
+To run Kepler locally you will need the latest version of [rust](https://rustup.rs).
+
+You will need to create a directory for Kepler to store data in:
+```bash
+mkdir kepler
+```
+
+Within this directory, create two more directories `blocks` and `indexes`:
+```bash
+mkdir kepler/blocks
+mkdir kepler/indexes
+```
+
+You will then need to set the environment variables to point to those directories:
+```bash
+export KEPLER_STORAGE_BLOCKS_PATH="kepler/blocks"
+export KEPLER_STORAGE_INDEXES_PATH="kepler/indexes"
+```
+
+Finally you can run Kepler using `cargo`:
+```bash
+cargo run
+```
+
+
 ## Configuration
 
 Kepler instances are configured by the [kepler.toml](kepler.toml) configuration file, or via environment variables. You can either modify them in this file, or specify them through environment variable using the prefix `KEPLER_`.
