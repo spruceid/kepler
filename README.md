@@ -29,6 +29,7 @@ export KEPLER_STORAGE_INDEXES_PATH="kepler/indexes"
 
 Finally you can run Kepler using `cargo`:
 ```bash
+cargo build
 cargo run
 ```
 
