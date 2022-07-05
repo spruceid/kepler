@@ -68,24 +68,16 @@ async fn caps_task(
                 }
                 Ok((_, CapsMessage::Invocation(cid))) => {
                     debug!("recieved invocation");
-                    if let Err(e) = match store
-                        .ipfs
-                        .get_block(&cid)
-                        .await
-                        .and_then(|b| b.decode())
-                        .map(|i| store.apply_invocations(i))
-                    {
-                        Ok(f) => f.await,
-                        Err(e) => Err(e),
-                    } {
+                    if let Err(e) = store.try_merge_invocations([cid].into_iter()).await {
                         debug!("failed to apply recieved invocation {}", e);
                     }
                 }
                 Ok((_, CapsMessage::Update(update))) => {
                     debug!("recieved updates");
-                    if let Err(e) = store.apply(&update).await {
-                        debug!("failed to apply recieved updates {}", e);
-                    }
+                    // using heads for now
+                    // if let Err(e) = store.apply(&update).await {
+                    //     debug!("failed to apply recieved updates {}", e);
+                    // }
                 }
                 Ok((_, CapsMessage::StateReq)) => {
                     if let Err(e) = store.broadcast_heads().await {

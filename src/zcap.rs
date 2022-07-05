@@ -1,29 +1,21 @@
-use crate::{capabilities::store::decode_root, ipfs::Block};
+use crate::{
+    capabilities::store::{FromBlock, ToBlock},
+    ipfs::Block,
+};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use kepler_lib::{
     didkit::DID_METHODS,
-    resource::ResourceId,
-    ssi::vc::{Proof, URI},
+    resource::{KRIParseError, ResourceId},
     zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation},
 };
-use libipld::{
-    cbor::DagCborCodec,
-    codec::{Decode, Encode},
-    error::Error as IpldError,
-    json::DagJsonCodec,
-    Cid, Ipld,
-};
+use libipld::Cid;
 use rocket::{
+    futures::future::try_join_all,
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use serde_json::Value;
-use std::{
-    convert::{TryFrom, TryInto},
-    io::{Cursor, Read, Seek, Write},
-    str::FromStr,
-};
+use std::{convert::TryFrom, io::Write, ops::Deref, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub struct Delegation {
@@ -34,6 +26,20 @@ pub struct Delegation {
     pub delegation: KeplerDelegation,
 }
 
+impl ToBlock for Delegation {
+    fn to_block(&self) -> Result<Block> {
+        self.delegation.to_block()
+    }
+}
+
+impl FromBlock for Delegation {
+    fn from_block(block: &Block) -> Result<Self> {
+        Ok(KeplerDelegation::from_block(block)?.try_into()?)
+    }
+}
+
+// deser -> sigs & time -> extract semantics -> verify semantics -> store
+
 #[derive(Debug, Clone)]
 pub struct Invocation {
     pub resource: ResourceId,
@@ -42,18 +48,46 @@ pub struct Invocation {
     pub invocation: KeplerInvocation,
 }
 
+impl ToBlock for Invocation {
+    fn to_block(&self) -> Result<Block> {
+        self.invocation
+            .to_block(libipld::multihash::Code::Blake3_256)
+    }
+}
+
+impl FromBlock for Invocation {
+    fn from_block(block: &Block) -> Result<Self> {
+        Ok(KeplerInvocation::from_block(block)?.try_into()?)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Revocation {
     pub parents: Vec<Cid>,
-    pub revoked: Vec<Cid>,
+    pub revoked: Cid,
     pub revoker: String,
     // pub revocation: KeplerInvocation,
+}
+
+impl ToBlock for Revocation {
+    fn to_block(&self) -> Result<Block> {
+        todo!()
+        // self.revocation
+        //     .to_block(libipld::multihash::Code::Blake3_256)
+    }
+}
+
+impl FromBlock for Revocation {
+    fn from_block(block: &Block) -> Result<Self> {
+        todo!()
+        // Ok(KeplerRevocation::from_block(block)?.try_into()?)
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum DelegationError {
     #[error("Invalid Resource")]
-    InvalidResource,
+    InvalidResource(#[from] KRIParseError),
     #[error("Missing Delegator")]
     MissingDelegator,
     #[error("Missing Delegate")]
@@ -70,7 +104,7 @@ impl TryFrom<KeplerDelegation> for Delegation {
                     .attenuation
                     .iter()
                     .map(ResourceId::try_from)
-                    .collect()?,
+                    .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
                 delegator: u.payload.issuer,
                 delegate: u.payload.audience,
                 delegation: d,
@@ -81,8 +115,8 @@ impl TryFrom<KeplerDelegation> for Delegation {
                     .payload()
                     .resources
                     .iter()
-                    .map(|u| ResourceId::from_str(&u))
-                    .collect()?,
+                    .map(|u| ResourceId::from_str(u.as_str()))
+                    .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
                 delegator: c.payload().iss.to_string(),
                 delegate: c.payload().aud.to_string(),
                 delegation: d,
@@ -96,21 +130,26 @@ impl TryFrom<KeplerDelegation> for Delegation {
 pub enum InvocationError {
     #[error("Missing Resource")]
     MissingResource,
+    #[error("Ambiguous Action")]
+    Ambiguous,
+    #[error(transparent)]
+    ResourceParse(#[from] KRIParseError),
 }
 
 impl TryFrom<KeplerInvocation> for Invocation {
     type Error = InvocationError;
-    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
+    fn try_from(invocation: KeplerInvocation) -> Result<Self, Self::Error> {
+        let mut rs = invocation.payload.attenuation.iter();
+        let resource = match (rs.next().map(ResourceId::try_from), rs.next()) {
+            (Some(Ok(r)), None) => r,
+            (None, _) | (Some(_), Some(_)) => return Err(InvocationError::Ambiguous),
+            (Some(Err(e)), None) => return Err(e.into()),
+        };
         Ok(Self {
-            resource: i
-                .payload
-                .attenuation
-                .iter()
-                .find_map(|c| ResourceId::try_from(*c).ok())
-                .ok_or(InvocationError::MissingResource)?,
-            invoker: i.payload.issuer.clone(),
-            parents: i.payload.proof.clone(),
-            invocation: i,
+            resource,
+            invoker: invocation.payload.issuer.clone(),
+            parents: invocation.payload.proof.clone(),
+            invocation,
         })
     }
 }
@@ -140,245 +179,195 @@ impl TryFrom<KeplerInvocation> for Revocation {
     }
 }
 
-impl TryFrom<Invocation> for Revocation {
-    type Error = RevocationError;
-    fn try_from(i: Invocation) -> Result<Self, Self::Error> {
-        i.0.try_into()
-    }
+#[derive(thiserror::Error, Debug)]
+pub enum FromReqErr<T> {
+    #[error(transparent)]
+    Encoding(#[from] EncodingError),
+    #[error(transparent)]
+    TryFrom(T),
 }
 
-// macro_rules! impl_fromreq {
-//     ($type:ident, $name:tt) => {
-//         #[rocket::async_trait]
-//         impl<'r> FromRequest<'r> for $type {
-//             type Error = EncodingError;
-//             async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-//                 match request.headers().get_one($name).map($type::decode) {
-//                     Some(Ok(item)) => Outcome::Success(item),
-//                     Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
-//                     None => Outcome::Forward(()),
-//                 }
-//             }
-//         }
-//     };
-// }
-
-// impl_fromreq!(KeplerDelegation, "Authorization");
-// impl_fromreq!(KeplerInvocation, "Authorization");
-
-pub trait CapNode {
-    fn id(&self) -> &Cid;
-    fn parent_ids(&self) -> NestedIdIter;
-}
-
-fn uuid_bytes_or_str(s: &str) -> Vec<u8> {
-    uuid::Uuid::parse_str(
-        s.strip_prefix("urn:uuid:")
-            .or_else(|| s.strip_prefix("uuid:"))
-            .unwrap_or(s),
-    )
-    .map(|u| u.as_bytes().to_vec())
-    .unwrap_or_else(|_| s.as_bytes().to_vec())
-}
-
-macro_rules! impl_capnode {
-    ($type:ident) => {
-        impl CapNode for $type {
-            fn id(&self) -> &Cid {
-                &self.cid
-            }
-            fn parent_ids(&self) -> NestedIdIter {
-                NestedIdIter(self.parents.iter())
+macro_rules! impl_fromreq {
+    ($type:ident, $inter:ident, $name:tt) => {
+        #[rocket::async_trait]
+        impl<'r> FromRequest<'r> for $type {
+            type Error = FromReqErr<<$type as TryFrom<$inter>>::Error>;
+            async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+                match request.headers().get_one($name).map(|e| {
+                    $type::try_from(<$inter as HeaderEncode>::decode(e)?)
+                        .map_err(FromReqErr::TryFrom)
+                }) {
+                    Some(Ok(item)) => Outcome::Success(item),
+                    Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
+                    None => Outcome::Forward(()),
+                }
             }
         }
     };
 }
 
-impl_capnode!(Delegation);
-impl_capnode!(Invocation);
-impl_capnode!(Revocation);
+impl_fromreq!(Delegation, KeplerDelegation, "Authorization");
+impl_fromreq!(Invocation, KeplerInvocation, "Authorization");
 
-pub struct NestedIdIter<'a>(std::slice::Iter<'a, Cid>);
+#[rocket::async_trait]
+pub trait CapStore {
+    async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>>;
+}
 
-impl<'a> Iterator for NestedIdIter<'a> {
-    type Item = &'a Cid;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
+pub struct EmptyCollection;
+
+#[rocket::async_trait]
+impl CapStore for EmptyCollection {
+    async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
+        Ok(None)
+    }
+}
+
+pub struct MultiCollection<'a, 'b, A, B>(pub &'a A, pub &'b B)
+where
+    A: CapStore,
+    B: CapStore;
+
+#[rocket::async_trait]
+impl<'a, 'b, A, B> CapStore for MultiCollection<'a, 'b, A, B>
+where
+    A: CapStore + Send + Sync,
+    B: CapStore + Send + Sync,
+{
+    async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
+        if let Some(d) = self.0.get_cap(c).await? {
+            return Ok(Some(d));
+        } else if let Some(d) = self.1.get_cap(c).await? {
+            return Ok(Some(d));
+        }
+        Ok(None)
     }
 }
 
 #[rocket::async_trait]
 pub trait Verifiable {
-    async fn verify(&self, timestamp: Option<DateTime<Utc>>) -> Result<()>;
-}
-
-fn check_time(t: Option<&String>) -> Result<Option<DateTime<Utc>>> {
-    Ok(t.map(|s| s.parse()).transpose()?)
+    async fn verify<C>(
+        &self,
+        store: &C,
+        timestamp: Option<DateTime<Utc>>,
+        root: &str,
+    ) -> Result<()>
+    where
+        C: CapStore + Send + Sync;
 }
 
 #[rocket::async_trait]
-impl Verifiable for KeplerDelegation {
-    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
+impl Verifiable for Delegation {
+    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    where
+        C: CapStore + Send + Sync,
+    {
         let t = time.unwrap_or_else(Utc::now);
-        match check_time(self.0.property_set.expires.as_ref())? {
-            Some(exp) if t > exp => bail!("Expired"),
-            _ => (),
+
+        match self.delegation {
+            KeplerDelegation::Ucan(u) => {
+                u.verify_signature(DID_METHODS.to_resolver()).await?;
+                u.payload
+                    .validate_time(Some(t.timestamp_nanos() as f64 / 1e+9_f64))?;
+            }
+            KeplerDelegation::Cacao(c) => {
+                c.verify().await?;
+                if !c.payload().valid_at(&t) {
+                    return Err(anyhow!("Delegation invalid at current time"));
+                };
+            }
         };
-        match check_time(self.0.property_set.valid_from.as_ref())? {
-            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
-            _ => (),
-        };
-        if let Some(e) = self
-            .0
-            .verify(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
+
+        if self.parents.is_empty() && self.delegator.starts_with(root) {
+            // if it's a root cap without parents
+            Ok(())
+        } else {
+            // verify parents and get delegated capabilities
+            let res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
+                let parent = store
+                    .get_cap(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Cant find Parent"))?;
+                if parent.delegate != self.delegator {
+                    Err(anyhow!("Invalid Issuer"))
+                } else {
+                    parent.verify(store, Some(t), root).await?;
+                    Ok(parent.resources)
+                }
+            }))
+            .await?
             .into_iter()
-            .next()
-        {
-            bail!(e)
-        };
-        if self
-            .0
-            .property_set
-            .allowed_action
-            .as_ref()
-            .map(|a| a.any(|h| h == "host"))
-            .unwrap_or(false)
-        {
-            if Some("Authorize this peer to host your orbit.")
-                != self.0.property_set.cacao_zcap_substatement.as_deref()
-            {
-                bail!("Incorrect Substatement for Host Delegation")
-            };
-        } else if self.0.property_set.cacao_zcap_substatement.as_deref()
-            != Some("Allow access to your Kepler orbit using this session key.")
-        {
-            bail!("Incorrect Substatement for Delegated Resources")
-        };
-        if let Some(p) = self.parents().next() {
-            if p.delegate() != self.delegator() {
-                bail!("Delegator Not Authorized")
-            };
-            if p.root() != self.root() {
-                bail!("Auth root caps do not match")
-            };
+            .flatten()
+            .collect();
+
+            // check capabilities are supported by parents
             if !self
-                .resources()
+                .resources
                 .iter()
-                .all(|r| p.resources().iter().any(|pr| r.extends(pr).is_ok()))
+                .all(|r| res.iter().any(|c| r.extends(c).is_ok()))
             {
-                bail!("Authorization not granted by parent")
-            };
-            p.verify(Some(t)).await?;
-        } else if compare_root_with_issuer(self.root(), self.delegator()).is_err() {
-            bail!("Delegator Not Authorized by root Orbit Capability")
-        };
-        Ok(())
+                Err(anyhow!("Capabilities Not Delegated"))
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
 #[rocket::async_trait]
 impl Verifiable for Invocation {
-    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
+    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    where
+        C: CapStore + Sync + Send,
+    {
         let t = time.unwrap_or_else(Utc::now);
-        match check_time(self.0.property_set.expires.as_ref())? {
-            Some(exp) if t > exp => bail!("Expired"),
-            _ => (),
-        };
-        match check_time(self.0.property_set.valid_from.as_ref())? {
-            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
-            _ => (),
-        };
-        if let Some(e) = self
-            .0
-            .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
-            .into_iter()
-            .next()
-        {
-            bail!(e)
-        };
-        if let Some(p) = self.parents().next() {
-            if p.delegate != self.invoker {
-                bail!("Invoker Not Authorized")
-            };
-            if p.root() != self.root() {
-                bail!("Auth root caps do not match")
-            };
-            if !p
-                .resources()
-                .iter()
-                .any(|pr| self.resource().extends(pr).is_ok())
-            {
-                bail!("Authorization not granted by parent")
-            };
-            p.verify(Some(t)).await?;
-        } else if compare_root_with_issuer(self.root(), &self.invoker).is_err() {
-            bail!("Invoker Not Authorized by root Orbit Capability")
-        };
-        Ok(())
-    }
-}
 
-fn compare_root_with_issuer(root: Option<&str>, vm: &str) -> Result<()> {
-    match root.map(decode_root).transpose()?.map(|r| r.did()) {
-        Some(r) if r == vm.split_once('#').map(|s| s.0).unwrap_or(vm) => Ok(()),
-        _ => Err(anyhow!("Issuer not authorized by Root")),
+        self.invocation
+            .verify_signature(DID_METHODS.to_resolver())
+            .await?;
+        self.invocation
+            .payload
+            .validate_time(Some(t.timestamp_nanos() as f64 / 1e+9_f64))?;
+
+        if self.parents.is_empty() && self.invoker.starts_with(root) {
+            // if it's a root cap without parents
+            Ok(())
+        } else {
+            // verify parents and get delegated capabilities
+            let res = try_join_all(self.parents.iter().map(|c| async {
+                let parent = store
+                    .get_cap(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Cant Find Parent"))?;
+                if parent.delegate != self.invoker {
+                    Err(anyhow!("Invalid Issuer"))
+                } else {
+                    parent.verify(store, Some(t), root).await?;
+                    Ok(parent
+                        .resources
+                        .iter()
+                        .any(|c| self.resource.extends(c).is_ok()))
+                }
+            }))
+            .await?;
+
+            // check capabilities are supported by parents
+            if !res.iter().any(|c| *c) {
+                Err(anyhow!("Capabilities Not Delegated"))
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
 #[rocket::async_trait]
 impl Verifiable for Revocation {
-    async fn verify(&self, time: Option<DateTime<Utc>>) -> Result<()> {
-        let t = time.unwrap_or_else(Utc::now);
-        match check_time(self.0.property_set.expires.as_ref())? {
-            Some(exp) if t > exp => bail!("Expired"),
-            _ => (),
-        };
-        match check_time(self.0.property_set.valid_from.as_ref())? {
-            Some(nbf) if t < nbf => bail!("Not Yet Valid"),
-            _ => (),
-        };
-        if let Some(e) = self
-            .0
-            .verify_signature(Default::default(), DID_METHODS.to_resolver())
-            .await
-            .errors
-            .into_iter()
-            .next()
-        {
-            bail!(e)
-        };
-        if let Some(p) = self.parents().next() {
-            // TODO we should check if the revoker is the delegate/delegator of ANY
-            // of the parent delegations
-            if p.delegate() != self.revoker() {
-                bail!("Revoker Not Authorized")
-            };
-            if p.root() != self.root() {
-                bail!("Auth root caps do not match")
-            };
-            p.verify(Some(t)).await?;
-        } else if compare_root_with_issuer(self.root(), self.revoker()).is_err() {
-            bail!("Revoker Not Authorized by root Orbit Capability")
-        };
-        Ok(())
-    }
-}
-
-fn check_target_is_delegation(target: &ResourceId) -> Option<Vec<u8>> {
-    match (
-        target.service(),
-        target
-            .path()
-            .and_then(|p| p.strip_prefix("/delegations/"))
-            .map(uuid_bytes_or_str),
-    ) {
-        // TODO what exactly do we expect here
-        (Some("capabilities"), Some(p)) => Some(p),
-        _ => None,
+    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    where
+        C: CapStore + Sync + Send,
+    {
+        todo!()
     }
 }
 
