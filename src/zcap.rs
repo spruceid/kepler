@@ -98,19 +98,19 @@ impl TryFrom<KeplerDelegation> for Delegation {
     type Error = DelegationError;
     fn try_from(d: KeplerDelegation) -> Result<Self, Self::Error> {
         Ok(match d {
-            KeplerDelegation::Ucan(u) => Self {
+            KeplerDelegation::Ucan(ref u) => Self {
                 resources: u
                     .payload
                     .attenuation
                     .iter()
                     .map(ResourceId::try_from)
                     .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
-                delegator: u.payload.issuer,
-                delegate: u.payload.audience,
-                delegation: d,
+                delegator: u.payload.issuer.clone(),
+                delegate: u.payload.audience.clone(),
                 parents: u.payload.proof.clone(),
+                delegation: d,
             },
-            KeplerDelegation::Cacao(c) => Self {
+            KeplerDelegation::Cacao(ref c) => Self {
                 resources: c
                     .payload()
                     .resources
@@ -119,8 +119,8 @@ impl TryFrom<KeplerDelegation> for Delegation {
                     .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
                 delegator: c.payload().iss.to_string(),
                 delegate: c.payload().aud.to_string(),
-                delegation: d,
                 parents: Vec::new(),
+                delegation: d,
             },
         })
     }
@@ -264,7 +264,7 @@ impl Verifiable for Delegation {
     {
         let t = time.unwrap_or_else(Utc::now);
 
-        match self.delegation {
+        match &self.delegation {
             KeplerDelegation::Ucan(u) => {
                 u.verify_signature(DID_METHODS.to_resolver()).await?;
                 u.payload

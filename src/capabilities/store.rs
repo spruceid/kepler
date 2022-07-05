@@ -58,7 +58,6 @@ impl Store {
         let id = oid
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
-        let oid_string = oid.to_string();
         let root = oid.did();
         let index =
             AddRemoveSetStore::new(oid.get_cid(), "capabilities".to_string(), config.clone())
@@ -441,7 +440,7 @@ impl CapStore for Store {
 }
 
 #[derive(Debug, Clone)]
-struct WithBlock<T> {
+pub(crate) struct WithBlock<T> {
     pub block: Block,
     pub base: T,
 }
@@ -452,8 +451,8 @@ where
 {
     pub fn new(base: T) -> Result<Self> {
         Ok(Self {
-            base,
             block: base.to_block()?,
+            base,
         })
     }
 }
@@ -465,8 +464,8 @@ where
     type Error = anyhow::Error;
     fn try_from(block: Block) -> Result<Self, Self::Error> {
         Ok(Self {
-            block,
             base: T::from_block(&block)?,
+            block,
         })
     }
 }
@@ -593,7 +592,7 @@ impl CapStore for Event {
 }
 
 #[derive(DagCbor, Debug, Clone)]
-struct EventBlock {
+pub(crate) struct EventBlock {
     pub prev: Vec<Cid>,
     pub delegate: Vec<Cid>,
     pub revoke: Vec<Cid>,
