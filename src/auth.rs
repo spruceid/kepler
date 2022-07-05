@@ -3,12 +3,14 @@ use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::routes::Metadata;
-use crate::zcap::{CapNode, Delegation, Invocation, Verifiable};
+use crate::zcap::{Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use kepler_lib::resource::{OrbitId, ResourceId};
+use libipld::Cid;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
+    futures::future::try_join_all,
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
@@ -100,63 +102,93 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
         };
 
-        let orbit = match (
-            token
-                .resources()
-                .into_iter()
-                .any(|r| (r.fragment(), r.path(), r.service()) == (Some("host"), None, None)),
-            load_orbit(token.resource().orbit().get_cid(), &config, relay.clone()).await,
-        ) {
-            (true, Ok(None)) => {
-                let keys = match req
-                    .rocket()
-                    .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
-                {
-                    Some(k) => k,
-                    _ => return internal_server_error(anyhow!("could not retrieve open key set")),
-                };
+        let p = token
+            .delegate
+            .strip_prefix("peer:")
+            .and_then(|s| s.parse().ok());
+        // get relevant orbit IDs and whether the delegation is a host del
+        let orbit_ids = token.resources.iter().fold(HashMap::new(), |mut o, r| {
+            let peers = o.entry(r.orbit()).or_insert(None);
+            match (r.fragment(), r.path(), r.service(), p, &peers) {
+                (Some("host"), None, None, Some(peer), None) => *peers = Some(peer),
+                _ => (),
+            };
+            o
+        });
 
-                if let Err(e) = token.verify(None).await {
-                    return unauthorized(e);
-                };
+        // load or create orbits
+        let orbits = match try_join_all(
+            orbit_ids
+                .iter()
+                .zip(std::iter::repeat((config, relay, token.clone())))
+                .map(|((orbit_id, peer), (config, relay, token))| async move {
+                    match (
+                        peer,
+                        load_orbit(orbit_id.get_cid(), &config, relay.clone()).await,
+                    ) {
+                        (Some(p), Ok(None)) => {
+                            let keys = match req
+                                .rocket()
+                                .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
+                            {
+                                Some(k) => k,
+                                _ => {
+                                    return Err(internal_server_error(anyhow!(
+                                        "could not retrieve open key set"
+                                    )))
+                                }
+                            };
 
-                let peer_id = match token.delegate().strip_prefix("peer:").map(|s| s.parse()) {
-                    Some(Ok(p)) => p,
-                    _ => return bad_request(anyhow!("Invalid Peer ID")),
-                };
+                            if let Err(e) = token
+                                .verify(&crate::zcap::EmptyCollection, None, &orbit_id.did())
+                                .await
+                            {
+                                return Err(unauthorized(e));
+                            };
 
-                let kp = match keys.write() {
-                    Ok(mut keys) => match keys.remove(&peer_id) {
-                        Some(k) => k,
-                        _ => return not_found(anyhow!("Peer ID Not Present")),
-                    },
-                    Err(_) => {
-                        return internal_server_error(anyhow!("could not retrieve open key set"))
-                    }
-                };
+                            let kp = match keys.write() {
+                                Ok(mut keys) => match keys.remove(&p) {
+                                    Some(k) => k,
+                                    _ => return Err(not_found(anyhow!("Peer ID Not Present"))),
+                                },
+                                Err(_) => {
+                                    return Err(internal_server_error(anyhow!(
+                                        "could not retrieve open key set"
+                                    )))
+                                }
+                            };
 
-                match create_orbit(token.resource().orbit(), &config, &[], relay, kp).await {
-                    Ok(Some(orbit)) => {
-                        return if let Err(e) =
-                            orbit.capabilities.transact(Updates::new([token], [])).await
-                        {
-                            internal_server_error(e)
-                        } else {
-                            Outcome::Success(Self::OrbitCreation(orbit.id().clone()))
+                            match create_orbit(orbit_id, &config, &[], relay.clone(), kp).await {
+                                Ok(Some(orbit)) => Ok(orbit),
+                                Ok(None) => Err(conflict(anyhow!("Orbit already exists"))),
+                                Err(e) => Err(internal_server_error(e)),
+                            }
                         }
+                        (_, Ok(None)) => Err(not_found(anyhow!("No Orbit found"))),
+                        (_, Ok(Some(o))) => Ok(o),
+                        (_, Err(e)) => Err(unauthorized(e)),
                     }
-                    Ok(None) => return conflict(anyhow!("Orbit already exists")),
-                    Err(e) => return internal_server_error(e),
-                }
-            }
-            (_, Ok(None)) => return not_found(anyhow!("No Orbit found")),
-            (_, Ok(Some(o))) => o,
-            (_, Err(e)) => return unauthorized(e),
+                }),
+        )
+        .await
+        {
+            Ok(o) => o,
+            Err(e) => return e,
         };
 
-        if let Err(e) = orbit.capabilities.transact(Updates::new([token], [])).await {
-            return internal_server_error(e);
-        }
+        if let Err(e) = try_join_all(
+            orbits
+                .into_iter()
+                .zip(std::iter::repeat(token.clone()))
+                .map(|(orbit, t)| async move {
+                    orbit.capabilities.transact(Updates::new([t], [])).await
+                }),
+        )
+        .await
+        .map_err(internal_server_error)
+        {
+            return e;
+        };
         Outcome::Success(Self::Delegation)
     }
 }
@@ -240,84 +272,59 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                 Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
             };
 
-            let target = token.resource();
+            let target = &token.resource;
 
-            let res = match target.fragment() {
-                None => unauthorized(anyhow!("target resource is missing action")),
-                _ => {
+            let res = match (target.service(), target.fragment()) {
+                (None, _) => unauthorized(anyhow!("missing service in invocation target")),
+                (_, None) => unauthorized(anyhow!("target resource is missing action")),
+                (Some("kv"), Some(action)) => {
                     let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
                         Ok(Some(o)) => o,
                         Ok(None) => return not_found(anyhow!("No Orbit found")),
                         Err(e) => return internal_server_error(e),
                     };
-                    match target.service() {
-                        None => bad_request(anyhow!("missing service in invocation target")),
-                        Some("kv") => {
-                            let tid = token.id().to_vec();
-                            let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
-                                Ok(c) => AuthRef::new(c, tid),
-                                Err(e) => return unauthorized(e),
-                            };
+                    let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
+                        Ok(c) => AuthRef::new(c, vec![]),
+                        Err(e) => return unauthorized(e),
+                    };
 
-                            let key = match target.path() {
-                                Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
-                                None => {
-                                    return bad_request(anyhow!(
-                                        "missing path in invocation target"
-                                    ))
-                                }
-                            };
-                            match target.fragment() {
-                                None => bad_request(anyhow!("missing action in invocation target")),
-                                Some("del") => {
-                                    Outcome::Success(Self::KV(Box::new(KVAction::Delete {
-                                        orbit,
-                                        key,
-                                        auth_ref,
-                                    })))
-                                }
-                                Some("get") => {
-                                    Outcome::Success(Self::KV(Box::new(KVAction::Get {
-                                        orbit,
-                                        key,
-                                    })))
-                                }
-                                Some("list") => {
-                                    Outcome::Success(Self::KV(Box::new(KVAction::List {
-                                        orbit,
-                                        prefix: key,
-                                    })))
-                                }
-                                Some("metadata") => {
-                                    Outcome::Success(Self::KV(Box::new(KVAction::Metadata {
-                                        orbit,
-                                        key,
-                                    })))
-                                }
-                                Some("put") => match Metadata::from_request(req).await {
-                                    Outcome::Success(metadata) => {
-                                        Outcome::Success(Self::KV(Box::new(KVAction::Put {
-                                            orbit,
-                                            key,
-                                            metadata,
-                                            auth_ref,
-                                        })))
-                                    }
-                                    Outcome::Failure(e) => Outcome::Failure(e),
-                                    Outcome::Forward(_) => internal_server_error(anyhow!(
-                                        "unable to parse metadata from request"
-                                    )),
-                                },
-                                Some(a) => bad_request(anyhow!(
-                                    "unsupported action in invocation target {}",
-                                    a
-                                )),
+                    let key = match target.path() {
+                        Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
+                        None => return bad_request(anyhow!("missing path in invocation target")),
+                    };
+                    match action {
+                        "del" => Outcome::Success(Self::KV(Box::new(KVAction::Delete {
+                            orbit,
+                            key,
+                            auth_ref,
+                        }))),
+                        "get" => Outcome::Success(Self::KV(Box::new(KVAction::Get { orbit, key }))),
+                        "list" => Outcome::Success(Self::KV(Box::new(KVAction::List {
+                            orbit,
+                            prefix: key,
+                        }))),
+                        "metadata" => {
+                            Outcome::Success(Self::KV(Box::new(KVAction::Metadata { orbit, key })))
+                        }
+                        "put" => match Metadata::from_request(req).await {
+                            Outcome::Success(metadata) => {
+                                Outcome::Success(Self::KV(Box::new(KVAction::Put {
+                                    orbit,
+                                    key,
+                                    metadata,
+                                    auth_ref,
+                                })))
                             }
-                        }
-                        Some(s) => {
-                            bad_request(anyhow!("unsupported service in invocation target {}", s))
-                        }
+                            Outcome::Failure(e) => Outcome::Failure(e),
+                            Outcome::Forward(_) => internal_server_error(anyhow!(
+                                "unable to parse metadata from request"
+                            )),
+                        },
+                        a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
                     }
+                }
+                (Some(s), _) => {
+                    bad_request(anyhow!("unsupported service in invocation target {}", s))
                 }
             };
 
