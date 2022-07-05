@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use kepler_lib::{
     didkit::DID_METHODS,
     resource::{KRIParseError, ResourceId},
-    zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation},
+    zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
 use libipld::Cid;
 use rocket::{
@@ -66,21 +66,18 @@ pub struct Revocation {
     pub parents: Vec<Cid>,
     pub revoked: Cid,
     pub revoker: String,
-    // pub revocation: KeplerInvocation,
+    pub revocation: KeplerRevocation,
 }
 
 impl ToBlock for Revocation {
     fn to_block(&self) -> Result<Block> {
-        todo!()
-        // self.revocation
-        //     .to_block(libipld::multihash::Code::Blake3_256)
+        self.revocation.to_block()
     }
 }
 
 impl FromBlock for Revocation {
     fn from_block(block: &Block) -> Result<Self> {
-        todo!()
-        // Ok(KeplerRevocation::from_block(block)?.try_into()?)
+        Ok(KeplerRevocation::from_block(block)?.try_into()?)
     }
 }
 
@@ -158,24 +155,22 @@ impl TryFrom<KeplerInvocation> for Invocation {
 pub enum RevocationError {
     #[error("Invalid Target")]
     InvalidTarget,
-    #[error("Missing Revoker")]
-    MissingRevoker,
 }
 
-impl TryFrom<KeplerInvocation> for Revocation {
+impl TryFrom<KeplerRevocation> for Revocation {
     type Error = RevocationError;
-    fn try_from(i: KeplerInvocation) -> Result<Self, Self::Error> {
-        todo!()
-        // match (
-        //     i.property_set.invocation_target.path(),
-        //     i.proof
-        //         .as_ref()
-        //         .and_then(|p| p.verification_method.as_ref()),
-        // ) {
-        //     (None, _) => Err(RevocationError::InvalidTarget),
-        //     (_, None) => Err(RevocationError::MissingRevoker),
-        //     _ => Ok(Self(i)),
-        // }
+    fn try_from(r: KeplerRevocation) -> Result<Self, Self::Error> {
+        match r {
+            KeplerRevocation::Cacao(ref c) => match c.payload().aud.as_str().split_once(":") {
+                Some(("ucan", ps)) => Ok(Self {
+                    parents: Vec::new(),
+                    revoked: ps.parse().map_err(|_| RevocationError::InvalidTarget)?,
+                    revoker: c.payload().iss.to_string(),
+                    revocation: r,
+                }),
+                _ => Err(RevocationError::InvalidTarget),
+            },
+        }
     }
 }
 
@@ -208,6 +203,7 @@ macro_rules! impl_fromreq {
 
 impl_fromreq!(Delegation, KeplerDelegation, "Authorization");
 impl_fromreq!(Invocation, KeplerInvocation, "Authorization");
+impl_fromreq!(Revocation, KeplerRevocation, "Authorization");
 
 #[rocket::async_trait]
 pub trait CapStore {

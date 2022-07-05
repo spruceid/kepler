@@ -52,6 +52,27 @@ impl HeaderEncode for KeplerInvocation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum KeplerRevocation {
+    Cacao(SiweCacao),
+}
+
+impl HeaderEncode for KeplerRevocation {
+    fn encode(&self) -> Result<String, EncodingError> {
+        match self {
+            Self::Cacao(c) => Ok(base64::encode_config(
+                DagCborCodec.encode(&c)?,
+                base64::URL_SAFE,
+            )),
+        }
+    }
+    fn decode(s: &str) -> Result<Self, EncodingError> {
+        Ok(Self::Cacao(
+            DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
+        ))
+    }
+}
+
 pub async fn make_invocation(
     invocation_target: ResourceId,
     delegation: Cid,

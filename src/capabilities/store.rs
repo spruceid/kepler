@@ -10,7 +10,7 @@ use cacaos::siwe_cacao::SiweCacao;
 use futures::stream::{self, TryStreamExt};
 use kepler_lib::{
     resource::{OrbitId, ResourceId},
-    zcap::{KeplerDelegation, KeplerInvocation},
+    zcap::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
 use libipld::{
     cbor::{DagCbor, DagCborCodec},
@@ -551,6 +551,14 @@ impl ToBlock for KeplerDelegation {
     }
 }
 
+impl ToBlock for KeplerRevocation {
+    fn to_block(&self) -> Result<Block> {
+        match self {
+            Self::Cacao(c) => c.to_block(),
+        }
+    }
+}
+
 impl FromBlock for KeplerInvocation {
     fn from_block(block: &Block) -> Result<Self> {
         Ok(KeplerInvocation::from_block(block)?)
@@ -564,6 +572,12 @@ impl FromBlock for KeplerDelegation {
         } else {
             Ok(Self::Ucan(kepler_lib::ssi::ucan::Ucan::from_block(block)?))
         }
+    }
+}
+
+impl FromBlock for KeplerRevocation {
+    fn from_block(block: &Block) -> Result<Self> {
+        Ok(Self::Cacao(block.decode()?))
     }
 }
 
