@@ -15,7 +15,7 @@ use ipfs::{
     refs::IpldRefsError,
     repo::{PinKind, PinMode, PinStore},
 };
-use libipld::cid::{multibase::Base, Cid};
+use kepler_lib::libipld::cid::{multibase::Base, Cid};
 use rocket::async_trait;
 use std::{collections::BTreeSet, str::FromStr};
 

@@ -9,11 +9,11 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
-use kepler_lib::resource::OrbitId;
-use libipld::cid::{
+use kepler_lib::libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use kepler_lib::resource::OrbitId;
 use libp2p::{
     core::Multiaddr,
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},

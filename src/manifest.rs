@@ -1,4 +1,4 @@
-use libipld::cid::{multibase::Base, Cid, Error as CidError};
+use kepler_lib::libipld::cid::{multibase::Base, Cid, Error as CidError};
 use libp2p::{Multiaddr, PeerId};
 
 use kepler_lib::resource::OrbitId;

@@ -3,7 +3,7 @@ pub mod store;
 use crate::orbit::AbortOnDrop;
 use anyhow::Result;
 use ipfs::PeerId;
-use libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base};
+use kepler_lib::libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base};
 use rocket::futures::{Stream, StreamExt};
 pub use store::AuthRef;
 use store::{CapsMessage, Store};

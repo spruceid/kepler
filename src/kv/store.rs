@@ -5,7 +5,7 @@ use crate::kv::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
+use kepler_lib::libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::{debug, instrument};

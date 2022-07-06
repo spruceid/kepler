@@ -52,7 +52,6 @@ urlencoding = "2.1"
 void = "1"
 uuid = "1"
 percent-encoding = "2.1"
-cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/update" }
 
 [dependencies.kepler-lib]
 path = "lib/"

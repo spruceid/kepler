@@ -2,7 +2,7 @@ use super::{to_block, to_block_raw};
 use crate::capabilities::store::AuthRef;
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
-use libipld::{cid::Cid, store::StoreParams, DagCbor};
+use kepler_lib::libipld::{cid::Cid, store::StoreParams, DagCbor};
 use libp2p::futures::stream::BoxStream;
 use std::{
     collections::BTreeMap,

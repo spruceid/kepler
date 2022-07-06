@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ipfs::PeerId;
-use libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
+use kepler_lib::libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -57,7 +57,7 @@ impl std::ops::Deref for Service {
 }
 
 mod vec_cid_bin {
-    use libipld::cid::Cid;
+    use kepler_lib::libipld::cid::Cid;
     use serde::{de::Error as DeError, ser::SerializeSeq, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(vec: &[Cid], ser: S) -> Result<S::Ok, S::Error>

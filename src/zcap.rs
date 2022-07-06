@@ -4,12 +4,12 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use kepler_lib::libipld::Cid;
 use kepler_lib::{
     didkit::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
-use libipld::Cid;
 use rocket::{
     futures::future::try_join_all,
     http::Status,

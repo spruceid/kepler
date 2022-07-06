@@ -43,7 +43,7 @@ mod test {
 
     use crate::{config, ipfs::create_ipfs, relay::test::test_relay};
     use ipfs::{MultiaddrWithoutPeerId, Protocol};
-    use libipld::Cid;
+    use kepler_lib::libipld::Cid;
     use libp2p::identity::Keypair;
     use std::str::FromStr;
     use tempdir::TempDir;

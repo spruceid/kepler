@@ -7,7 +7,7 @@ use aws_sdk_dynamodb::{
 };
 use aws_smithy_http::endpoint::Endpoint;
 use futures::stream::{self, TryStreamExt};
-use libipld::{cid::Cid, multibase::Base};
+use kepler_lib::libipld::{cid::Cid, multibase::Base};
 use sled::{Batch, Tree};
 use std::str::FromStr;
 
