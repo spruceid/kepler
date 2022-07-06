@@ -1,18 +1,15 @@
 use http::uri::Authority;
 use iri_string::types::UriString;
-use kepler_lib::resource::OrbitId;
-use kepler_lib::ssi::cacao_zcap::{
-    cacaos::{
-        siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
-        siwe_cacao::SIWESignature,
-        BasicSignature,
-    },
-    translation::cacao_to_zcap::CacaoToZcapError,
+use kepler_lib::cacaos::{
+    siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
+    siwe_cacao::{SIWESignature, SiweCacao},
 };
+use kepler_lib::resource::OrbitId;
+use kepler_lib::zcap::KeplerDelegation;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-use crate::{util::siwe_to_zcap, zcap::DelegationHeaders};
+use crate::zcap::DelegationHeaders;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +52,7 @@ pub struct SignedMessage {
     #[serde(with = "crate::serde_siwe::message")]
     siwe: Message,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: BasicSignature<SIWESignature>,
+    signature: SIWESignature,
 }
 
 impl TryFrom<HostConfig> for Message {
@@ -91,18 +88,18 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
     Message::try_from(config).map_err(Error::UnableToGenerateSIWEMessage)
 }
 
-pub fn host(signed_message: SignedMessage) -> Result<DelegationHeaders, Error> {
-    siwe_to_zcap(signed_message.siwe, signed_message.signature)
-        .map(DelegationHeaders::new)
-        .map_err(Error::UnableToConstructDelegation)
+pub fn host(signed_message: SignedMessage) -> DelegationHeaders {
+    DelegationHeaders::new(KeplerDelegation::Cacao(SiweCacao::new(
+        signed_message.siwe.into(),
+        signed_message.signature,
+        None,
+    )))
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate the SIWE message: {0}")]
     UnableToGenerateSIWEMessage(String),
-    #[error("unable to construct delegation: {0}")]
-    UnableToConstructDelegation(CacaoToZcapError),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]

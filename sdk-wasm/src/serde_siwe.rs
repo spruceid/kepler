@@ -32,7 +32,7 @@ pub mod domain {
 pub mod optional_timestamp {
     use std::str::FromStr;
 
-    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
+    use kepler_lib::cacaos::siwe::TimeStamp;
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<Option<TimeStamp>, D::Error>
@@ -50,7 +50,7 @@ pub mod optional_timestamp {
 pub mod timestamp {
     use std::str::FromStr;
 
-    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::TimeStamp;
+    use kepler_lib::cacaos::siwe::TimeStamp;
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<TimeStamp, D::Error>
@@ -67,7 +67,7 @@ pub mod timestamp {
 pub mod message {
     use std::str::FromStr;
 
-    use kepler_lib::ssi::cacao_zcap::cacaos::siwe::Message;
+    use kepler_lib::cacaos::siwe::Message;
     use serde::{
         de::{Deserialize, Deserializer, Error as DeError},
         ser::{Serialize, Serializer},
@@ -93,19 +93,17 @@ pub mod message {
 
 pub mod signature {
     use hex::FromHex;
-    use kepler_lib::ssi::cacao_zcap::cacaos::{siwe_cacao::SIWESignature, BasicSignature};
+    use kepler_lib::cacaos::siwe_cacao::SIWESignature;
     use serde::de::{Deserialize, Deserializer, Error};
 
-    pub fn deserialize<'de, D>(d: D) -> Result<BasicSignature<SIWESignature>, D::Error>
+    pub fn deserialize<'de, D>(d: D) -> Result<SIWESignature, D::Error>
     where
         D: Deserializer<'de>,
     {
-        String::deserialize(d)
-            .and_then(|sig| {
-                <[u8; 65]>::from_hex(sig.strip_prefix("0x").unwrap_or(&sig))
-                    .map(Into::into)
-                    .map_err(|e| D::Error::custom(format!("failed to parse SIWE signature: {}", e)))
-            })
-            .map(|s| BasicSignature { s })
+        String::deserialize(d).and_then(|sig| {
+            <[u8; 65]>::from_hex(sig.strip_prefix("0x").unwrap_or(&sig))
+                .map(Into::into)
+                .map_err(|e| D::Error::custom(format!("failed to parse SIWE signature: {}", e)))
+        })
     }
 }

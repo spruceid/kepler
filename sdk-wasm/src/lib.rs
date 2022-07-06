@@ -54,7 +54,7 @@ pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
     map_jsvalue(
         serde_json::from_str(&config)
             .map_err(session::Error::JSONDeserializing)
-            .and_then(session::complete_session_setup)
+            .map(session::complete_session_setup)
             .and_then(|session| {
                 serde_json::to_string(&session).map_err(session::Error::JSONSerializing)
             }),
@@ -92,7 +92,7 @@ pub fn host(signedSIWEMessage: String) -> Result<String, JsValue> {
     map_jsvalue(
         serde_json::from_str(&signedSIWEMessage)
             .map_err(host::Error::JSONDeserializing)
-            .and_then(host::host)
+            .map(host::host)
             .and_then(|headers| {
                 serde_json::to_string(&headers).map_err(host::Error::JSONSerializing)
             }),

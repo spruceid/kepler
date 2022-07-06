@@ -1,26 +1,17 @@
 use http::uri::Authority;
 use kepler_lib::{
-    didkit::DID_METHODS,
-    resource::OrbitId,
-    ssi::{
-        cacao_zcap::{
-            cacaos::{
-                siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
-                siwe_cacao::SIWESignature,
-                BasicSignature,
-            },
-            translation::cacao_to_zcap::CacaoToZcapError,
-        },
-        did::Source,
-        jwk::JWK,
-        vc::get_verification_method,
+    cacaos::{
+        siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+        siwe_cacao::SIWESignature,
     },
-    zcap::{make_invocation, Error as ZcapError, KeplerDelegation, KeplerInvocation},
+    didkit::DID_METHODS,
+    libipld::Cid,
+    resource::OrbitId,
+    ssi::{did::Source, jwk::JWK, vc::get_verification_method},
+    zcap::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
-
-use crate::util::siwe_to_zcap;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,11 +73,12 @@ pub struct PreparedSession {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSession {
+    delegation: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: BasicSignature<SIWESignature>,
+    signature: SIWESignature,
     #[serde(with = "crate::serde_siwe::message")]
     siwe: Message,
     verification_method: String,
@@ -95,11 +87,12 @@ pub struct SignedSession {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    delegation: KeplerDelegation,
+    delegation: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
     verification_method: String,
+    expiry: f64,
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -167,7 +160,16 @@ impl Session {
         let target = self
             .orbit_id
             .to_resource(Some(self.service), Some(path), Some(action));
-        make_invocation(target, self.delegation, &self.jwk, self.verification_method).await
+        Ok(make_invocation(
+            target,
+            self.delegation,
+            &self.jwk,
+            self.verification_method,
+            self.expiry,
+            None,
+            None,
+        )
+        .await?)
     }
 }
 
@@ -198,15 +200,15 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
     })
 }
 
-pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
-    Ok(Session {
-        delegation: siwe_to_zcap(signed_session.siwe, signed_session.signature)
-            .map_err(Error::UnableToConstructDelegation)?,
+pub fn complete_session_setup(signed_session: SignedSession) -> Session {
+    Session {
+        expiry: 0.0,
+        delegation: signed_session.delegation,
         jwk: signed_session.jwk,
         orbit_id: signed_session.orbit_id,
         service: signed_session.service,
         verification_method: signed_session.verification_method,
-    })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -217,8 +219,6 @@ pub enum Error {
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]
     UnableToGenerateSIWEMessage(String),
-    #[error("unable to construct delegation: {0}")]
-    UnableToConstructDelegation(CacaoToZcapError),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]
