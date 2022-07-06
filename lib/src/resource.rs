@@ -168,7 +168,6 @@ impl TryInto<Capability> for ResourceId {
 impl<T> TryFrom<&Capability<T>> for ResourceId {
     type Error = KRIParseError;
     fn try_from(c: &Capability<T>) -> Result<Self, Self::Error> {
-        use std::fmt::Display;
         let n = &c.can.namespace;
         let mut r = Self::from_str(&c.with.to_string())?;
         if n.starts_with("kepler")

@@ -12,13 +12,7 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
     zcap::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
-use libipld::{
-    cbor::{DagCbor, DagCborCodec},
-    codec::{Decode, Encode},
-    multibase::Base,
-    multihash::Code,
-    Cid, DagCbor,
-};
+use libipld::{cbor::DagCborCodec, multibase::Base, multihash::Code, Cid, DagCbor};
 use rocket::futures::future::try_join_all;
 
 use crate::config;
@@ -473,7 +467,6 @@ where
 #[derive(DagCbor, Clone, Debug)]
 pub(crate) enum CapsMessage {
     Invocation(Cid),
-    Update(EventBlock),
     StateReq,
     Heads {
         updates: Vec<Cid>,

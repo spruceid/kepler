@@ -15,7 +15,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use std::{convert::TryFrom, io::Write, ops::Deref, str::FromStr};
+use std::{convert::TryFrom, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub struct Delegation {
@@ -214,7 +214,7 @@ pub struct EmptyCollection;
 
 #[rocket::async_trait]
 impl CapStore for EmptyCollection {
-    async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
+    async fn get_cap(&self, _: &Cid) -> Result<Option<Delegation>> {
         Ok(None)
     }
 }

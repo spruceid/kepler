@@ -7,7 +7,6 @@ use crate::zcap::{Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use kepler_lib::resource::{OrbitId, ResourceId};
-use libipld::Cid;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     futures::future::try_join_all,

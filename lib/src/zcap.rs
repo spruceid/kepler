@@ -1,13 +1,14 @@
 use crate::resource::{ResourceCapErr, ResourceId};
 use cacaos::siwe_cacao::SiweCacao;
-use didkit::DID_METHODS;
-use libipld::{cbor::DagCborCodec, prelude::*, Cid};
+use libipld::{cbor::DagCborCodec, prelude::*};
 use ssi::{
     jwk::JWK,
-    ucan::{Capability, Payload, Ucan},
-    vc::{NumericDate, URI},
+    ucan::{Payload, Ucan},
+    vc::NumericDate,
 };
 use uuid::Uuid;
+
+pub use libipld::Cid;
 
 pub trait HeaderEncode {
     fn encode(&self) -> Result<String, EncodingError>;
@@ -78,14 +79,13 @@ pub async fn make_invocation(
     delegation: Cid,
     jwk: &JWK,
     verification_method: String,
-    audience: String,
     expiration: f64,
     not_before: Option<f64>,
     nonce: Option<String>,
 ) -> Result<Ucan, InvocationError> {
     Ok(Payload {
-        issuer: verification_method,
-        audience,
+        issuer: verification_method.clone(),
+        audience: verification_method,
         not_before: not_before.map(NumericDate::try_from_seconds).transpose()?,
         expiration: NumericDate::try_from_seconds(expiration)?,
         nonce: Some(nonce.unwrap_or_else(|| format!("urn:uuid:{}", Uuid::new_v4()))),

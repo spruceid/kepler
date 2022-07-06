@@ -72,13 +72,6 @@ async fn caps_task(
                         debug!("failed to apply recieved invocation {}", e);
                     }
                 }
-                Ok((_, CapsMessage::Update(update))) => {
-                    debug!("recieved updates");
-                    // using heads for now
-                    // if let Err(e) = store.apply(&update).await {
-                    //     debug!("failed to apply recieved updates {}", e);
-                    // }
-                }
                 Ok((_, CapsMessage::StateReq)) => {
                     if let Err(e) = store.broadcast_heads().await {
                         debug!(
