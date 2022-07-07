@@ -1,7 +1,11 @@
+use crate::zcap::DelegationHeaders;
 use chrono::Utc;
 use http::uri::Authority;
 use kepler_lib::{
-    cacaos::siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+    cacaos::{
+        siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+        siwe_cacao::SIWESignature,
+    },
     didkit::DID_METHODS,
     libipld::Cid,
     resource::OrbitId,
@@ -76,11 +80,13 @@ pub struct PreparedSession {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSession {
-    #[serde_as(as = "DisplayFromStr")]
-    delegation: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
+    #[serde(with = "crate::serde_siwe::signature")]
+    signature: SIWESignature,
+    #[serde_as(as = "DisplayFromStr")]
+    siwe: Message,
     verification_method: String,
 }
 
@@ -202,16 +208,6 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
     })
 }
 
-pub fn complete_session_setup(signed_session: SignedSession) -> Session {
-    Session {
-        delegation: signed_session.delegation,
-        jwk: signed_session.jwk,
-        orbit_id: signed_session.orbit_id,
-        service: signed_session.service,
-        verification_method: signed_session.verification_method,
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate session key: {0}")]
@@ -220,6 +216,8 @@ pub enum Error {
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]
     UnableToGenerateSIWEMessage(String),
+    #[error("unable to generate the CID")]
+    UnableToGenerateCid(kepler_lib::libipld::error::Error),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]
@@ -251,7 +249,7 @@ pub mod test {
                 "signature".into(),
                 "361647d08fb3ac41b26d9300d80e1964e1b3e7960e5276b3c9f5045ae55171442287279c83fd8922f9238312e89336b1672be8778d078d7dc5107b8c913299721c".into()
             );
-        complete_session_setup(serde_json::from_value(signed).unwrap()).unwrap()
+        // complete_session_setup(serde_json::from_value(signed).unwrap()).unwrap()
     }
 
     #[tokio::test]

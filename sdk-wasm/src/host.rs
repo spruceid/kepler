@@ -58,6 +58,17 @@ pub struct SignedMessage {
     signature: SIWESignature,
 }
 
+pub fn get_cid(s: SignedMessage) -> Result<String, kepler_lib::libipld::error::Error> {
+    use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block};
+    Ok(Block::<DefaultParams>::encode(
+        DagCborCodec,
+        Code::Blake3_256,
+        &SiweCacao::new(s.siwe.into(), s.signature, None),
+    )?
+    .cid()
+    .to_string())
+}
+
 impl TryFrom<HostConfig> for Message {
     type Error = String;
     fn try_from(c: HostConfig) -> Result<Self, String> {
@@ -91,7 +102,7 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
     Message::try_from(config).map_err(Error::UnableToGenerateSIWEMessage)
 }
 
-pub fn host(signed_message: SignedMessage) -> DelegationHeaders {
+pub fn siwe_message_headers(signed_message: SignedMessage) -> DelegationHeaders {
     DelegationHeaders::new(KeplerDelegation::Cacao(SiweCacao::new(
         signed_message.siwe.into(),
         signed_message.signature,
