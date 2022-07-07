@@ -258,6 +258,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                                 Ok(c) => AuthRef::new(c, tid),
                                 Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
                                 Err(InvokeError::Other(e)) => {
+                                    error!("{}", e);
                                     match e.downcast_ref::<aws_sdk_dynamodb::Error>() {
                                         Some(aws_sdk_dynamodb::Error::TransactionCanceledException(
                                             aws_sdk_dynamodb::error::TransactionCanceledException {

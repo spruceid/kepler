@@ -21,3 +21,4 @@ jobs:
         tag_names: true
         tag_semver: true
         snapshot: true
+        cache: true
