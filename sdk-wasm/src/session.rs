@@ -1,9 +1,7 @@
+use chrono::Utc;
 use http::uri::Authority;
 use kepler_lib::{
-    cacaos::{
-        siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
-        siwe_cacao::SIWESignature,
-    },
+    cacaos::siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
     didkit::DID_METHODS,
     libipld::Cid,
     resource::OrbitId,
@@ -11,8 +9,10 @@ use kepler_lib::{
     zcap::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
@@ -20,14 +20,15 @@ pub struct SessionConfig {
     #[serde(with = "crate::serde_siwe::address")]
     address: [u8; 20],
     chain_id: u64,
-    #[serde(with = "crate::serde_siwe::domain")]
+    #[serde_as(as = "DisplayFromStr")]
     domain: Authority,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     issued_at: TimeStamp,
     orbit_id: OrbitId,
-    #[serde(default, with = "crate::serde_siwe::optional_timestamp")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
     not_before: Option<TimeStamp>,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     expiration_time: TimeStamp,
     service: String,
 }
@@ -59,40 +60,40 @@ export type SessionConfig = {
 }
 "#;
 
+#[serde_as]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedSession {
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
-    #[serde(with = "crate::serde_siwe::message")]
+    #[serde_as(as = "DisplayFromStr")]
     siwe: Message,
     verification_method: String,
 }
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSession {
+    #[serde_as(as = "DisplayFromStr")]
     delegation: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
-    #[serde(with = "crate::serde_siwe::signature")]
-    signature: SIWESignature,
-    #[serde(with = "crate::serde_siwe::message")]
-    siwe: Message,
     verification_method: String,
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
+    #[serde_as(as = "DisplayFromStr")]
     delegation: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
     verification_method: String,
-    expiry: f64,
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -101,8 +102,8 @@ const TS_DEF: &'static str = r#"
  * A Kepler session.
  */
 export type Session = {
-  /** The delegation from the user to the session key. */
-  delegation: object,
+  /** The delegation reference from the user to the session key. */
+  delegation: string,
   /** The session key. */
   jwk: object,
   /** The orbit that the session key is permitted to perform actions against. */
@@ -165,7 +166,8 @@ impl Session {
             self.delegation,
             &self.jwk,
             self.verification_method,
-            self.expiry,
+            // 60 seconds in the future
+            (Utc::now().timestamp_nanos() as f64 / 1e+9_f64) + 60.0,
             None,
             None,
         )
@@ -202,7 +204,6 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 
 pub fn complete_session_setup(signed_session: SignedSession) -> Session {
     Session {
-        expiry: 0.0,
         delegation: signed_session.delegation,
         jwk: signed_session.jwk,
         orbit_id: signed_session.orbit_id,

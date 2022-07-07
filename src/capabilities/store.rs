@@ -54,8 +54,7 @@ impl Store {
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
         let root = oid.did();
         let index =
-            AddRemoveSetStore::new(oid.get_cid(), "capabilities".to_string(), config.clone())
-                .await?;
+            AddRemoveSetStore::new(oid.get_cid(), SERVICE_NAME.to_string(), config.clone()).await?;
 
         let (cid, n) = to_block_raw(&root)?.into_inner();
 

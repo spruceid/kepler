@@ -7,19 +7,21 @@ use kepler_lib::cacaos::{
 use kepler_lib::resource::OrbitId;
 use kepler_lib::zcap::KeplerDelegation;
 use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
 
 use crate::zcap::DelegationHeaders;
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostConfig {
     #[serde(with = "crate::serde_siwe::address")]
     address: [u8; 20],
     chain_id: u64,
-    #[serde(with = "crate::serde_siwe::domain")]
+    #[serde_as(as = "DisplayFromStr")]
     domain: Authority,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     issued_at: TimeStamp,
     orbit_id: OrbitId,
     peer_id: String,
@@ -46,10 +48,11 @@ export type HostConfig = {
 }
 "#;
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedMessage {
-    #[serde(with = "crate::serde_siwe::message")]
+    #[serde_as(as = "DisplayFromStr")]
     siwe: Message,
     #[serde(with = "crate::serde_siwe::signature")]
     signature: SIWESignature,

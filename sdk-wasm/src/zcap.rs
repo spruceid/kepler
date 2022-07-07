@@ -49,9 +49,8 @@ pub enum Error {
 mod header_enc {
     use kepler_lib::zcap::HeaderEncode;
     use serde::{
-        de::{DeserializeOwned, Error as DeError},
-        ser::Error as SerError,
-        Deserialize, Deserializer, Serialize, Serializer,
+        de::Error as DeError, ser::Error as SerError, Deserialize, Deserializer, Serialize,
+        Serializer,
     };
 
     pub fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
