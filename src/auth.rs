@@ -1,4 +1,4 @@
-use crate::capabilities::store::{AuthRef, Updates};
+use crate::capabilities::store::{AuthRef, InvokeError, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
@@ -237,13 +237,13 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
             let token = match Invocation::from_request(req).await {
                 Outcome::Success(t) => t,
                 Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
-                Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
+                Outcome::Forward(_) => return bad_request(anyhow!("missing invocation token")),
             };
 
             let target = token.resource();
 
             let res = match target.fragment() {
-                None => unauthorized(anyhow!("target resource is missing action")),
+                None => bad_request(anyhow!("target resource is missing action")),
                 _ => {
                     let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
                         Ok(Some(o)) => o,
@@ -256,7 +256,28 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                             let tid = token.id().to_vec();
                             let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
                                 Ok(c) => AuthRef::new(c, tid),
-                                Err(e) => return unauthorized(e),
+                                Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
+                                Err(InvokeError::Other(e)) => {
+                                    match e.downcast_ref::<aws_sdk_dynamodb::Error>() {
+                                        Some(aws_sdk_dynamodb::Error::TransactionCanceledException(
+                                            aws_sdk_dynamodb::error::TransactionCanceledException {
+                                                cancellation_reasons: Some(reasons),
+                                                ..
+                                            },
+                                        )) => {
+                                            for reason in reasons {
+                                                if reason.code == Some("ThrottlingError".to_string()) {
+                                                    return Outcome::Failure((
+                                                        Status::ServiceUnavailable,
+                                                        e,
+                                                    ));
+                                                }
+                                            }
+                                            return internal_server_error(e);
+                                        }
+                                        _ => return internal_server_error(e),
+                                    };
+                                }
                             };
 
                             let key = match target.path() {
