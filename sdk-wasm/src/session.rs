@@ -123,17 +123,28 @@ export type Session = {
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
-        let root_cap = self
-            .orbit_id
-            .to_string()
-            .try_into()
-            .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
-        let invocation_target = self
-            .orbit_id
-            .to_resource(Some(self.service), None, None)
-            .to_string()
-            .try_into()
-            .map_err(|e| format!("failed to parse invocation target as a URI: {}", e))?;
+        let statement = Some(format!(
+            "Authorize action{}: Allow access to your Kepler orbit using this session key.",
+            {
+                if self.actions.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", self.actions.join(", "))
+                }
+            }
+        ));
+        let resources: Vec<_> = self
+            .actions
+            .into_iter()
+            .map(|a| {
+                self.orbit_id
+                    .clone()
+                    .to_resource(Some(self.service.clone()), None, Some(a))
+                    .to_string()
+                    .try_into()
+                    .map_err(|_| "Failed to parse resource".to_string())
+            })
+            .collect::<Result<_, String>>()?;
         Ok(Message {
             address: self.address,
             chain_id: self.chain_id,
@@ -143,17 +154,8 @@ impl SessionConfig {
             nonce: generate_nonce(),
             not_before: self.not_before,
             request_id: None,
-            resources: vec![invocation_target, root_cap],
-            statement: Some(format!(
-                "Authorize action{}: Allow access to your Kepler orbit using this session key.",
-                {
-                    if self.actions.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", self.actions.join(", "))
-                    }
-                }
-            )),
+            statement,
+            resources,
             uri: delegate
                 .try_into()
                 .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
@@ -182,7 +184,8 @@ impl Session {
 }
 
 pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, Error> {
-    let jwk = JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?;
+    let mut jwk = JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?;
+    jwk.algorithm = Some(kepler_lib::ssi::jwk::Algorithm::EdDSA);
 
     let did = DID_METHODS
         .generate(&Source::KeyAndPattern(&jwk, "key"))

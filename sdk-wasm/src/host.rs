@@ -74,6 +74,7 @@ impl TryFrom<HostConfig> for Message {
     fn try_from(c: HostConfig) -> Result<Self, String> {
         let root_cap: UriString = c
             .orbit_id
+            .to_resource(None, None, Some("host".to_string()))
             .to_string()
             .try_into()
             .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
