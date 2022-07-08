@@ -102,7 +102,7 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
             DelegateAuthWrapper::OrbitCreation(orbit_id) => {
                 orbit_id.to_string().respond_to(request)
             }
-            DelegateAuthWrapper::Delegation => ().respond_to(request),
+            DelegateAuthWrapper::Delegation(c) => c.to_string().respond_to(request),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::capabilities::store::{AuthRef, Updates};
+use crate::capabilities::store::{AuthRef, ToBlock, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
@@ -6,7 +6,10 @@ use crate::routes::Metadata;
 use crate::zcap::{Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
-use kepler_lib::resource::{OrbitId, ResourceId};
+use kepler_lib::{
+    libipld::Cid,
+    resource::{OrbitId, ResourceId},
+};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     futures::future::try_join_all,
@@ -82,7 +85,7 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
 
 pub enum DelegateAuthWrapper {
     OrbitCreation(OrbitId),
-    Delegation,
+    Delegation(Cid),
 }
 
 #[async_trait]
@@ -115,6 +118,10 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             o
         });
 
+        let cid = match token.to_block() {
+            Ok(b) => *b.cid(),
+            Err(e) => return internal_server_error(e),
+        };
         // load or create orbits
         let orbits = match try_join_all(
             orbit_ids
@@ -188,7 +195,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
         {
             return e;
         };
-        Outcome::Success(Self::Delegation)
+        Outcome::Success(Self::Delegation(cid))
     }
 }
 
