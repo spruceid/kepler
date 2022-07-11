@@ -161,7 +161,8 @@ pub async fn handle_kv_action(
                 Metadata(md),
                 r,
             ))),
-            _ => Ok(InvocationResponse::NotFound),
+            Err(e) => Err((Status::InternalServerError, e.to_string())),
+            Ok(None) => Ok(InvocationResponse::NotFound),
         },
         KVAction::List { orbit, prefix } => {
             Ok(InvocationResponse::List(
