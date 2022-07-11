@@ -16,6 +16,7 @@ use libipld::{
     Cid, DagCbor,
 };
 use rocket::futures::future::try_join_all;
+use thiserror::Error;
 
 use crate::config;
 
@@ -36,6 +37,14 @@ enum BlockRef {
 
 #[derive(DagCbor, PartialEq, Debug, Clone)]
 pub(crate) struct ElementRef(BlockRef, Vec<u8>);
+
+#[derive(Error, Debug)]
+pub enum InvokeError {
+    #[error(transparent)]
+    Unauthorized(anyhow::Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 const SERVICE_NAME: &str = "capabilities";
 
@@ -247,10 +256,13 @@ impl Store {
         }
     }
 
-    pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
+    pub async fn invoke(
+        &self,
+        invocations: impl IntoIterator<Item = Invocation>,
+    ) -> Result<Cid, InvokeError> {
         let (dels, invs): (Vec<Vec<Delegation>>, Vec<Invocation>) =
             try_join_all(invocations.into_iter().map(|i| async move {
-                i.verify(None).await?;
+                i.verify(None).await.map_err(InvokeError::Unauthorized)?;
                 Ok((self.explode_unseen_parents(&i).await?, i))
                     as Result<(Vec<Delegation>, Invocation)>
             }))

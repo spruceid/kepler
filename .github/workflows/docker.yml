@@ -2,7 +2,7 @@ name: Publish Docker
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'feat/load-testing' ]
   release:
     types: [published, created, edited]
 
@@ -21,3 +21,4 @@ jobs:
         tag_names: true
         tag_semver: true
         snapshot: true
+        cache: true

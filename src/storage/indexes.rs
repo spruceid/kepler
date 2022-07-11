@@ -305,7 +305,7 @@ impl KV {
                     }) => match output.get(ELEMENTS_ATTRIBUTE) {
                         Some(AttributeValue::Ss(elements)) => elements.clone(),
                         Some(_) => return Err(anyhow!("Wrong type for elements set")),
-                        None => return Err(anyhow!("No `{}` column", ELEMENTS_ATTRIBUTE)),
+                        None => return Ok(vec![]),
                     },
                     Ok(_) => return Ok(vec![]),
                     Err(e) => return Err(anyhow!("Error checking on item: {}", e)),

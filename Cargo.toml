@@ -65,3 +65,7 @@ members = [
     "lib",
     "sdk-wasm",
 ]
+
+exclude = [
+    "test/load/signer",
+]
