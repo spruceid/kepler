@@ -3,9 +3,8 @@ pub mod store;
 use crate::orbit::AbortOnDrop;
 use anyhow::Result;
 use ipfs::PeerId;
-use kepler_lib::libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base};
+use kepler_lib::libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base, Cid};
 use rocket::futures::{Stream, StreamExt};
-pub use store::AuthRef;
 use store::{CapsMessage, Store};
 
 use std::io::Cursor;
@@ -13,7 +12,7 @@ use std::sync::Arc;
 
 #[rocket::async_trait]
 pub trait Invoke<T> {
-    async fn invoke(&self, invocation: &T) -> Result<AuthRef>;
+    async fn invoke(&self, invocation: &T) -> Result<Cid>;
 }
 
 #[derive(Clone)]

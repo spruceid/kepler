@@ -17,24 +17,6 @@ use rocket::futures::future::try_join_all;
 
 use crate::config;
 
-#[derive(DagCbor, PartialEq, Debug, Clone)]
-pub struct AuthRef(Cid, Vec<u8>);
-
-impl AuthRef {
-    pub fn new(event_cid: Cid, invocation_id: Vec<u8>) -> Self {
-        Self(event_cid, invocation_id)
-    }
-}
-
-#[derive(DagCbor, PartialEq, Debug, Clone)]
-enum BlockRef {
-    SameBlock,
-    Block(Cid),
-}
-
-#[derive(DagCbor, PartialEq, Debug, Clone)]
-pub(crate) struct ElementRef(BlockRef, Vec<u8>);
-
 const SERVICE_NAME: &str = "capabilities";
 
 #[derive(Clone)]
@@ -292,20 +274,6 @@ impl Store {
     {
         Ok(WithBlock::<T>::try_from(self.ipfs.get_block(&c).await?)?)
     }
-
-    // async fn broadcast_update_verbatim(&self, event: Event) -> Result<()> {
-    //     debug!("broadcasting update on {}", self.id);
-    //     self.ipfs
-    //         .pubsub_publish(
-    //             self.id
-    //                 .clone()
-    //                 .get_cid()
-    //                 .to_string_of_base(Base::Base58Btc)?,
-    //             CapsMessage::Update(event).to_block()?.into_inner().1,
-    //         )
-    //         .await?;
-    //     Ok(())
-    // }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
         let updates = self.delegation_heads.get_heads().await?.0;

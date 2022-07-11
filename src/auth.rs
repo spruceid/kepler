@@ -1,4 +1,4 @@
-use crate::capabilities::store::{AuthRef, ToBlock, Updates};
+use crate::capabilities::store::{ToBlock, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
@@ -217,7 +217,7 @@ pub enum KVAction {
     Delete {
         orbit: Orbit,
         key: String,
-        auth_ref: AuthRef,
+        auth_ref: Cid,
     },
     Get {
         orbit: Orbit,
@@ -235,7 +235,7 @@ pub enum KVAction {
         orbit: Orbit,
         key: String,
         metadata: Metadata,
-        auth_ref: AuthRef,
+        auth_ref: Cid,
     },
 }
 
@@ -290,7 +290,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                         Err(e) => return internal_server_error(e),
                     };
                     let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
-                        Ok(c) => AuthRef::new(c, vec![]),
+                        Ok(c) => c,
                         Err(e) => return unauthorized(e),
                     };
 
