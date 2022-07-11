@@ -363,7 +363,41 @@ impl Verifiable for Revocation {
     where
         C: CapStore + Sync + Send,
     {
-        todo!()
+        let t = time.unwrap_or_else(Utc::now);
+
+        match &self.revocation {
+            KeplerRevocation::Cacao(c) => {
+                c.verify().await?;
+                if !c.payload().valid_at(&t) {
+                    return Err(anyhow!("Revocation invalid at current time"));
+                };
+            }
+        };
+
+        if self.parents.is_empty() && self.revoker.starts_with(root) {
+            // if it's a root cap without parents
+            Ok(())
+        } else {
+            // verify parents and get delegated capabilities
+            let res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
+                let parent = store
+                    .get_cap(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Cant find Parent"))?;
+                if parent.delegate != self.revoker {
+                    Err(anyhow!("Invalid Issuer"))
+                } else {
+                    parent.verify(store, Some(t), root).await?;
+                    Ok(parent.resources)
+                }
+            }))
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+
+            Ok(())
+        }
     }
 }
 
