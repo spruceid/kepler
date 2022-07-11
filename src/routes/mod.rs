@@ -154,14 +154,15 @@ pub async fn handle_kv_action(
                         format!("Failed to delete content: {}", e),
                     )
                 })?;
-            Ok(InvocationResponse::Empty)
+            Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::Get { orbit, key } => match orbit.service.read(key).await {
             Ok(Some((md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
                 Metadata(md),
                 r,
             ))),
-            _ => Ok(InvocationResponse::Empty),
+            Err(e) => Err((Status::InternalServerError, e.to_string())),
+            Ok(None) => Ok(InvocationResponse::NotFound),
         },
         KVAction::List { orbit, prefix } => {
             Ok(InvocationResponse::List(
@@ -192,7 +193,7 @@ pub async fn handle_kv_action(
         KVAction::Metadata { orbit, key } => match orbit.service.get(key).await {
             Ok(Some(content)) => Ok(InvocationResponse::Metadata(Metadata(content.metadata))),
             Err(e) => Err((Status::InternalServerError, e.to_string())),
-            Ok(None) => Ok(InvocationResponse::Empty),
+            Ok(None) => Ok(InvocationResponse::NotFound),
         },
         KVAction::Put {
             orbit,
@@ -213,13 +214,14 @@ pub async fn handle_kv_action(
                 )
                 .await
                 .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-            Ok(InvocationResponse::Empty)
+            Ok(InvocationResponse::EmptySuccess)
         }
     }
 }
 
 pub enum InvocationResponse {
-    Empty,
+    NotFound,
+    EmptySuccess,
     KVResponse(KVResponse),
     List(Vec<String>),
     Metadata(Metadata),
@@ -229,7 +231,8 @@ pub enum InvocationResponse {
 impl<'r> Responder<'r, 'static> for InvocationResponse {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         match self {
-            InvocationResponse::Empty => ().respond_to(request),
+            InvocationResponse::NotFound => Option::<()>::None.respond_to(request),
+            InvocationResponse::EmptySuccess => ().respond_to(request),
             InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
