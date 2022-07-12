@@ -94,8 +94,9 @@ pub struct SignedSession {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
+    delegation_header: DelegationHeaders,
     #[serde_as(as = "DisplayFromStr")]
-    delegation: Cid,
+    delegation_cid: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
@@ -108,8 +109,10 @@ const TS_DEF: &'static str = r#"
  * A Kepler session.
  */
 export type Session = {
+  /** The delegation from the user to the session key. */
+  delegationHeader: { Authorization: string },
   /** The delegation reference from the user to the session key. */
-  delegation: string,
+  delegationCid: string,
   /** The session key. */
   jwk: object,
   /** The orbit that the session key is permitted to perform actions against. */
@@ -171,7 +174,7 @@ impl Session {
             .to_resource(Some(self.service), Some(path), Some(action));
         Ok(make_invocation(
             target,
-            self.delegation,
+            self.delegation_cid,
             &self.jwk,
             self.verification_method,
             // 60 seconds in the future
@@ -211,6 +214,29 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
     })
 }
 
+pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
+    use kepler_lib::{
+        cacaos::siwe_cacao::SiweCacao,
+        libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
+        zcap::KeplerDelegation,
+    };
+    let delegation = SiweCacao::new(signed_session.siwe.into(), signed_session.signature, None);
+    let delegation_cid =
+        *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
+            .map_err(Error::UnableToGenerateCid)?
+            .cid();
+    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(delegation));
+
+    Ok(Session {
+        delegation_header,
+        delegation_cid,
+        jwk: signed_session.jwk,
+        orbit_id: signed_session.orbit_id,
+        service: signed_session.service,
+        verification_method: signed_session.verification_method,
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate session key: {0}")]
@@ -219,7 +245,7 @@ pub enum Error {
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]
     UnableToGenerateSIWEMessage(String),
-    #[error("unable to generate the CID")]
+    #[error("unable to generate the CID: {0}")]
     UnableToGenerateCid(kepler_lib::libipld::error::Error),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),

@@ -50,6 +50,19 @@ pub fn prepareSession(config: String) -> Promise {
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
+pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
+    map_jsvalue(
+        serde_json::from_str(&config)
+            .map_err(session::Error::JSONDeserializing)
+            .and_then(session::complete_session_setup)
+            .and_then(|session| {
+                serde_json::to_string(&session).map_err(session::Error::JSONSerializing)
+            }),
+    )
+}
+
+#[wasm_bindgen]
+#[allow(non_snake_case)]
 pub fn invoke(session: String, path: String, action: String) -> Promise {
     map_async_jsvalue(async move {
         zcap::InvocationHeaders::from(
