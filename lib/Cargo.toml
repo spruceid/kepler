@@ -31,8 +31,8 @@ features = ["no-ring"]
 
 [dependencies.ssi]
 git = "https://github.com/spruceid/ssi"
-branch = "feat/ucan-0.9"
 default-features = false
+features = ["sha2", "ed25519-dalek", "rsa", "rand"]
 
 [dependencies.uuid]
 version = "1"
