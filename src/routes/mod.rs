@@ -18,7 +18,7 @@ use std::{
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
     tracing::TracingSpan,

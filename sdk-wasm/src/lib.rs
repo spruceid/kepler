@@ -65,13 +65,15 @@ pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
 #[allow(non_snake_case)]
 pub fn invoke(session: String, path: String, action: String) -> Promise {
     map_async_jsvalue(async move {
-        zcap::InvocationHeaders::from(
-            serde_json::from_str(&session).map_err(zcap::Error::JSONDeserializing)?,
+        authorization::InvocationHeaders::from(
+            serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
             path,
             action,
         )
         .await
-        .and_then(|headers| serde_json::to_string(&headers).map_err(zcap::Error::JSONSerializing))
+        .and_then(|headers| {
+            serde_json::to_string(&headers).map_err(authorization::Error::JSONSerializing)
+        })
     })
 }
 

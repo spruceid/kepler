@@ -1,7 +1,8 @@
-use crate::zcap::DelegationHeaders;
+use crate::authorization::DelegationHeaders;
 use chrono::Utc;
 use http::uri::Authority;
 use kepler_lib::{
+    authorization::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
     cacaos::{
         siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
@@ -10,7 +11,6 @@ use kepler_lib::{
     libipld::Cid,
     resource::OrbitId,
     ssi::{did::Source, jwk::JWK, vc::get_verification_method},
-    zcap::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -216,9 +216,9 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 
 pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
     use kepler_lib::{
+        authorization::KeplerDelegation,
         cacaos::siwe_cacao::SiweCacao,
         libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
-        zcap::KeplerDelegation,
     };
     let delegation = SiweCacao::new(signed_session.siwe.into(), signed_session.signature, None);
     let delegation_cid =

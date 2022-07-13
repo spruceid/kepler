@@ -1,17 +1,17 @@
 use crate::{
+    authorization::{CapStore, Delegation, Invocation, Revocation, Verifiable},
     indexes::{AddRemoveSetStore, HeadStore},
     ipfs::{Block, Ipfs},
     kv::to_block_raw,
-    zcap::{CapStore, Delegation, Invocation, Revocation, Verifiable},
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, TryStreamExt};
 use kepler_lib::libipld::{cbor::DagCborCodec, multibase::Base, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
+    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe_cacao::SiweCacao,
     resource::{OrbitId, ResourceId},
-    zcap::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
 use rocket::futures::future::try_join_all;
 
@@ -134,7 +134,7 @@ impl Store {
 
     async fn verify(&self, event: &Event) -> Result<()> {
         // this allows us to verify using delegations present in the event but not in the store
-        let caps = crate::zcap::MultiCollection(event, self);
+        let caps = crate::authorization::MultiCollection(event, self);
         try_join_all(
             event
                 .delegate

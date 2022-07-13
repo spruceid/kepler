@@ -1,4 +1,4 @@
-use kepler_lib::zcap::{KeplerDelegation, KeplerInvocation};
+use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation};
 use serde::{Deserialize, Serialize};
 
 use crate::session::Session;
@@ -39,7 +39,7 @@ impl DelegationHeaders {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("failed to generate proof for invocation: {0}")]
-    FailedToMakeInvocation(kepler_lib::zcap::InvocationError),
+    FailedToMakeInvocation(kepler_lib::authorization::InvocationError),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse session from JSON: {0}")]
@@ -47,7 +47,7 @@ pub enum Error {
 }
 
 mod header_enc {
-    use kepler_lib::zcap::HeaderEncode;
+    use kepler_lib::authorization::HeaderEncode;
     use serde::{
         de::Error as DeError, ser::Error as SerError, Deserialize, Deserializer, Serialize,
         Serializer,

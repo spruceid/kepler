@@ -1,9 +1,9 @@
+use crate::authorization::{Delegation, Invocation, Verifiable};
 use crate::capabilities::store::{ToBlock, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::routes::Metadata;
-use crate::zcap::{Delegation, Invocation, Verifiable};
 use anyhow::Result;
 use ipfs::{Multiaddr, PeerId};
 use kepler_lib::{
@@ -146,7 +146,11 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                             };
 
                             if let Err(e) = token
-                                .verify(&crate::zcap::EmptyCollection, None, &orbit_id.did())
+                                .verify(
+                                    &crate::authorization::EmptyCollection,
+                                    None,
+                                    &orbit_id.did(),
+                                )
                                 .await
                             {
                                 return Err(unauthorized(e));

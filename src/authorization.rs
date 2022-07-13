@@ -6,9 +6,11 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use kepler_lib::libipld::Cid;
 use kepler_lib::{
+    authorization::{
+        EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
+    },
     didkit::DID_METHODS,
     resource::{KRIParseError, ResourceId},
-    zcap::{EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation},
 };
 use rocket::{
     futures::future::try_join_all,
@@ -379,7 +381,7 @@ impl Verifiable for Revocation {
             Ok(())
         } else {
             // verify parents and get delegated capabilities
-            let res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
+            let _res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
                 let parent = store
                     .get_cap(c)
                     .await?

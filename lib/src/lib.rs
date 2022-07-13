@@ -1,5 +1,5 @@
+pub mod authorization;
 pub mod resource;
-pub mod zcap;
 
 pub use cacaos;
 pub use didkit;
