@@ -272,7 +272,7 @@ impl Store {
     where
         T: FromBlock,
     {
-        Ok(WithBlock::<T>::try_from(self.ipfs.get_block(c).await?)?)
+        WithBlock::<T>::try_from(self.ipfs.get_block(c).await?)
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {

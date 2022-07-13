@@ -77,7 +77,7 @@ enum ElementDeserError {
     Length,
 }
 
-impl<'a> TryFrom<Vec<u8>> for Element {
+impl TryFrom<Vec<u8>> for Element {
     type Error = ElementDeserError;
     fn try_from(b: Vec<u8>) -> Result<Self, Self::Error> {
         match (

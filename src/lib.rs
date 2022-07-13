@@ -37,6 +37,7 @@ use routes::{cors, delegate, invoke, open_host_key, relay_addr};
 use std::{collections::HashMap, sync::RwLock};
 
 #[get("/healthz")]
+#[allow(clippy::let_unit_value)]
 pub fn healthcheck() {}
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {

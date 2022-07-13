@@ -58,17 +58,6 @@ pub struct SignedMessage {
     signature: SIWESignature,
 }
 
-pub fn get_cid(s: SignedMessage) -> Result<String, kepler_lib::libipld::error::Error> {
-    use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block};
-    Ok(Block::<DefaultParams>::encode(
-        DagCborCodec,
-        Code::Blake3_256,
-        &SiweCacao::new(s.siwe.into(), s.signature, None),
-    )?
-    .cid()
-    .to_string())
-}
-
 impl TryFrom<HostConfig> for Message {
     type Error = String;
     fn try_from(c: HostConfig) -> Result<Self, String> {

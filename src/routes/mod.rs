@@ -69,6 +69,7 @@ impl<'r> Responder<'r, 'static> for KVResponse {
 }
 
 #[options("/<_s..>")]
+#[allow(clippy::let_unit_value)]
 pub async fn cors(_s: PathBuf) {}
 
 #[get("/peer/relay")]

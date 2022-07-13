@@ -172,7 +172,7 @@ impl Session {
         let target = self
             .orbit_id
             .to_resource(Some(self.service), Some(path), Some(action));
-        Ok(make_invocation(
+        make_invocation(
             target,
             self.delegation_cid,
             &self.jwk,
@@ -182,7 +182,7 @@ impl Session {
             None,
             None,
         )
-        .await?)
+        .await
     }
 }
 
@@ -278,7 +278,7 @@ pub mod test {
                 "signature".into(),
                 "361647d08fb3ac41b26d9300d80e1964e1b3e7960e5276b3c9f5045ae55171442287279c83fd8922f9238312e89336b1672be8778d078d7dc5107b8c913299721c".into()
             );
-        // complete_session_setup(serde_json::from_value(signed).unwrap()).unwrap()
+        complete_session_setup(serde_json::from_value(signed).unwrap()).unwrap()
     }
 
     #[tokio::test]
