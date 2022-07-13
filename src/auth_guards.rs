@@ -111,9 +111,10 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
         // get relevant orbit IDs and whether the delegation is a host del
         let orbit_ids = token.resources.iter().fold(HashMap::new(), |mut o, r| {
             let peers = o.entry(r.orbit()).or_insert(None);
-            match (r.fragment(), r.path(), r.service(), p, &peers) {
-                (Some("host"), None, None, Some(peer), None) => *peers = Some(peer),
-                _ => (),
+            if let (Some("host"), None, None, Some(peer), None) =
+                (r.fragment(), r.path(), r.service(), p, &peers)
+            {
+                *peers = Some(peer);
             };
             o
         });
@@ -157,7 +158,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                             };
 
                             let kp = match keys.write() {
-                                Ok(mut keys) => match keys.remove(&p) {
+                                Ok(mut keys) => match keys.remove(p) {
                                     Some(k) => k,
                                     _ => return Err(not_found(anyhow!("Peer ID Not Present"))),
                                 },

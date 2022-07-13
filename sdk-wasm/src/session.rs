@@ -225,7 +225,7 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
         *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
             .map_err(Error::UnableToGenerateCid)?
             .cid();
-    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(delegation));
+    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(delegation)));
 
     Ok(Session {
         delegation_header,

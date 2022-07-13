@@ -104,11 +104,11 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
 }
 
 pub fn siwe_to_delegation_headers(signed_message: SignedMessage) -> DelegationHeaders {
-    DelegationHeaders::new(KeplerDelegation::Cacao(SiweCacao::new(
+    DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(SiweCacao::new(
         signed_message.siwe.into(),
         signed_message.signature,
         None,
-    )))
+    ))))
 }
 
 #[derive(Debug, thiserror::Error)]

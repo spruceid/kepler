@@ -163,7 +163,7 @@ impl TryFrom<KeplerRevocation> for Revocation {
     type Error = RevocationError;
     fn try_from(r: KeplerRevocation) -> Result<Self, Self::Error> {
         match r {
-            KeplerRevocation::Cacao(ref c) => match c.payload().aud.as_str().split_once(":") {
+            KeplerRevocation::Cacao(ref c) => match c.payload().aud.as_str().split_once(':') {
                 Some(("ucan", ps)) => Ok(Self {
                     parents: Vec::new(),
                     revoked: ps.parse().map_err(|_| RevocationError::InvalidTarget)?,
@@ -406,67 +406,71 @@ impl Verifiable for Revocation {
 #[cfg(test)]
 mod test {
     use super::*;
+    use kepler_lib::{
+        resolver::DID_METHODS,
+        ssi::{
+            did::{Document, Source},
+            did_resolve::DIDResolver,
+            jwk::{Algorithm, JWK},
+            jws::Header,
+            ucan::{Capability, Payload, Ucan},
+            vc::NumericDate,
+        },
+    };
 
+    async fn gen(
+        iss: &JWK,
+        aud: String,
+        caps: Vec<Capability>,
+        exp: f64,
+        prf: Vec<Cid>,
+    ) -> (Document, Thing) {
+        let did = DID_METHODS
+            .generate(&Source::KeyAndPattern(iss, "key"))
+            .unwrap();
+        (
+            DID_METHODS
+                .resolve(&did, &Default::default())
+                .await
+                .1
+                .unwrap(),
+            gen_ucan((iss, did), aud, caps, exp, prf).await,
+        )
+    }
+    async fn gen_ucan(
+        iss: (&JWK, String),
+        audience: String,
+        attenuation: Vec<Capability>,
+        exp: f64,
+        proof: Vec<Cid>,
+    ) -> Thing {
+        let p = Payload {
+            issuer: iss.1,
+            audience,
+            attenuation,
+            proof,
+            nonce: None,
+            not_before: None,
+            facts: None,
+            expiration: NumericDate::try_from_seconds(exp).unwrap(),
+        }
+        .sign(Algorithm::EdDSA, iss.0)
+        .unwrap();
+        Thing {
+            token: p.encode().unwrap(),
+            payload: p.payload,
+            header: p.header,
+        }
+    }
+
+    #[derive(serde::Serialize)]
+    struct Thing {
+        pub token: String,
+        pub payload: Payload,
+        pub header: Header,
+    }
     #[test]
     async fn basic() -> Result<()> {
-        let inv_str = r#"{
-          "@context": "https://w3id.org/security/v2",
-          "id": "urn:uuid:689d5b45-3852-4587-9631-6f806659b16a",
-          "invocationTarget": "kepler:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78://default/kv/plaintext#get",
-          "proof": {
-            "type": "Ed25519Signature2018",
-            "proofPurpose": "capabilityInvocation",
-            "verificationMethod": "did:key:z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG#z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG",
-            "created": "2022-05-31T18:01:50.391Z",
-            "jws": "eyJhbGciOiJFZERTQSIsImNyaXQiOlsiYjY0Il0sImI2NCI6ZmFsc2V9..LqkVDoIzkKeB0aUv5aOtP8Jpj_fpeZya3fsBUAQzph81Io_wQ1iSb-a1l1OEu6nfLF5qQX63MrSfjYwK6HUrDQ",
-            "capabilityChain": [
-              "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault",
-              {
-                "@context": [
-                  "https://w3id.org/security/v2",
-                  "https://demo.didkit.dev/2022/cacao-zcap/contexts/v1.json"
-                ],
-                "allowedAction": [
-                  "put",
-                  "get",
-                  "list",
-                  "del",
-                  "metadata"
-                ],
-                "cacaoPayloadType": "eip4361",
-                "cacaoZcapSubstatement": "Allow access to your Kepler orbit using this session key.",
-                "expires": "2022-05-31T19:01:49.766Z",
-                "id": "urn:uuid:8fef6410-b8f3-401e-89ba-93878cd36c11",
-                "invocationTarget": "kepler:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78://default/kv",
-                "invoker": "did:key:z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG#z6MkeyRTDGHqMCnq5GBZ5HnWBUy4S8B2vun1hDLjX3qyrddG",
-                "parentCapability": "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault",
-                "proof": {
-                  "cacaoSignatureType": "eip191",
-                  "capabilityChain": [
-                    "urn:zcap:root:kepler%3Apkh%3Aeip155%3A1%3A0xFa4b15f717c463DF4952c59B1647169E0a5A6A78%3A%2F%2Fdefault"
-                  ],
-                  "created": "2022-05-31T18:01:49.766Z",
-                  "domain": "example.com",
-                  "nonce": "NJWIlpPuAXh",
-                  "proofPurpose": "capabilityDelegation",
-                  "proofValue": "f149ea9e2b6b4e804552c7b18d596461ed886e79fa187525149e422ac1f5ec16d0849f780107362169f4b0f51fc9b71cbd035d6f101f706c1a28c0cea07432fd71c",
-                  "type": "CacaoZcapProof2022",
-                  "verificationMethod": "did:pkh:eip155:1:0xFa4b15f717c463DF4952c59B1647169E0a5A6A78#blockchainAccountId"
-                },
-                "type": "CacaoZcap2022"
-              }
-            ]
-          }
-        }"#;
-        let inv: Invocation =
-            serde_json::from_str(inv_str).expect("failed to deserialize invocation");
-        inv.verify(Some("2022-05-31T14:02:45.836Z".parse()?))
-            .await
-            .expect("failed to verify invocation");
-        assert!(inv
-            .verify(Some("2023-05-31T14:02:45.836Z".parse()?))
-            .await
-            .is_err());
         Ok(())
     }
 }

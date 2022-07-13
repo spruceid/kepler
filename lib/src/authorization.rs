@@ -19,23 +19,28 @@ pub trait HeaderEncode {
 
 #[derive(Clone, Debug)]
 pub enum KeplerDelegation {
-    Ucan(Ucan),
-    Cacao(SiweCacao),
+    Ucan(Box<Ucan>),
+    Cacao(Box<SiweCacao>),
 }
 
 impl HeaderEncode for KeplerDelegation {
     fn encode(&self) -> Result<String, EncodingError> {
+        use std::ops::Deref;
         Ok(match self {
             Self::Ucan(u) => u.encode()?,
-            Self::Cacao(c) => base64::encode_config(DagCborCodec.encode(&c)?, base64::URL_SAFE),
+            Self::Cacao(c) => {
+                base64::encode_config(DagCborCodec.encode(c.deref())?, base64::URL_SAFE)
+            }
         })
     }
 
     fn decode(s: &str) -> Result<Self, EncodingError> {
-        Ok(if s.contains(".") {
-            Self::Ucan(Ucan::decode(s)?)
+        Ok(if s.contains('.') {
+            Self::Ucan(Box::new(Ucan::decode(s)?))
         } else {
-            Self::Cacao(DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?)
+            Self::Cacao(Box::new(
+                DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
+            ))
         })
     }
 }
@@ -93,7 +98,7 @@ pub async fn make_invocation(
         proof: vec![delegation],
         attenuation: vec![invocation_target.try_into()?],
     }
-    .sign(jwk.algorithm.unwrap_or_else(Default::default), jwk)?)
+    .sign(jwk.algorithm.unwrap_or_default(), jwk)?)
 }
 
 #[derive(Debug, thiserror::Error)]

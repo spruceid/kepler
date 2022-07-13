@@ -272,7 +272,7 @@ impl Store {
     where
         T: FromBlock,
     {
-        Ok(WithBlock::<T>::try_from(self.ipfs.get_block(&c).await?)?)
+        Ok(WithBlock::<T>::try_from(self.ipfs.get_block(c).await?)?)
     }
 
     pub(crate) async fn broadcast_heads(&self) -> Result<()> {
@@ -487,7 +487,7 @@ macro_rules! impl_fromblock {
             where
                 Self: Sized,
             {
-                Ok(block.decode()?)
+                block.decode()
             }
         }
     };
@@ -498,7 +498,7 @@ impl_toblock!(SiweCacao);
 
 impl ToBlock for KeplerInvocation {
     fn to_block(&self) -> Result<Block> {
-        Ok(self.to_block(Code::Blake3_256)?)
+        self.to_block(Code::Blake3_256)
     }
 }
 
@@ -521,16 +521,18 @@ impl ToBlock for KeplerRevocation {
 
 impl FromBlock for KeplerInvocation {
     fn from_block(block: &Block) -> Result<Self> {
-        Ok(KeplerInvocation::from_block(block)?)
+        KeplerInvocation::from_block(block)
     }
 }
 
 impl FromBlock for KeplerDelegation {
     fn from_block(block: &Block) -> Result<Self> {
         if block.codec() == u64::from(DagCborCodec) {
-            Ok(Self::Cacao(block.decode()?))
+            Ok(Self::Cacao(Box::new(block.decode()?)))
         } else {
-            Ok(Self::Ucan(kepler_lib::ssi::ucan::Ucan::from_block(block)?))
+            Ok(Self::Ucan(Box::new(
+                kepler_lib::ssi::ucan::Ucan::from_block(block)?,
+            )))
         }
     }
 }
@@ -551,17 +553,13 @@ pub(crate) struct Event {
 #[rocket::async_trait]
 impl CapStore for Event {
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
-        Ok(self
-            .delegate
-            .iter()
-            .find_map(|d| {
-                if d.1.block.cid() == c {
-                    Some(d.1.base.clone())
-                } else {
-                    None
-                }
-            })
-            .clone())
+        Ok(self.delegate.iter().find_map(|d| {
+            if d.1.block.cid() == c {
+                Some(d.1.base.clone())
+            } else {
+                None
+            }
+        }))
     }
 }
 
