@@ -24,14 +24,14 @@ version = "1"
 features = ["macros"]
 
 [dependencies.didkit]
-# git = "https://github.com/spruceid/didkit"
-path = "../../didkit/lib"
+git = "https://github.com/spruceid/didkit"
+branch = "feat/ucan"
 default-features = false
 features = ["no-ring"]
 
 [dependencies.ssi]
-# git = "https://github.com/spruceid/ssi"
-path = "../../ssi"
+git = "https://github.com/spruceid/ssi"
+branch = "feat/ucan-0.9"
 default-features = false
 
 [dependencies.uuid]

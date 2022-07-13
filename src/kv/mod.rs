@@ -1,6 +1,8 @@
 use anyhow::Result;
 use ipfs::PeerId;
-use kepler_lib::libipld::{cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec};
+use kepler_lib::libipld::{
+    cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec,
+};
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -135,7 +137,7 @@ mod test {
     use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
 
     use super::*;
-    use crate::{capabilities::AuthRef, config, ipfs::create_ipfs, relay::test::test_relay};
+    use crate::{config, ipfs::create_ipfs, relay::test::test_relay};
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
     };
@@ -238,13 +240,13 @@ mod test {
                 .into_iter()
                 .collect();
         let dab = to_block(&id).unwrap();
-        let dummy_auth = AuthRef::new(*dab.cid(), vec![]);
+        let dummy_auth = *dab.cid();
         alice_service.ipfs.put_block(dab).await?;
 
         let kv_obj_1 = ObjectBuilder::new(key1.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
         let kv_obj_2 = ObjectBuilder::new(key2.as_bytes().to_vec(), md.clone(), dummy_auth.clone());
 
-        type RmItem = (Vec<u8>, Option<(u64, Cid)>, AuthRef);
+        type RmItem = (Vec<u8>, Option<(u64, Cid)>, Cid);
         let rm: Vec<RmItem> = vec![];
         alice_service
             .write(vec![(kv_obj_1, json.as_bytes())], rm.clone())
