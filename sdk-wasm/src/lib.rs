@@ -1,8 +1,8 @@
+mod authorization;
 mod host;
 mod serde_siwe;
 mod session;
 mod util;
-mod zcap;
 
 use std::future::Future;
 
