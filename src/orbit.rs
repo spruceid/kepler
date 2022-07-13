@@ -253,7 +253,7 @@ impl Deref for Orbit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kepler_lib::didkit::DID_METHODS;
+    use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,

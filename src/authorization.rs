@@ -9,7 +9,7 @@ use kepler_lib::{
     authorization::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
-    didkit::DID_METHODS,
+    resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
 };
 use rocket::{
