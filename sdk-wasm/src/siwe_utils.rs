@@ -103,7 +103,7 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
     Message::try_from(config).map_err(Error::UnableToGenerateSIWEMessage)
 }
 
-pub fn siwe_message_headers(signed_message: SignedMessage) -> DelegationHeaders {
+pub fn siwe_to_delegation_headers(signed_message: SignedMessage) -> DelegationHeaders {
     DelegationHeaders::new(KeplerDelegation::Cacao(SiweCacao::new(
         signed_message.siwe.into(),
         signed_message.signature,
