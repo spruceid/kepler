@@ -17,7 +17,7 @@ serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
-cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/update" }
+cacaos = { git = "https://github.com/spruceid/cacao-rs" }
 
 [dev-dependencies.tokio]
 version = "1"
