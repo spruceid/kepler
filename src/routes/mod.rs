@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ipfs::{PeerId, Protocol};
-use libipld::Cid;
+use kepler_lib::libipld::Cid;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::{
     data::{Data, ToByteUnit},
@@ -18,7 +18,7 @@ use std::{
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ObjectReader},
     relay::RelayNode,
     tracing::TracingSpan,
@@ -69,6 +69,7 @@ impl<'r> Responder<'r, 'static> for KVResponse {
 }
 
 #[options("/<_s..>")]
+#[allow(clippy::let_unit_value)]
 pub async fn cors(_s: PathBuf) {}
 
 #[get("/peer/relay")]
@@ -102,7 +103,7 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
             DelegateAuthWrapper::OrbitCreation(orbit_id) => {
                 orbit_id.to_string().respond_to(request)
             }
-            DelegateAuthWrapper::Delegation => ().respond_to(request),
+            DelegateAuthWrapper::Delegation(c) => c.to_string().respond_to(request),
         }
     }
 }

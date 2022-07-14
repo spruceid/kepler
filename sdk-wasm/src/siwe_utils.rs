@@ -1,28 +1,27 @@
 use http::uri::Authority;
 use iri_string::types::UriString;
-use kepler_lib::resource::OrbitId;
-use kepler_lib::ssi::cacao_zcap::{
-    cacaos::{
-        siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
-        siwe_cacao::SIWESignature,
-        BasicSignature,
-    },
-    translation::cacao_to_zcap::CacaoToZcapError,
+use kepler_lib::authorization::KeplerDelegation;
+use kepler_lib::cacaos::{
+    siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
+    siwe_cacao::{SIWESignature, SiweCacao},
 };
+use kepler_lib::resource::OrbitId;
 use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
 
-use crate::{util::siwe_to_zcap, zcap::DelegationHeaders};
+use crate::authorization::DelegationHeaders;
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostConfig {
     #[serde(with = "crate::serde_siwe::address")]
     address: [u8; 20],
     chain_id: u64,
-    #[serde(with = "crate::serde_siwe::domain")]
+    #[serde_as(as = "DisplayFromStr")]
     domain: Authority,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     issued_at: TimeStamp,
     orbit_id: OrbitId,
     peer_id: String,
@@ -49,13 +48,14 @@ export type HostConfig = {
 }
 "#;
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedMessage {
-    #[serde(with = "crate::serde_siwe::message")]
+    #[serde_as(as = "DisplayFromStr")]
     siwe: Message,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: BasicSignature<SIWESignature>,
+    signature: SIWESignature,
 }
 
 impl TryFrom<HostConfig> for Message {
@@ -63,6 +63,7 @@ impl TryFrom<HostConfig> for Message {
     fn try_from(c: HostConfig) -> Result<Self, String> {
         let root_cap: UriString = c
             .orbit_id
+            .to_resource(None, None, Some("host".to_string()))
             .to_string()
             .try_into()
             .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
@@ -91,18 +92,18 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
     Message::try_from(config).map_err(Error::UnableToGenerateSIWEMessage)
 }
 
-pub fn host(signed_message: SignedMessage) -> Result<DelegationHeaders, Error> {
-    siwe_to_zcap(signed_message.siwe, signed_message.signature)
-        .map(DelegationHeaders::new)
-        .map_err(Error::UnableToConstructDelegation)
+pub fn siwe_to_delegation_headers(signed_message: SignedMessage) -> DelegationHeaders {
+    DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(SiweCacao::new(
+        signed_message.siwe.into(),
+        signed_message.signature,
+        None,
+    ))))
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate the SIWE message: {0}")]
     UnableToGenerateSIWEMessage(String),
-    #[error("unable to construct delegation: {0}")]
-    UnableToConstructDelegation(CacaoToZcapError),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]

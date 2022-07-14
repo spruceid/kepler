@@ -1,4 +1,4 @@
-use libipld::cid::{multibase::Base, Cid, Error as CidError};
+use kepler_lib::libipld::cid::{multibase::Base, Cid, Error as CidError};
 use libp2p::{Multiaddr, PeerId};
 
 use kepler_lib::resource::OrbitId;
@@ -130,7 +130,7 @@ pub async fn resolve_dyn(
     resolver: Option<&dyn DIDResolver>,
 ) -> Result<Option<Manifest>, ResolutionError> {
     let (md, doc, doc_md) = resolver
-        .unwrap_or_else(|| kepler_lib::didkit::DID_METHODS.to_resolver())
+        .unwrap_or_else(|| kepler_lib::resolver::DID_METHODS.to_resolver())
         .resolve(&id.did(), &Default::default())
         .await;
 
@@ -213,7 +213,7 @@ fn id_from_vm(did: &str, vm: VerificationMethod) -> DIDURL {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kepler_lib::didkit::DID_METHODS;
+    use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,

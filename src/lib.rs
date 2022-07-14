@@ -10,7 +10,8 @@ use anyhow::Result;
 use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
 pub mod allow_list;
-pub mod auth;
+pub mod auth_guards;
+pub mod authorization;
 pub mod capabilities;
 pub mod cas;
 pub mod codec;
@@ -26,7 +27,6 @@ pub mod routes;
 pub mod storage;
 mod tracing;
 pub mod transport;
-pub mod zcap;
 
 use libp2p::{
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
@@ -37,6 +37,7 @@ use routes::{cors, delegate, invoke, open_host_key, relay_addr};
 use std::{collections::HashMap, sync::RwLock};
 
 #[get("/healthz")]
+#[allow(clippy::let_unit_value)]
 pub fn healthcheck() {}
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {

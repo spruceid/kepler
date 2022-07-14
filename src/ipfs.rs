@@ -4,7 +4,7 @@ use ipfs::{
     p2p::{transport::TransportBuilder, TSwarm},
     Ipfs as OIpfs, IpfsOptions, Keypair, PeerId, PinMode, Types, UninitializedIpfs,
 };
-use libipld::{
+use kepler_lib::libipld::{
     block::Block as OBlock,
     cid::{multibase::Base, Cid},
     multihash::Code,

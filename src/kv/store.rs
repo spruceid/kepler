@@ -1,11 +1,10 @@
-use crate::capabilities::store::AuthRef;
 use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::kv::entries::{read_from_store, write_to_store};
 use crate::kv::{Object, ObjectBuilder, Service};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, StreamExt, TryStreamExt};
-use libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
+use kepler_lib::libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
 use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::{debug, instrument};
@@ -18,11 +17,11 @@ struct Delta {
     // max depth
     pub priority: u64,
     pub add: Vec<Cid>,
-    pub rmv: Vec<(Cid, AuthRef)>,
+    pub rmv: Vec<(Cid, Cid)>,
 }
 
 impl Delta {
-    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<(Cid, AuthRef)>) -> Self {
+    pub fn new(priority: u64, add: Vec<Cid>, rmv: Vec<(Cid, Cid)>) -> Self {
         Self { priority, add, rmv }
     }
 
@@ -78,7 +77,7 @@ enum ElementDeserError {
     Length,
 }
 
-impl<'a> TryFrom<Vec<u8>> for Element {
+impl TryFrom<Vec<u8>> for Element {
     type Error = ElementDeserError;
     fn try_from(b: Vec<u8>) -> Result<Self, Self::Error> {
         match (
@@ -201,7 +200,7 @@ impl Store {
     pub async fn write<N, R>(
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
-        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>, AuthRef)>,
+        remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>, Cid)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -228,7 +227,7 @@ impl Store {
         // tuples of (obj-name, content cid, auth id)
         add: impl IntoIterator<Item = (N, Cid)>,
         // tuples of (key, opt (priority, obj-cid), auth id))
-        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>, AuthRef)>,
+        remove: impl IntoIterator<Item = (M, Option<(u64, Cid)>, Cid)>,
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -242,7 +241,7 @@ impl Store {
         };
         let adds: (Vec<(N, Cid)>, Vec<Cid>) =
             add.into_iter().map(|(key, cid)| ((key, cid), cid)).unzip();
-        type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, AuthRef)>);
+        type Rmvs<K> = (Vec<(K, Cid)>, Vec<(Cid, Cid)>);
         let rmvs: Rmvs<M> = stream::iter(remove.into_iter().map(Ok).collect::<Vec<Result<_>>>())
             .and_then(|(key, version, auth)| async move {
                 Ok(match version {
@@ -257,7 +256,7 @@ impl Store {
                     }
                 })
             })
-            .try_collect::<Vec<((M, Cid), (Cid, AuthRef))>>()
+            .try_collect::<Vec<((M, Cid), (Cid, Cid))>>()
             .await?
             .into_iter()
             .unzip();

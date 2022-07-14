@@ -1,8 +1,7 @@
 use super::{to_block, to_block_raw};
-use crate::capabilities::store::AuthRef;
 use crate::ipfs::{Block, Ipfs, KeplerParams};
 use anyhow::Result;
-use libipld::{cid::Cid, store::StoreParams, DagCbor};
+use kepler_lib::libipld::{cid::Cid, store::StoreParams, DagCbor};
 use libp2p::futures::stream::BoxStream;
 use std::{
     collections::BTreeMap,
@@ -79,7 +78,7 @@ pub struct Object {
     pub key: Vec<u8>,
     pub value: Cid,
     pub metadata: BTreeMap<String, String>,
-    pub auth: AuthRef,
+    pub auth: Cid,
 }
 
 impl Object {
@@ -87,7 +86,7 @@ impl Object {
         key: Vec<u8>,
         value: Cid,
         metadata: impl IntoIterator<Item = (String, String)>,
-        auth: AuthRef,
+        auth: Cid,
     ) -> Self {
         Self {
             key,
@@ -105,14 +104,14 @@ impl Object {
 pub struct ObjectBuilder {
     pub key: Vec<u8>,
     pub metadata: BTreeMap<String, String>,
-    pub auth: AuthRef,
+    pub auth: Cid,
 }
 
 impl ObjectBuilder {
     pub fn new(
         key: Vec<u8>,
         metadata: impl IntoIterator<Item = (String, String)>,
-        auth: AuthRef,
+        auth: Cid,
     ) -> Self {
         Self {
             key,

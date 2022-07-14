@@ -5,33 +5,38 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-"wasm" = ["didkit/wasm", "chrono/wasmbind", "uuid/js"]
+"wasm" = ["chrono/wasmbind", "uuid/js"]
 
 [dependencies]
 async-trait = "0.1"
 chrono = "0.4"
 iri-string = "0.5"
-libipld = "0.12"
+libipld = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
+base64 = "0.13"
+cacaos = { git = "https://github.com/spruceid/cacao-rs" }
+lazy_static = "1.4"
+did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-pkh = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-ion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
 
 [dev-dependencies.tokio]
 version = "1"
 features = ["macros"]
 
-[dependencies.didkit]
-git = "https://github.com/spruceid/didkit"
-branch = "cacao-zcap-kepler"
-default-features = false
-features = ["no-ring"]
-
 [dependencies.ssi]
 git = "https://github.com/spruceid/ssi"
-branch = "cacao-zcap-kepler"
+branch = "main"
 default-features = false
-features = ["cacao-zcap"]
+features = ["sha2", "ed25519-dalek", "rsa", "rand"]
 
 [dependencies.uuid]
 version = "1"

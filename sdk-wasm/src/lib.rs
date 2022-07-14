@@ -1,8 +1,8 @@
-mod host;
+mod authorization;
 mod serde_siwe;
 mod session;
+mod siwe_utils;
 mod util;
-mod zcap;
 
 use std::future::Future;
 
@@ -65,13 +65,15 @@ pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
 #[allow(non_snake_case)]
 pub fn invoke(session: String, path: String, action: String) -> Promise {
     map_async_jsvalue(async move {
-        zcap::InvocationHeaders::from(
-            serde_json::from_str(&session).map_err(zcap::Error::JSONDeserializing)?,
+        authorization::InvocationHeaders::from(
+            serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
             path,
             action,
         )
         .await
-        .and_then(|headers| serde_json::to_string(&headers).map_err(zcap::Error::JSONSerializing))
+        .and_then(|headers| {
+            serde_json::to_string(&headers).map_err(authorization::Error::JSONSerializing)
+        })
     })
 }
 
@@ -80,21 +82,21 @@ pub fn invoke(session: String, path: String, action: String) -> Promise {
 pub fn generateHostSIWEMessage(config: String) -> Result<String, JsValue> {
     map_jsvalue(
         serde_json::from_str(&config)
-            .map_err(host::Error::JSONDeserializing)
-            .and_then(host::generate_host_siwe_message)
+            .map_err(siwe_utils::Error::JSONDeserializing)
+            .and_then(siwe_utils::generate_host_siwe_message)
             .map(|message| message.to_string()),
     )
 }
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
-pub fn host(signedSIWEMessage: String) -> Result<String, JsValue> {
+pub fn siweToDelegationHeaders(signedSIWEMessage: String) -> Result<String, JsValue> {
     map_jsvalue(
         serde_json::from_str(&signedSIWEMessage)
-            .map_err(host::Error::JSONDeserializing)
-            .and_then(host::host)
+            .map_err(siwe_utils::Error::JSONDeserializing)
+            .map(siwe_utils::siwe_to_delegation_headers)
             .and_then(|headers| {
-                serde_json::to_string(&headers).map_err(host::Error::JSONSerializing)
+                serde_json::to_string(&headers).map_err(siwe_utils::Error::JSONSerializing)
             }),
     )
 }

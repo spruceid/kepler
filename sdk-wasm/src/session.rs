@@ -1,27 +1,22 @@
+use crate::authorization::DelegationHeaders;
+use chrono::Utc;
 use http::uri::Authority;
 use kepler_lib::{
-    didkit::DID_METHODS,
-    resource::OrbitId,
-    ssi::{
-        cacao_zcap::{
-            cacaos::{
-                siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
-                siwe_cacao::SIWESignature,
-                BasicSignature,
-            },
-            translation::cacao_to_zcap::CacaoToZcapError,
-        },
-        did::Source,
-        jwk::JWK,
-        vc::get_verification_method,
+    authorization::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
+    cacaos::{
+        siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+        siwe_cacao::SIWESignature,
     },
-    zcap::{make_invocation, Error as ZcapError, KeplerDelegation, KeplerInvocation},
+    libipld::Cid,
+    resolver::DID_METHODS,
+    resource::OrbitId,
+    ssi::{did::Source, jwk::JWK, vc::get_verification_method},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
 
-use crate::util::siwe_to_zcap;
-
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
@@ -29,14 +24,15 @@ pub struct SessionConfig {
     #[serde(with = "crate::serde_siwe::address")]
     address: [u8; 20],
     chain_id: u64,
-    #[serde(with = "crate::serde_siwe::domain")]
+    #[serde_as(as = "DisplayFromStr")]
     domain: Authority,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     issued_at: TimeStamp,
     orbit_id: OrbitId,
-    #[serde(default, with = "crate::serde_siwe::optional_timestamp")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
     not_before: Option<TimeStamp>,
-    #[serde(with = "crate::serde_siwe::timestamp")]
+    #[serde_as(as = "DisplayFromStr")]
     expiration_time: TimeStamp,
     service: String,
 }
@@ -68,17 +64,19 @@ export type SessionConfig = {
 }
 "#;
 
+#[serde_as]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedSession {
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
-    #[serde(with = "crate::serde_siwe::message")]
+    #[serde_as(as = "DisplayFromStr")]
     siwe: Message,
     verification_method: String,
 }
 
+#[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSession {
@@ -86,16 +84,19 @@ pub struct SignedSession {
     orbit_id: OrbitId,
     service: String,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: BasicSignature<SIWESignature>,
-    #[serde(with = "crate::serde_siwe::message")]
+    signature: SIWESignature,
+    #[serde_as(as = "DisplayFromStr")]
     siwe: Message,
     verification_method: String,
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    delegation: KeplerDelegation,
+    delegation_header: DelegationHeaders,
+    #[serde_as(as = "DisplayFromStr")]
+    delegation_cid: Cid,
     jwk: JWK,
     orbit_id: OrbitId,
     service: String,
@@ -109,7 +110,9 @@ const TS_DEF: &'static str = r#"
  */
 export type Session = {
   /** The delegation from the user to the session key. */
-  delegation: object,
+  delegationHeader: { Authorization: string },
+  /** The delegation reference from the user to the session key. */
+  delegationCid: string,
   /** The session key. */
   jwk: object,
   /** The orbit that the session key is permitted to perform actions against. */
@@ -123,17 +126,28 @@ export type Session = {
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
-        let root_cap = self
-            .orbit_id
-            .to_string()
-            .try_into()
-            .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
-        let invocation_target = self
-            .orbit_id
-            .to_resource(Some(self.service), None, None)
-            .to_string()
-            .try_into()
-            .map_err(|e| format!("failed to parse invocation target as a URI: {}", e))?;
+        let statement = Some(format!(
+            "Authorize action{}: Allow access to your Kepler orbit using this session key.",
+            {
+                if self.actions.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", self.actions.join(", "))
+                }
+            }
+        ));
+        let resources: Vec<_> = self
+            .actions
+            .into_iter()
+            .map(|a| {
+                self.orbit_id
+                    .clone()
+                    .to_resource(Some(self.service.clone()), None, Some(a))
+                    .to_string()
+                    .try_into()
+                    .map_err(|_| "Failed to parse resource".to_string())
+            })
+            .collect::<Result<_, String>>()?;
         Ok(Message {
             address: self.address,
             chain_id: self.chain_id,
@@ -143,17 +157,8 @@ impl SessionConfig {
             nonce: generate_nonce(),
             not_before: self.not_before,
             request_id: None,
-            resources: vec![invocation_target, root_cap],
-            statement: Some(format!(
-                "Authorize action{}: Allow access to your Kepler orbit using this session key.",
-                {
-                    if self.actions.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", self.actions.join(", "))
-                    }
-                }
-            )),
+            statement,
+            resources,
             uri: delegate
                 .try_into()
                 .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
@@ -167,12 +172,23 @@ impl Session {
         let target = self
             .orbit_id
             .to_resource(Some(self.service), Some(path), Some(action));
-        make_invocation(target, self.delegation, &self.jwk, self.verification_method).await
+        make_invocation(
+            target,
+            self.delegation_cid,
+            &self.jwk,
+            self.verification_method,
+            // 60 seconds in the future
+            (Utc::now().timestamp_nanos() as f64 / 1e+9_f64) + 60.0,
+            None,
+            None,
+        )
+        .await
     }
 }
 
 pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, Error> {
-    let jwk = JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?;
+    let mut jwk = JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?;
+    jwk.algorithm = Some(kepler_lib::ssi::jwk::Algorithm::EdDSA);
 
     let did = DID_METHODS
         .generate(&Source::KeyAndPattern(&jwk, "key"))
@@ -199,9 +215,21 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 }
 
 pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
+    use kepler_lib::{
+        authorization::KeplerDelegation,
+        cacaos::siwe_cacao::SiweCacao,
+        libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
+    };
+    let delegation = SiweCacao::new(signed_session.siwe.into(), signed_session.signature, None);
+    let delegation_cid =
+        *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
+            .map_err(Error::UnableToGenerateCid)?
+            .cid();
+    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(delegation)));
+
     Ok(Session {
-        delegation: siwe_to_zcap(signed_session.siwe, signed_session.signature)
-            .map_err(Error::UnableToConstructDelegation)?,
+        delegation_header,
+        delegation_cid,
         jwk: signed_session.jwk,
         orbit_id: signed_session.orbit_id,
         service: signed_session.service,
@@ -217,8 +245,8 @@ pub enum Error {
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]
     UnableToGenerateSIWEMessage(String),
-    #[error("unable to construct delegation: {0}")]
-    UnableToConstructDelegation(CacaoToZcapError),
+    #[error("unable to generate the CID: {0}")]
+    UnableToGenerateCid(kepler_lib::libipld::error::Error),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]

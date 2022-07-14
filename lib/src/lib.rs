@@ -1,5 +1,7 @@
+pub mod authorization;
+pub mod resolver;
 pub mod resource;
-pub mod zcap;
 
-pub use didkit;
+pub use cacaos;
+pub use libipld;
 pub use ssi;

@@ -3,9 +3,8 @@ pub mod store;
 use crate::orbit::AbortOnDrop;
 use anyhow::Result;
 use ipfs::PeerId;
-use libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base};
+use kepler_lib::libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base, Cid};
 use rocket::futures::{Stream, StreamExt};
-pub use store::AuthRef;
 use store::{CapsMessage, Store};
 
 use std::io::Cursor;
@@ -13,7 +12,7 @@ use std::sync::Arc;
 
 #[rocket::async_trait]
 pub trait Invoke<T> {
-    async fn invoke(&self, invocation: &T) -> Result<AuthRef>;
+    async fn invoke(&self, invocation: &T) -> Result<Cid>;
 }
 
 #[derive(Clone)]
@@ -68,23 +67,8 @@ async fn caps_task(
                 }
                 Ok((_, CapsMessage::Invocation(cid))) => {
                     debug!("recieved invocation");
-                    if let Err(e) = match store
-                        .ipfs
-                        .get_block(&cid)
-                        .await
-                        .and_then(|b| b.decode())
-                        .map(|i| store.apply_invocations(i))
-                    {
-                        Ok(f) => f.await,
-                        Err(e) => Err(e),
-                    } {
+                    if let Err(e) = store.try_merge_invocations([cid].into_iter()).await {
                         debug!("failed to apply recieved invocation {}", e);
-                    }
-                }
-                Ok((_, CapsMessage::Update(update))) => {
-                    debug!("recieved updates");
-                    if let Err(e) = store.apply(&update).await {
-                        debug!("failed to apply recieved updates {}", e);
                     }
                 }
                 Ok((_, CapsMessage::StateReq)) => {

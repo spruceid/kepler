@@ -9,11 +9,11 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
-use kepler_lib::resource::OrbitId;
-use libipld::cid::{
+use kepler_lib::libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
 };
+use kepler_lib::resource::OrbitId;
 use libp2p::{
     core::Multiaddr,
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
@@ -253,7 +253,7 @@ impl Deref for Orbit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kepler_lib::didkit::DID_METHODS;
+    use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,

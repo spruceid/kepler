@@ -1,17 +1,17 @@
-use kepler_lib::zcap::{KeplerDelegation, KeplerInvocation};
+use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation};
 use serde::{Deserialize, Serialize};
 
 use crate::session::Session;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DelegationHeaders {
-    #[serde(with = "serde_b64", rename = "Authorization")]
+    #[serde(with = "header_enc", rename = "Authorization")]
     delegation: KeplerDelegation,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InvocationHeaders {
-    #[serde(with = "serde_b64", rename = "Authorization")]
+    #[serde(with = "header_enc", rename = "Authorization")]
     invocation: KeplerInvocation,
 }
 
@@ -39,47 +39,35 @@ impl DelegationHeaders {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("failed to generate proof for invocation: {0}")]
-    FailedToMakeInvocation(kepler_lib::zcap::Error),
+    FailedToMakeInvocation(kepler_lib::authorization::InvocationError),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse session from JSON: {0}")]
     JSONDeserializing(serde_json::Error),
 }
 
-mod serde_b64 {
-    use base64::{decode_config, encode_config, URL_SAFE};
+mod header_enc {
+    use kepler_lib::authorization::HeaderEncode;
     use serde::{
-        de::{DeserializeOwned, Error as DeError},
-        ser::Error as SerError,
-        Deserialize, Deserializer, Serialize, Serializer,
+        de::Error as DeError, ser::Error as SerError, Deserialize, Deserializer, Serialize,
+        Serializer,
     };
 
     pub fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
     where
-        T: DeserializeOwned,
+        T: HeaderEncode,
         D: Deserializer<'de>,
     {
-        String::deserialize(d)
-            .and_then(|encoded| decode_config(encoded, URL_SAFE).map_err(D::Error::custom))
-            .and_then(from_json_bytes)
+        String::deserialize(d).and_then(|encoded| T::decode(&encoded).map_err(D::Error::custom))
     }
 
     pub fn serialize<T, S>(t: &T, s: S) -> Result<S::Ok, S::Error>
     where
-        T: Serialize,
+        T: HeaderEncode,
         S: Serializer,
     {
-        serde_json::to_string(t)
+        t.encode()
             .map_err(S::Error::custom)
-            .map(|json_string| encode_config(json_string, URL_SAFE))
             .and_then(|encoded| encoded.serialize(s))
-    }
-
-    fn from_json_bytes<T, E>(bytes: Vec<u8>) -> Result<T, E>
-    where
-        T: DeserializeOwned,
-        E: serde::de::Error,
-    {
-        serde_json::from_slice(&bytes).map_err(E::custom)
     }
 }
