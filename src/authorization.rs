@@ -12,7 +12,9 @@ use kepler_lib::{
     cacaos::siwe::Message,
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
-    siwe_capability_delegation::{extract_capabilities, Capability as SiweCap},
+    siwe_capability_delegation::{
+        extract_capabilities, verify_statement_matches_delegations, Builder, Capability as SiweCap,
+    },
     ssi::ucan::Capability as UcanCap,
 };
 use rocket::{
@@ -91,7 +93,7 @@ pub struct Delegation {
     pub delegator: String,
     pub delegate: String,
     pub parents: Vec<Cid>,
-    pub delegation: KeplerDelegation,
+    delegation: KeplerDelegation,
 }
 
 impl ToBlock for Delegation {
@@ -113,7 +115,7 @@ pub struct Invocation {
     pub capability: Capability,
     pub invoker: String,
     pub parents: Vec<Cid>,
-    pub invocation: KeplerInvocation,
+    invocation: KeplerInvocation,
 }
 
 impl ToBlock for Invocation {
@@ -134,7 +136,7 @@ pub struct Revocation {
     pub parents: Vec<Cid>,
     pub revoked: Cid,
     pub revoker: String,
-    pub revocation: KeplerRevocation,
+    revocation: KeplerRevocation,
 }
 
 impl ToBlock for Revocation {
@@ -161,6 +163,8 @@ pub enum DelegationError {
     SiweConversion(#[from] kepler_lib::cacaos::siwe_cacao::SIWEPayloadConversionError),
     #[error(transparent)]
     SiweCapError(#[from] kepler_lib::siwe_capability_delegation::Error),
+    #[error("Invalid Siwe Statement")]
+    InvalidStatement,
 }
 
 impl TryFrom<KeplerDelegation> for Delegation {
@@ -181,6 +185,9 @@ impl TryFrom<KeplerDelegation> for Delegation {
             },
             KeplerDelegation::Cacao(ref c) => {
                 let m: Message = c.payload().clone().try_into()?;
+                if !verify_statement_matches_delegations(&m)? {
+                    return Err(DelegationError::InvalidStatement);
+                };
                 let capabilities = extract_capabilities(&m)?
                     .remove(&"kepler".parse()?)
                     .map(extract_siwe_cap)
