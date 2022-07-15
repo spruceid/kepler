@@ -115,9 +115,14 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             .fold(HashMap::new(), |mut o, cap| {
                 let r = &cap.resource;
                 let peers = o.entry(r.orbit()).or_insert(None);
-                if let (Some("host"), None, None, Some(peer), None) =
-                    (r.fragment(), r.path(), r.service(), p, &peers)
-                {
+                if let (None, None, None, Some(peer), None, "host") = (
+                    r.fragment(),
+                    r.path(),
+                    r.service(),
+                    p,
+                    &peers,
+                    cap.action.as_str(),
+                ) {
                     *peers = Some(peer);
                 };
                 o

@@ -13,7 +13,7 @@ use kepler_lib::{
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     siwe_capability_delegation::{
-        extract_capabilities, verify_statement_matches_delegations, Builder, Capability as SiweCap,
+        extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap,
     },
     ssi::ucan::Capability as UcanCap,
 };
@@ -22,7 +22,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use std::{convert::TryFrom, str::FromStr};
+use std::convert::TryFrom;
 
 #[derive(Clone, Debug)]
 pub struct Capability {
