@@ -18,6 +18,7 @@ serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
 cacaos = { git = "https://github.com/spruceid/cacao-rs" }
+siwe-capability-delegation = { path = "../../siwe-capability-delegation" }
 lazy_static = "1.4"
 did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
 did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }

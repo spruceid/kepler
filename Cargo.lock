@@ -3084,6 +3084,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "siwe-capability-delegation",
  "ssi",
  "thiserror",
  "tokio",
@@ -5658,6 +5659,18 @@ dependencies = [
  "k256",
  "rand 0.8.5",
  "sha3 0.9.1",
+ "thiserror",
+]
+
+[[package]]
+name = "siwe-capability-delegation"
+version = "0.1.0"
+dependencies = [
+ "base64 0.12.3",
+ "iri-string 0.4.1",
+ "serde",
+ "serde_json",
+ "siwe",
  "thiserror",
 ]
 

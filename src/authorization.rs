@@ -9,8 +9,11 @@ use kepler_lib::{
     authorization::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
+    cacaos::siwe::Message,
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
+    siwe_capability_delegation::{extract_capabilities, Capability as SiweCap},
+    ssi::ucan::Capability as UcanCap,
 };
 use rocket::{
     futures::future::try_join_all,
@@ -19,9 +22,72 @@ use rocket::{
 };
 use std::{convert::TryFrom, str::FromStr};
 
+#[derive(Clone, Debug)]
+pub struct Capability {
+    pub resource: ResourceId,
+    pub action: String,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CapabilityCheckError {
+    #[error(transparent)]
+    ResourceCheck(#[from] kepler_lib::resource::ResourceCheckError),
+    #[error("Invalid Action")]
+    IncorrectAction,
+}
+
+impl Capability {
+    fn extends(&self, base: &Capability) -> Result<(), CapabilityCheckError> {
+        self.resource.extends(&base.resource)?;
+        if self.action != base.action {
+            Err(CapabilityCheckError::IncorrectAction)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CapExtractError {
+    #[error(transparent)]
+    ResourceParse(#[from] KRIParseError),
+    #[error("Invalid Extra Fields")]
+    InvalidFields,
+}
+
+fn extract_ucan_cap<T>(c: &UcanCap<T>) -> Result<Capability, CapExtractError> {
+    Ok(Capability {
+        resource: c.with.to_string().parse()?,
+        action: c.can.capability.clone(),
+    })
+}
+
+fn extract_siwe_cap(c: SiweCap) -> Result<Vec<Capability>, CapExtractError> {
+    if !c.default_actions.as_ref().is_empty() || !c.extra_fields.is_empty() {
+        Err(CapExtractError::InvalidFields)
+    } else {
+        Ok(c.targeted_actions
+            .into_iter()
+            .map(|(r, acs)| {
+                let res: ResourceId = r.parse()?;
+                Ok(acs
+                    .into_iter()
+                    .map(|action| Capability {
+                        resource: res.clone(),
+                        action,
+                    })
+                    .collect())
+            })
+            .collect::<Result<Vec<Vec<Capability>>, KRIParseError>>()?
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Delegation {
-    pub resources: Vec<ResourceId>,
+    pub capabilities: Vec<Capability>,
     pub delegator: String,
     pub delegate: String,
     pub parents: Vec<Cid>,
@@ -44,7 +110,7 @@ impl FromBlock for Delegation {
 
 #[derive(Debug, Clone)]
 pub struct Invocation {
-    pub resource: ResourceId,
+    pub capability: Capability,
     pub invoker: String,
     pub parents: Vec<Cid>,
     pub invocation: KeplerInvocation,
@@ -85,12 +151,16 @@ impl FromBlock for Revocation {
 
 #[derive(thiserror::Error, Debug)]
 pub enum DelegationError {
-    #[error("Invalid Resource")]
-    InvalidResource(#[from] KRIParseError),
+    #[error(transparent)]
+    InvalidCapability(#[from] CapExtractError),
     #[error("Missing Delegator")]
     MissingDelegator,
     #[error("Missing Delegate")]
     MissingDelegate,
+    #[error(transparent)]
+    SiweConversion(#[from] kepler_lib::cacaos::siwe_cacao::SIWEPayloadConversionError),
+    #[error(transparent)]
+    SiweCapError(#[from] kepler_lib::siwe_capability_delegation::Error),
 }
 
 impl TryFrom<KeplerDelegation> for Delegation {
@@ -98,29 +168,32 @@ impl TryFrom<KeplerDelegation> for Delegation {
     fn try_from(d: KeplerDelegation) -> Result<Self, Self::Error> {
         Ok(match d {
             KeplerDelegation::Ucan(ref u) => Self {
-                resources: u
+                capabilities: u
                     .payload
                     .attenuation
                     .iter()
-                    .map(ResourceId::try_from)
-                    .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
+                    .map(extract_ucan_cap)
+                    .collect::<Result<Vec<Capability>, CapExtractError>>()?,
                 delegator: u.payload.issuer.clone(),
                 delegate: u.payload.audience.clone(),
                 parents: u.payload.proof.clone(),
                 delegation: d,
             },
-            KeplerDelegation::Cacao(ref c) => Self {
-                resources: c
-                    .payload()
-                    .resources
-                    .iter()
-                    .map(|u| ResourceId::from_str(u.as_str()))
-                    .collect::<Result<Vec<ResourceId>, KRIParseError>>()?,
-                delegator: c.payload().iss.to_string(),
-                delegate: c.payload().aud.to_string(),
-                parents: Vec::new(),
-                delegation: d,
-            },
+            KeplerDelegation::Cacao(ref c) => {
+                let m: Message = c.payload().clone().try_into()?;
+                let capabilities = extract_capabilities(&m)?
+                    .remove(&"kepler".parse()?)
+                    .map(extract_siwe_cap)
+                    .transpose()?
+                    .unwrap_or_default();
+                Self {
+                    capabilities,
+                    delegator: c.payload().iss.to_string(),
+                    delegate: c.payload().aud.to_string(),
+                    parents: Vec::new(),
+                    delegation: d,
+                }
+            }
         })
     }
 }
@@ -132,20 +205,20 @@ pub enum InvocationError {
     #[error("Ambiguous Action")]
     Ambiguous,
     #[error(transparent)]
-    ResourceParse(#[from] KRIParseError),
+    ResourceParse(#[from] CapExtractError),
 }
 
 impl TryFrom<KeplerInvocation> for Invocation {
     type Error = InvocationError;
     fn try_from(invocation: KeplerInvocation) -> Result<Self, Self::Error> {
         let mut rs = invocation.payload.attenuation.iter();
-        let resource = match (rs.next().map(ResourceId::try_from), rs.next()) {
+        let capability = match (rs.next().map(extract_ucan_cap), rs.next()) {
             (Some(Ok(r)), None) => r,
             (None, _) | (Some(_), Some(_)) => return Err(InvocationError::Ambiguous),
             (Some(Err(e)), None) => return Err(e.into()),
         };
         Ok(Self {
-            resource,
+            capability,
             invoker: invocation.payload.issuer.clone(),
             parents: invocation.payload.proof.clone(),
             invocation,
@@ -281,7 +354,7 @@ impl Verifiable for Delegation {
             Ok(())
         } else {
             // verify parents and get delegated capabilities
-            let res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
+            let res: Vec<Capability> = try_join_all(self.parents.iter().map(|c| async {
                 let parent = store
                     .get_cap(c)
                     .await?
@@ -290,7 +363,7 @@ impl Verifiable for Delegation {
                     Err(anyhow!("Invalid Issuer"))
                 } else {
                     parent.verify(store, Some(t), root).await?;
-                    Ok(parent.resources)
+                    Ok(parent.capabilities)
                 }
             }))
             .await?
@@ -300,7 +373,7 @@ impl Verifiable for Delegation {
 
             // check capabilities are supported by parents
             if !self
-                .resources
+                .capabilities
                 .iter()
                 .all(|r| res.iter().any(|c| r.extends(c).is_ok()))
             {
@@ -342,9 +415,9 @@ impl Verifiable for Invocation {
                 } else {
                     parent.verify(store, Some(t), root).await?;
                     Ok(parent
-                        .resources
+                        .capabilities
                         .iter()
-                        .any(|c| self.resource.extends(c).is_ok()))
+                        .any(|c| self.capability.extends(c).is_ok()))
                 }
             }))
             .await?;
@@ -381,7 +454,7 @@ impl Verifiable for Revocation {
             Ok(())
         } else {
             // verify parents and get delegated capabilities
-            let _res: Vec<ResourceId> = try_join_all(self.parents.iter().map(|c| async {
+            try_join_all(self.parents.iter().map(|c| async {
                 let parent = store
                     .get_cap(c)
                     .await?
@@ -390,13 +463,10 @@ impl Verifiable for Revocation {
                     Err(anyhow!("Invalid Issuer"))
                 } else {
                     parent.verify(store, Some(t), root).await?;
-                    Ok(parent.resources)
+                    Ok(())
                 }
             }))
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+            .await?;
 
             Ok(())
         }

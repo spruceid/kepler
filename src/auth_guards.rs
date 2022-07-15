@@ -109,15 +109,19 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             .strip_prefix("peer:")
             .and_then(|s| s.parse().ok());
         // get relevant orbit IDs and whether the delegation is a host del
-        let orbit_ids = token.resources.iter().fold(HashMap::new(), |mut o, r| {
-            let peers = o.entry(r.orbit()).or_insert(None);
-            if let (Some("host"), None, None, Some(peer), None) =
-                (r.fragment(), r.path(), r.service(), p, &peers)
-            {
-                *peers = Some(peer);
-            };
-            o
-        });
+        let orbit_ids = token
+            .capabilities
+            .iter()
+            .fold(HashMap::new(), |mut o, cap| {
+                let r = &cap.resource;
+                let peers = o.entry(r.orbit()).or_insert(None);
+                if let (Some("host"), None, None, Some(peer), None) =
+                    (r.fragment(), r.path(), r.service(), p, &peers)
+                {
+                    *peers = Some(peer);
+                };
+                o
+            });
 
         let cid = match token.to_block() {
             Ok(b) => *b.cid(),
@@ -283,27 +287,27 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                 Outcome::Forward(_) => return unauthorized(anyhow!("missing invocation token")),
             };
 
-            let target = &token.resource;
+            let target = &token.capability;
 
-            let res = match (target.service(), target.fragment()) {
-                (None, _) => unauthorized(anyhow!("missing service in invocation target")),
-                (_, None) => unauthorized(anyhow!("target resource is missing action")),
-                (Some("kv"), Some(action)) => {
-                    let orbit = match load_orbit(target.orbit().get_cid(), &config, relay).await {
-                        Ok(Some(o)) => o,
-                        Ok(None) => return not_found(anyhow!("No Orbit found")),
-                        Err(e) => return internal_server_error(e),
-                    };
+            let res = match target.resource.service() {
+                None => unauthorized(anyhow!("missing service in invocation target")),
+                Some("kv") => {
+                    let orbit =
+                        match load_orbit(target.resource.orbit().get_cid(), &config, relay).await {
+                            Ok(Some(o)) => o,
+                            Ok(None) => return not_found(anyhow!("No Orbit found")),
+                            Err(e) => return internal_server_error(e),
+                        };
                     let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
                         Ok(c) => c,
                         Err(e) => return unauthorized(e),
                     };
 
-                    let key = match target.path() {
+                    let key = match target.resource.path() {
                         Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
                         None => return bad_request(anyhow!("missing path in invocation target")),
                     };
-                    match action {
+                    match target.action.as_str() {
                         "del" => Outcome::Success(Self::KV(Box::new(KVAction::Delete {
                             orbit,
                             key,
@@ -334,9 +338,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper {
                         a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
                     }
                 }
-                (Some(s), _) => {
-                    bad_request(anyhow!("unsupported service in invocation target {}", s))
-                }
+                Some(s) => bad_request(anyhow!("unsupported service in invocation target {}", s)),
             };
 
             timer.observe_duration();
