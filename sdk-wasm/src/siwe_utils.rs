@@ -6,6 +6,7 @@ use kepler_lib::cacaos::{
     siwe_cacao::{SIWESignature, SiweCacao},
 };
 use kepler_lib::resource::OrbitId;
+use kepler_lib::siwe_capability_delegation::Builder;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
@@ -61,30 +62,31 @@ pub struct SignedMessage {
 impl TryFrom<HostConfig> for Message {
     type Error = String;
     fn try_from(c: HostConfig) -> Result<Self, String> {
-        let root_cap: UriString = c
-            .orbit_id
-            .to_resource(None, None, Some("host".to_string()))
-            .to_string()
-            .try_into()
-            .map_err(|e| format!("failed to parse orbit id as a URI: {}", e))?;
-        Ok(Self {
-            address: c.address,
-            chain_id: c.chain_id,
-            domain: c.domain,
-            issued_at: c.issued_at,
-            uri: format!("peer:{}", c.peer_id)
-                .try_into()
-                .map_err(|e| format!("error parsing peer as a URI: {}", e))?,
-            nonce: generate_nonce(),
-            statement: Some(
-                "Authorize action (host): Authorize this peer to host your orbit.".into(),
-            ),
-            resources: vec![root_cap.clone(), root_cap],
-            version: Version::V1,
-            not_before: None,
-            expiration_time: None,
-            request_id: None,
-        })
+        Builder::new()
+            .with_action(
+                &"kepler"
+                    .parse()
+                    .map_err(|e| format!("failed to parse kepler as namespace: {}", e))?,
+                c.orbit_id.to_resource(None, None, None).to_string(),
+                "host".to_string(),
+            )
+            .build(Self {
+                address: c.address,
+                chain_id: c.chain_id,
+                domain: c.domain,
+                issued_at: c.issued_at,
+                uri: format!("peer:{}", c.peer_id)
+                    .try_into()
+                    .map_err(|e| format!("error parsing peer as a URI: {}", e))?,
+                nonce: generate_nonce(),
+                statement: None,
+                resources: vec![],
+                version: Version::V1,
+                not_before: None,
+                expiration_time: None,
+                request_id: None,
+            })
+            .map_err(|e| format!("error building Host SIWE message: {}", e))
     }
 }
 
