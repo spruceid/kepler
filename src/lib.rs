@@ -33,12 +33,8 @@ use libp2p::{
     PeerId,
 };
 use relay::RelayNode;
-use routes::{cors, delegate, invoke, open_host_key, relay_addr};
+use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
-
-#[get("/healthz")]
-#[allow(clippy::let_unit_value)]
-pub fn healthcheck() {}
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;

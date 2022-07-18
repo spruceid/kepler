@@ -12,7 +12,6 @@ use rocket::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
     sync::RwLock,
 };
 use tracing::{info_span, Instrument};
@@ -68,9 +67,14 @@ impl<'r> Responder<'r, 'static> for KVResponse {
     }
 }
 
-#[options("/<_s..>")]
 #[allow(clippy::let_unit_value)]
-pub async fn cors(_s: PathBuf) {}
+pub mod util_routes {
+    #[options("/<_s..>")]
+    pub async fn cors(_s: std::path::PathBuf) {}
+
+    #[get("/healthz")]
+    pub fn healthcheck() {}
+}
 
 #[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
