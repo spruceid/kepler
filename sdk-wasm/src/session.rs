@@ -37,6 +37,9 @@ pub struct SessionConfig {
     #[serde_as(as = "DisplayFromStr")]
     expiration_time: TimeStamp,
     service: String,
+    #[serde_as(as = "Option<Vec<DisplayFromStr>>")]
+    #[serde(default)]
+    parents: Option<Vec<Cid>>,
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -63,6 +66,8 @@ export type SessionConfig = {
   expirationTime: string,
   /** The service that the session key will be permitted to perform actions against. */
   service: string,
+  /** Optional parent delegations to inherit and attenuate */
+  parents?: string[]
 }
 "#;
 
@@ -128,10 +133,12 @@ export type Session = {
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
+        use serde_json::Value;
         let ns = "kepler"
             .parse()
             .map_err(|e| format!("error parsing kepler as Siwe Capability namespace: {}", e))?;
-        self.actions
+        let b = self
+            .actions
             .into_iter()
             .fold(Builder::new(), |builder, (path, actions)| {
                 builder.with_actions(
@@ -142,24 +149,36 @@ impl SessionConfig {
                         .to_string(),
                     actions,
                 )
-            })
-            .build(Message {
-                address: self.address,
-                chain_id: self.chain_id,
-                domain: self.domain,
-                expiration_time: Some(self.expiration_time),
-                issued_at: self.issued_at,
-                nonce: generate_nonce(),
-                not_before: self.not_before,
-                request_id: None,
-                statement: None,
-                resources: vec![],
-                uri: delegate
-                    .try_into()
-                    .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
-                version: SIWEVersion::V1,
-            })
-            .map_err(|e| format!("error building Host SIWE message: {}", e))
+            });
+        match self.parents {
+            Some(p) => b.with_extra_fields(
+                &ns,
+                [(
+                    "parents".to_string(),
+                    Value::Array(p.iter().map(|c| Value::String(c.to_string())).collect()),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            None => b,
+        }
+        .build(Message {
+            address: self.address,
+            chain_id: self.chain_id,
+            domain: self.domain,
+            expiration_time: Some(self.expiration_time),
+            issued_at: self.issued_at,
+            nonce: generate_nonce(),
+            not_before: self.not_before,
+            request_id: None,
+            statement: None,
+            resources: vec![],
+            uri: delegate
+                .try_into()
+                .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
+            version: SIWEVersion::V1,
+        })
+        .map_err(|e| format!("error building Host SIWE message: {}", e))
     }
 }
 
