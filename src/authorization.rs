@@ -92,7 +92,7 @@ fn extract_siwe_cap(c: SiweCap) -> Result<(Vec<Capability>, Vec<Cid>), CapExtrac
                 .collect::<Vec<(&str, &serde_json::Value)>>()[..]
             {
                 [("parents", &serde_json::Value::Array(ref a))] => a
-                    .into_iter()
+                    .iter()
                     .map(|s| {
                         s.as_str()
                             .map(Cid::from_str)

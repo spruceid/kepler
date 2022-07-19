@@ -1,5 +1,4 @@
 use http::uri::Authority;
-use iri_string::types::UriString;
 use kepler_lib::authorization::KeplerDelegation;
 use kepler_lib::cacaos::{
     siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
