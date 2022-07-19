@@ -13,7 +13,7 @@ use kepler_lib::{
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     siwe_capability_delegation::{
-        extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap,
+        extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap, Set,
     },
     ssi::ucan::Capability as UcanCap,
 };
@@ -22,7 +22,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
 
 #[derive(Clone, Debug)]
 pub struct Capability {
@@ -55,6 +55,8 @@ pub enum CapExtractError {
     ResourceParse(#[from] KRIParseError),
     #[error("Invalid Extra Fields")]
     InvalidFields,
+    #[error(transparent)]
+    Cid(#[from] kepler_lib::libipld::cid::Error),
 }
 
 fn extract_ucan_cap<T>(c: &UcanCap<T>) -> Result<Capability, CapExtractError> {
@@ -64,23 +66,42 @@ fn extract_ucan_cap<T>(c: &UcanCap<T>) -> Result<Capability, CapExtractError> {
     })
 }
 
-fn extract_siwe_cap(c: SiweCap) -> Result<Vec<Capability>, CapExtractError> {
-    if !c.default_actions.as_ref().is_empty() || !c.extra_fields.is_empty() {
+fn extract_siwe_cap(c: SiweCap) -> Result<(Vec<Capability>, Vec<Cid>), CapExtractError> {
+    if !c.default_actions.as_ref().is_empty() {
         Err(CapExtractError::InvalidFields)
     } else {
-        Ok(c.targeted_actions
-            .into_iter()
-            .flat_map(|(r, acs)| {
-                let res: ResourceId = r.parse()?;
-                Ok(acs
+        Ok((
+            c.targeted_actions
+                .into_iter()
+                .map(|(r, acs)| Ok((r.parse()?, acs)))
+                .collect::<Result<Vec<(ResourceId, Set<String>)>, KRIParseError>>()?
+                .into_iter()
+                .flat_map(|(r, acs)| {
+                    acs.into_iter()
+                        .map(|action| Capability {
+                            resource: r.clone(),
+                            action,
+                        })
+                        .collect::<Vec<Capability>>()
+                })
+                .collect(),
+            match &c
+                .extra_fields
+                .iter()
+                .map(|(n, a)| (n.as_str(), a))
+                .collect::<Vec<(&str, &serde_json::Value)>>()[..]
+            {
+                [("parents", &serde_json::Value::Array(ref a))] => a
                     .into_iter()
-                    .map(|action| Capability {
-                        resource: res.clone(),
-                        action,
+                    .map(|s| {
+                        s.as_str()
+                            .map(Cid::from_str)
+                            .ok_or(kepler_lib::libipld::cid::Error::ParsingError)?
                     })
-                 )
-            })
-            .collect())
+                    .collect::<Result<Vec<Cid>, kepler_lib::libipld::cid::Error>>()?,
+                _ => return Err(CapExtractError::InvalidFields),
+            },
+        ))
     }
 }
 
@@ -185,7 +206,7 @@ impl TryFrom<KeplerDelegation> for Delegation {
                 if !verify_statement_matches_delegations(&m)? {
                     return Err(DelegationError::InvalidStatement);
                 };
-                let capabilities = extract_capabilities(&m)?
+                let (capabilities, parents) = extract_capabilities(&m)?
                     .remove(&"kepler".parse()?)
                     .map(extract_siwe_cap)
                     .transpose()?
@@ -194,7 +215,7 @@ impl TryFrom<KeplerDelegation> for Delegation {
                     capabilities,
                     delegator: c.payload().iss.to_string(),
                     delegate: c.payload().aud.to_string(),
-                    parents: Vec::new(),
+                    parents,
                     delegation: d,
                 }
             }
