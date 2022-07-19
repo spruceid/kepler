@@ -70,7 +70,7 @@ fn extract_siwe_cap(c: SiweCap) -> Result<Vec<Capability>, CapExtractError> {
     } else {
         Ok(c.targeted_actions
             .into_iter()
-            .map(|(r, acs)| {
+            .flat_map(|(r, acs)| {
                 let res: ResourceId = r.parse()?;
                 Ok(acs
                     .into_iter()
@@ -78,11 +78,8 @@ fn extract_siwe_cap(c: SiweCap) -> Result<Vec<Capability>, CapExtractError> {
                         resource: res.clone(),
                         action,
                     })
-                    .collect())
+                 )
             })
-            .collect::<Result<Vec<Vec<Capability>>, KRIParseError>>()?
-            .into_iter()
-            .flatten()
             .collect())
     }
 }
