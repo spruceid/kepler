@@ -40,6 +40,8 @@ pub struct SessionConfig {
     #[serde_as(as = "Option<Vec<DisplayFromStr>>")]
     #[serde(default)]
     parents: Option<Vec<Cid>>,
+    #[serde(default)]
+    jwk: Option<JWK>,
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -68,6 +70,8 @@ export type SessionConfig = {
   service: string,
   /** Optional parent delegations to inherit and attenuate */
   parents?: string[]
+  /** Optional jwk to delegate to */
+  jwk?: object
 }
 "#;
 
@@ -202,7 +206,10 @@ impl Session {
 }
 
 pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, Error> {
-    let mut jwk = JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?;
+    let mut jwk = match &config.jwk {
+        Some(k) => k.clone(),
+        None => JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?,
+    };
     jwk.algorithm = Some(kepler_lib::ssi::jwk::Algorithm::EdDSA);
 
     let did = DID_METHODS
