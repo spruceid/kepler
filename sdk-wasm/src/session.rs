@@ -274,7 +274,7 @@ pub mod test {
     use serde_json::json;
     pub async fn test_session() -> Session {
         let config = json!({
-            "actions": vec!["put", "get", "list", "del", "metadata"],
+            "actions": { "path": vec!["put", "get", "list", "del", "metadata"] },
             "address": "0x7BD63AA37326a64d458559F44432103e3d6eEDE9",
             "chainId": 1u8,
             "domain": "example.com",
