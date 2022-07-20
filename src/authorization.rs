@@ -10,11 +10,11 @@ use kepler_lib::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
     cacaos::siwe::Message,
-    resolver::DID_METHODS,
-    resource::{KRIParseError, ResourceId},
-    siwe_capability_delegation::{
+    capgrok::{
         extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap, Set,
     },
+    resolver::DID_METHODS,
+    resource::{KRIParseError, ResourceId},
     ssi::ucan::Capability as UcanCap,
 };
 use rocket::{
@@ -180,7 +180,7 @@ pub enum DelegationError {
     #[error(transparent)]
     SiweConversion(#[from] kepler_lib::cacaos::siwe_cacao::SIWEPayloadConversionError),
     #[error(transparent)]
-    SiweCapError(#[from] kepler_lib::siwe_capability_delegation::Error),
+    SiweCapError(#[from] kepler_lib::capgrok::Error),
     #[error("Invalid Siwe Statement")]
     InvalidStatement,
 }

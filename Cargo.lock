@@ -1069,6 +1069,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a4f925191b4367301851c6d99b09890311d74b0d43f274c0b34c86d308a3663"
 
 [[package]]
+name = "capgrok"
+version = "0.1.0"
+source = "git+https://github.com/spruceid/capgrok?branch=main#250d3155166cafeb650adb2e2b2a5640ea2ab3fa"
+dependencies = [
+ "base64 0.12.3",
+ "iri-string 0.4.1",
+ "serde",
+ "serde_json",
+ "siwe",
+ "thiserror",
+]
+
+[[package]]
 name = "cast5"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3069,6 +3082,7 @@ dependencies = [
  "async-trait",
  "base64 0.13.0",
  "cacaos",
+ "capgrok",
  "chrono",
  "did-ethr",
  "did-ion",
@@ -3084,7 +3098,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "siwe-capability-delegation",
  "ssi",
  "thiserror",
  "tokio",
@@ -5659,18 +5672,6 @@ dependencies = [
  "k256",
  "rand 0.8.5",
  "sha3 0.9.1",
- "thiserror",
-]
-
-[[package]]
-name = "siwe-capability-delegation"
-version = "0.1.0"
-dependencies = [
- "base64 0.12.3",
- "iri-string 0.4.1",
- "serde",
- "serde_json",
- "siwe",
  "thiserror",
 ]
 

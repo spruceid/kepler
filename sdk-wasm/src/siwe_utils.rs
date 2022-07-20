@@ -4,8 +4,8 @@ use kepler_lib::cacaos::{
     siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
     siwe_cacao::{SIWESignature, SiweCacao},
 };
+use kepler_lib::capgrok::Builder;
 use kepler_lib::resource::OrbitId;
-use kepler_lib::siwe_capability_delegation::Builder;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use wasm_bindgen::prelude::*;
