@@ -7,6 +7,7 @@ use kepler_lib::{
         siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
     },
+    capgrok::Builder,
     libipld::Cid,
     resolver::DID_METHODS,
     resource::OrbitId,
@@ -14,13 +15,14 @@ use kepler_lib::{
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 #[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    actions: Vec<String>,
+    actions: HashMap<String, Vec<String>>,
     #[serde(with = "crate::serde_siwe::address")]
     address: [u8; 20],
     chain_id: u64,
@@ -35,6 +37,9 @@ pub struct SessionConfig {
     #[serde_as(as = "DisplayFromStr")]
     expiration_time: TimeStamp,
     service: String,
+    #[serde_as(as = "Option<Vec<DisplayFromStr>>")]
+    #[serde(default)]
+    parents: Option<Vec<Cid>>,
 }
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -43,8 +48,8 @@ const TS_DEF: &'static str = r#"
  * Configuration object for starting a Kepler session.
  */
 export type SessionConfig = {
-  /** Actions that the session key will be permitted to perform. */
-  actions: string[],
+  /** Actions that the session key will be permitted to perform, organized by service and path */
+  actions: { [key: string]: string[] },
   /** Ethereum address. */
   address: string,
   /** Chain ID. */
@@ -61,6 +66,8 @@ export type SessionConfig = {
   expirationTime: string,
   /** The service that the session key will be permitted to perform actions against. */
   service: string,
+  /** Optional parent delegations to inherit and attenuate */
+  parents?: string[]
 }
 "#;
 
@@ -126,29 +133,36 @@ export type Session = {
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
-        let statement = Some(format!(
-            "Authorize action{}: Allow access to your Kepler orbit using this session key.",
-            {
-                if self.actions.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({})", self.actions.join(", "))
-                }
-            }
-        ));
-        let resources: Vec<_> = self
+        use serde_json::Value;
+        let ns = "kepler"
+            .parse()
+            .map_err(|e| format!("error parsing kepler as Siwe Capability namespace: {}", e))?;
+        let b = self
             .actions
             .into_iter()
-            .map(|a| {
-                self.orbit_id
-                    .clone()
-                    .to_resource(Some(self.service.clone()), None, Some(a))
-                    .to_string()
-                    .try_into()
-                    .map_err(|_| "Failed to parse resource".to_string())
-            })
-            .collect::<Result<_, String>>()?;
-        Ok(Message {
+            .fold(Builder::new(), |builder, (path, actions)| {
+                builder.with_actions(
+                    &ns,
+                    self.orbit_id
+                        .clone()
+                        .to_resource(Some(self.service.clone()), Some(path), None)
+                        .to_string(),
+                    actions,
+                )
+            });
+        match self.parents {
+            Some(p) => b.with_extra_fields(
+                &ns,
+                [(
+                    "parents".to_string(),
+                    Value::Array(p.iter().map(|c| Value::String(c.to_string())).collect()),
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            None => b,
+        }
+        .build(Message {
             address: self.address,
             chain_id: self.chain_id,
             domain: self.domain,
@@ -157,13 +171,14 @@ impl SessionConfig {
             nonce: generate_nonce(),
             not_before: self.not_before,
             request_id: None,
-            statement,
-            resources,
+            statement: None,
+            resources: vec![],
             uri: delegate
                 .try_into()
                 .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
             version: SIWEVersion::V1,
         })
+        .map_err(|e| format!("error building Host SIWE message: {}", e))
     }
 }
 
@@ -259,7 +274,7 @@ pub mod test {
     use serde_json::json;
     pub async fn test_session() -> Session {
         let config = json!({
-            "actions": vec!["put", "get", "list", "del", "metadata"],
+            "actions": { "path": vec!["put", "get", "list", "del", "metadata"] },
             "address": "0x7BD63AA37326a64d458559F44432103e3d6eEDE9",
             "chainId": 1u8,
             "domain": "example.com",
