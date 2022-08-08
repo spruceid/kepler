@@ -53,6 +53,8 @@ impl Capability {
 pub enum CapExtractError {
     #[error(transparent)]
     ResourceParse(#[from] KRIParseError),
+    #[error("Default actions are not allowed for Kepler capabilities")]
+    DefaultActions,
     #[error("Invalid Extra Fields")]
     InvalidFields,
     #[error(transparent)]
@@ -68,7 +70,7 @@ fn extract_ucan_cap<T>(c: &UcanCap<T>) -> Result<Capability, CapExtractError> {
 
 fn extract_siwe_cap(c: SiweCap) -> Result<(Vec<Capability>, Vec<Cid>), CapExtractError> {
     if !c.default_actions.as_ref().is_empty() {
-        Err(CapExtractError::InvalidFields)
+        Err(CapExtractError::DefaultActions)
     } else {
         Ok((
             c.targeted_actions
@@ -91,6 +93,7 @@ fn extract_siwe_cap(c: SiweCap) -> Result<(Vec<Capability>, Vec<Cid>), CapExtrac
                 .map(|(n, a)| (n.as_str(), a))
                 .collect::<Vec<(&str, &serde_json::Value)>>()[..]
             {
+                [] => vec![],
                 [("parents", &serde_json::Value::Array(ref a))] => a
                     .iter()
                     .map(|s| {
