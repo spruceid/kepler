@@ -11,7 +11,7 @@ use kepler_lib::{
     },
     cacaos::siwe::Message,
     capgrok::{
-        extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap, Set,
+        extract_capabilities, verify_statement, Capability as SiweCap, Set,
     },
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
@@ -206,7 +206,7 @@ impl TryFrom<KeplerDelegation> for Delegation {
             },
             KeplerDelegation::Cacao(ref c) => {
                 let m: Message = c.payload().clone().try_into()?;
-                if !verify_statement_matches_delegations(&m)? {
+                if !verify_statement(&m)? {
                     return Err(DelegationError::InvalidStatement);
                 };
                 let (capabilities, parents) = extract_capabilities(&m)?
