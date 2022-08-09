@@ -10,9 +10,7 @@ use kepler_lib::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
     cacaos::siwe::Message,
-    capgrok::{
-        extract_capabilities, verify_statement_matches_delegations, Capability as SiweCap, Set,
-    },
+    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     ssi::ucan::Capability as UcanCap,
@@ -206,7 +204,7 @@ impl TryFrom<KeplerDelegation> for Delegation {
             },
             KeplerDelegation::Cacao(ref c) => {
                 let m: Message = c.payload().clone().try_into()?;
-                if !verify_statement_matches_delegations(&m)? {
+                if !verify_statement(&m)? {
                     return Err(DelegationError::InvalidStatement);
                 };
                 let (capabilities, parents) = extract_capabilities(&m)?
