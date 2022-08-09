@@ -10,9 +10,7 @@ use kepler_lib::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
     cacaos::siwe::Message,
-    capgrok::{
-        extract_capabilities, verify_statement, Capability as SiweCap, Set,
-    },
+    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     ssi::ucan::Capability as UcanCap,
