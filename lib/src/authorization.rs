@@ -98,7 +98,7 @@ pub async fn make_invocation(
         proof: vec![delegation],
         attenuation: vec![invocation_target.try_into()?],
     }
-    .sign(jwk.algorithm.unwrap_or_default(), jwk)?)
+    .sign(jwk.get_algorithm().unwrap_or_default(), jwk)?)
 }
 
 #[derive(Debug, thiserror::Error)]
