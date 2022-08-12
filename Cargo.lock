@@ -123,9 +123,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.61"
+version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "508b352bb5c066aac251f6daf6b36eccd03e8a88e8081cd44959ea277a3af9a8"
+checksum = "c794e162a5eff65c72ef524dfe393eb923c354e350bb78b9c7383df13f3bc142"
 
 [[package]]
 name = "arrayref"
@@ -2734,12 +2734,12 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.42"
+version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9512e544c25736b82aebbd2bf739a47c8a1c935dfcc3a6adcde10e35cd3cd468"
+checksum = "808cf7d67cf4a22adc5be66e75ebdf769b3f2ea032041437a7061f97a63dad4b"
 dependencies = [
  "android_system_properties",
- "core-foundation",
+ "core-foundation-sys",
  "js-sys",
  "wasm-bindgen",
  "winapi",
@@ -3128,7 +3128,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kepler-sdk-wasm"
+name = "kepler-sdk"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
@@ -3136,13 +3136,24 @@ dependencies = [
  "hex",
  "http",
  "iri-string 0.4.1",
- "js-sys",
  "kepler-lib",
  "serde",
  "serde_json",
  "serde_with",
  "thiserror",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kepler-sdk-wasm"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "kepler-sdk",
+ "serde",
+ "serde_json",
+ "serde_with",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]

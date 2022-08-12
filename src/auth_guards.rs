@@ -163,6 +163,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                                 )
                                 .await
                             {
+                                // TODO should match on the error, an Invalid JWS should return a 400
                                 return Err(unauthorized(e));
                             };
 

@@ -8,7 +8,6 @@ use kepler_lib::capgrok::Builder;
 use kepler_lib::resource::OrbitId;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use wasm_bindgen::prelude::*;
 
 use crate::authorization::DelegationHeaders;
 
@@ -17,45 +16,24 @@ use crate::authorization::DelegationHeaders;
 #[serde(rename_all = "camelCase")]
 pub struct HostConfig {
     #[serde(with = "crate::serde_siwe::address")]
-    address: [u8; 20],
-    chain_id: u64,
+    pub address: [u8; 20],
+    pub chain_id: u64,
     #[serde_as(as = "DisplayFromStr")]
-    domain: Authority,
+    pub domain: Authority,
     #[serde_as(as = "DisplayFromStr")]
-    issued_at: TimeStamp,
-    orbit_id: OrbitId,
-    peer_id: String,
+    pub issued_at: TimeStamp,
+    pub orbit_id: OrbitId,
+    pub peer_id: String,
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const TS_DEF: &'static str = r#"
-/**
- * Configuration object for generating a Orbit Host Delegation SIWE message.
- */
-export type HostConfig = {
-  /** Ethereum address. */
-  address: string,
-  /** Chain ID. */
-  chainId: number,
-  /** Domain of the webpage. */
-  domain: string,
-  /** Current time for SIWE message. */
-  issuedAt: string,
-  /** The orbit that is the target resource of the delegation. */
-  orbitId: string,
-  /** The peer that is the target/invoker in the delegation. */
-  peerId: string,
-}
-"#;
 
 #[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedMessage {
     #[serde_as(as = "DisplayFromStr")]
-    siwe: Message,
+    pub siwe: Message,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: SIWESignature,
+    pub signature: SIWESignature,
 }
 
 impl TryFrom<HostConfig> for Message {

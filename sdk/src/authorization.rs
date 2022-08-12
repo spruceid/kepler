@@ -1,15 +1,16 @@
 use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use crate::session::Session;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DelegationHeaders {
     #[serde(with = "header_enc", rename = "Authorization")]
     delegation: KeplerDelegation,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct InvocationHeaders {
     #[serde(with = "header_enc", rename = "Authorization")]
     invocation: KeplerInvocation,
@@ -22,7 +23,7 @@ impl InvocationHeaders {
                 .invoke(path, action)
                 .await
                 .map(|i| {
-                    println!("{:?}", i);
+                    debug!("{:?}", i);
                     i
                 })
                 .map_err(Error::FailedToMakeInvocation)?,

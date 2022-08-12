@@ -1,40 +1,24 @@
 use axum::{routing::post, Extension, Json, Router};
-use chrono::prelude::*;
 use ethers::{
     core::utils::to_checksum,
+    prelude::rand::{prelude::StdRng, SeedableRng},
     signers::{LocalWallet, Signer},
 };
-use iri_string::types::UriString;
-use kepler_lib::{
-    didkit::{Source, DID_METHODS},
-    resource::OrbitId,
-    ssi::{
-        cacao_zcap::{
-            cacaos::{
-                siwe::{nonce::generate_nonce, Message, Version},
-                siwe_cacao::{SIWESignature, SignInWithEthereum},
-                BasicSignature, CACAO,
-            },
-            translation::cacao_to_zcap::cacao_to_zcap,
-        },
-        jwk::JWK,
-        ldp::LinkedDataProofs,
-        vc::{get_verification_method, LinkedDataProofOptions, ProofPurpose, URI},
-        zcap::Contexts,
+use kepler_lib::{cacaos::siwe::TimeStamp, resource::OrbitId, ssi::jwk::JWK};
+use kepler_sdk::{
+    authorization::{DelegationHeaders, InvocationHeaders},
+    session::{complete_session_setup, prepare_session, Session, SessionConfig, SignedSession},
+    siwe_utils::{
+        generate_host_siwe_message, siwe_to_delegation_headers, HostConfig, SignedMessage,
     },
-    zcap::{InvProps, KeplerDelegation, KeplerInvocation},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
-use std::{net::SocketAddr, sync::Arc};
-use uuid::Uuid;
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 struct User {
     wallet: LocalWallet,
-    address: String,
-    orbit_id: OrbitId,
-    did: String,
-    delegation: KeplerDelegation,
+    session: Session,
+    session_config: SessionConfig,
 }
 
 async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
@@ -44,50 +28,45 @@ async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
         did.strip_prefix("did:").unwrap().to_string(),
         String::from("default"),
     );
-    let did = DID_METHODS
-        .generate(&Source::KeyAndPattern(&jwk, "key"))
-        .unwrap();
-    let did_resolver = DID_METHODS.to_resolver();
-    let verification_method = get_verification_method(&did, did_resolver).await.unwrap();
 
-    let root_cap = orbit_id.to_string().try_into().unwrap();
-    let invocation_target = orbit_id
-        .clone()
-        .to_resource(Some("kv".to_string()), None, None)
-        .to_string()
-        .try_into()
-        .unwrap();
-    let message = Message {
-        address: wallet.address().try_into().unwrap(),
-        chain_id: wallet.chain_id(),
+    let session_config = SessionConfig {
+        actions: [(
+            "".into(),
+            vec![
+                "put".into(),
+                "get".into(),
+                "del".into(),
+                "metadata".into(),
+                "list".into(),
+            ],
+        )]
+        .into(),
+        service: "kv".to_string(),
+        address: wallet.address().into(),
+        chain_id: 1,
         domain: "localhost".try_into().unwrap(),
-        issued_at: Utc::now().into(),
-        nonce: generate_nonce(),
-        version: Version::V1,
+        orbit_id,
         not_before: None,
-        expiration_time: None,
-        request_id: None,
-        resources: vec![invocation_target, root_cap],
-        statement: Some(format!(
-            "Authorize action{}: Allow access to your Kepler orbit using this session key.",
-            { format!(" ({})", vec!["put", "get"].join(", ")) }
-        )),
-        uri: verification_method.try_into().unwrap(),
+        parents: None,
+        jwk: Some(jwk),
+        issued_at: TimeStamp::from_str("1985-04-12T23:20:50.52Z").unwrap(),
+        expiration_time: TimeStamp::from_str("2985-04-12T23:20:50.52Z").unwrap(),
     };
-    let signature = wallet.sign_message(message.to_string()).await.unwrap();
-    let delegation = cacao_to_zcap(&CACAO::<SignInWithEthereum>::new(
-        message.into(),
-        BasicSignature::<SIWESignature> {
-            s: signature.to_vec().try_into().unwrap(),
-        },
-    ))
+    let prepared_session = prepare_session(session_config.clone()).await.unwrap();
+    let signature = wallet
+        .sign_message(prepared_session.siwe.to_string())
+        .await
+        .unwrap();
+    let session = complete_session_setup(SignedSession {
+        session: prepared_session,
+        signature: signature.to_vec().try_into().unwrap(),
+    })
     .unwrap();
+
     User {
         wallet,
-        address,
-        did,
-        orbit_id,
-        delegation,
+        session,
+        session_config,
     }
 }
 
@@ -97,55 +76,6 @@ struct InvokeParams {
     action: String,
 }
 
-// /// Attempt at bypassing the session key
-// async fn invocation(
-//     Json(params): Json<InvokeParams>,
-//     Extension(wallet): Extension<Arc<LocalWallet>>,
-// ) -> Json<KeplerInvocation> {
-//     let address = to_checksum(&wallet.address(), None);
-//     let did = format!("did:pkh:eip155:1:{}", address);
-//     let orbit_id = OrbitId::new(
-//         did.strip_prefix("did:").unwrap().to_string(),
-//         String::from("default"),
-//     );
-//     let invocation_target = orbit_id.to_resource(
-//         Some("kv".to_string()),
-//         Some(params.name),
-//         Some(params.action),
-//     );
-//     let invocation = {
-//         let context = Contexts::default();
-//         let id = URI::String(format!("urn:uuid:{}", Uuid::new_v4()));
-//         let property_set = InvProps {
-//             invocation_target,
-//             expires: None,
-//             valid_from: None,
-//             extra_fields: None,
-//         };
-//         KeplerInvocation {
-//             context,
-//             id,
-//             property_set,
-//             proof: None,
-//         }
-//     };
-//     let resolver = DID_METHODS.to_resolver();
-//     let verification_method = get_verification_method(&did, resolver).await.unwrap();
-//     let ldp_options = LinkedDataProofOptions {
-//         verification_method: Some(URI::String(verification_method)),
-//         proof_purpose: Some(ProofPurpose::CapabilityInvocation),
-//         ..Default::default()
-//     };
-//     let pk: &ethers::core::k256::PublicKey = &wallet.signer().verifying_key().try_into().unwrap();
-//     let mut ec_params = ECParams::try_from(pk).unwrap();
-//     ec_params.ecc_private_key = Some(Base64urlUInt(wallet.signer().to_bytes().to_vec()));
-//     let jwk = JWK::from(Params::EC(ec_params));
-//     let proof = LinkedDataProofs::sign(&invocation, &ldp_options, resolver, &jwk, None)
-//         .await
-//         .unwrap();
-//     Json(invocation.set_proof(proof))
-// }
-
 #[derive(Serialize, Deserialize)]
 struct OrbitParams {
     peer_id: String,
@@ -154,96 +84,35 @@ struct OrbitParams {
 async fn create_orbit(
     Json(params): Json<OrbitParams>,
     Extension(user): Extension<Arc<User>>,
-) -> Json<KeplerDelegation> {
-    let root_cap: UriString = user.orbit_id.to_string().try_into().unwrap();
-    let message = Message {
-        address: user.wallet.address().try_into().unwrap(),
-        chain_id: user.wallet.chain_id(),
-        domain: "localhost".try_into().unwrap(),
-        issued_at: Utc::now().into(),
-        uri: format!("peer:{}", params.peer_id).try_into().unwrap(),
-        nonce: generate_nonce(),
-        statement: Some("Authorize action (host): Authorize this peer to host your orbit.".into()),
-        resources: vec![root_cap.clone(), root_cap],
-        version: Version::V1,
-        not_before: None,
-        expiration_time: None,
-        request_id: None,
-    };
-    let signature = user.wallet.sign_message(message.to_string()).await.unwrap();
-    let delegation = cacao_to_zcap(&CACAO::<SignInWithEthereum>::new(
-        message.into(),
-        BasicSignature::<SIWESignature> {
-            s: signature.to_vec().try_into().unwrap(),
-        },
-    ))
+) -> Json<DelegationHeaders> {
+    let message = generate_host_siwe_message(HostConfig {
+        address: user.session_config.address,
+        chain_id: user.session_config.chain_id,
+        domain: user.session_config.domain.clone(),
+        issued_at: user.session_config.issued_at.clone(),
+        orbit_id: user.session_config.orbit_id.clone(),
+        peer_id: params.peer_id,
+    })
     .unwrap();
+    let signature = user.wallet.sign_message(message.to_string()).await.unwrap();
+    let delegation = siwe_to_delegation_headers(SignedMessage {
+        siwe: message,
+        signature: signature.to_vec().try_into().unwrap(),
+    });
     Json(delegation)
 }
 
-async fn create_session(Extension(user): Extension<Arc<User>>) -> Json<KeplerDelegation> {
-    Json(user.delegation.clone())
+async fn create_session(Extension(user): Extension<Arc<User>>) -> Json<DelegationHeaders> {
+    Json(user.session.delegation_header.clone())
 }
 async fn invoke_session(
     Json(params): Json<InvokeParams>,
-    Extension(jwk): Extension<Arc<JWK>>,
     Extension(user): Extension<Arc<User>>,
-) -> Json<KeplerInvocation> {
-    let did = DID_METHODS
-        .generate(&Source::KeyAndPattern(&jwk, "key"))
+) -> Json<InvocationHeaders> {
+    let headers = InvocationHeaders::from(user.session.clone(), params.name, params.action)
+        .await
         .unwrap();
-    let did_resolver = DID_METHODS.to_resolver();
-    let verification_method = get_verification_method(&did, did_resolver).await.unwrap();
-    let invocation_target = user.orbit_id.clone().to_resource(
-        Some("kv".to_string()),
-        Some(params.name),
-        Some(params.action),
-    );
-    let invocation = {
-        let context = Contexts::default();
-        let id = URI::String(format!("urn:uuid:{}", Uuid::new_v4()));
-        let property_set = InvProps {
-            invocation_target,
-            expires: None,
-            valid_from: None,
-            extra_fields: None,
-        };
-        KeplerInvocation {
-            context,
-            id,
-            property_set,
-            proof: None,
-        }
-    };
-
-    let ldp_options = LinkedDataProofOptions {
-        verification_method: Some(URI::String(verification_method)),
-        proof_purpose: Some(ProofPurpose::CapabilityInvocation),
-        ..Default::default()
-    };
-    let resolver = DID_METHODS.to_resolver();
-    let mut capability_chain = user
-        .delegation
-        .proof
-        .as_ref()
-        .and_then(|proof| proof.property_set.as_ref())
-        .and_then(|props| props.get("capabilityChain"))
-        .and_then(|chain| chain.as_array().cloned())
-        .unwrap_or_default();
-    capability_chain.push(serde_json::to_value(&user.delegation).unwrap());
-
-    let mut proof_props = std::collections::HashMap::<String, Value>::new();
-    proof_props.insert(
-        "capabilityChain".into(),
-        serde_json::to_value(capability_chain).unwrap(),
-    );
-
-    let proof =
-        LinkedDataProofs::sign(&invocation, &ldp_options, resolver, &jwk, Some(proof_props))
-            .await
-            .unwrap();
-
-    Json(invocation.set_proof(proof))
+    Json(headers)
 }
 
 #[tokio::main]
@@ -251,12 +120,13 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let jwk = JWK::generate_ed25519().unwrap();
-    let wallet = "dcf2cbdd171a21c480aa7f53d77f31bb102282b3ff099c78e3118b37348c72f7"
-        .parse::<LocalWallet>()
-        .unwrap();
+    let id = 0_u128.to_ne_bytes();
+    let mut seed = id.to_vec();
+    seed.extend_from_slice(&id);
+    let mut rng = StdRng::from_seed(seed.try_into().unwrap());
+    let wallet = LocalWallet::new(&mut rng);
     let user = new_user(wallet, jwk.clone()).await;
     let app = Router::new()
-        // .route("/invoke", post(invocation))
         .route("/orbit", post(create_orbit))
         .route("/session/create", post(create_session))
         .route("/session/invoke", post(invoke_session))

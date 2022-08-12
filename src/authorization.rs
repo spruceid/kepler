@@ -403,6 +403,7 @@ impl Verifiable for Delegation {
                 .iter()
                 .all(|r| res.iter().any(|c| r.extends(c).is_ok()))
             {
+                // TODO should not return 500
                 Err(anyhow!("Capabilities Not Delegated"))
             } else {
                 Ok(())
@@ -450,6 +451,7 @@ impl Verifiable for Invocation {
 
             // check capabilities are supported by parents
             if !res.iter().any(|c| *c) {
+                // TODO should not return 500
                 Err(anyhow!("Capabilities Not Delegated"))
             } else {
                 Ok(())

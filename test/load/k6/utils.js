@@ -1,6 +1,5 @@
 import { check } from 'k6';
 import http from 'k6/http';
-import { b64encode } from 'k6/encoding';
 
 export const kepler = __ENV.KEPLER || "http://127.0.0.1:8000";
 export const signer = __ENV.SIGNER || "http://127.0.0.1:3000";
@@ -13,29 +12,26 @@ export function setup_orbit(kepler, signer) {
             headers: {
                 'Content-Type': 'application/json',
             },
-        }).body;
+        }).json();
     console.log(`Orbit Creation: ${orbit_creation}`);
     let res = http.post(`${kepler}/delegate`,
         null,
         {
-            headers: {
-                'Authorization': b64encode(orbit_creation),
-            }
+            headers: orbit_creation,
         });
     check(res, {
         'orbit creation is succesful': (r) => r.status === 200,
     });
     console.log(`Orbit creation (${res.headers["Spruce-Trace-Id"]}) -> ${res.status}`);
-    let session_delegation = http.post(`${signer}/session/create`).body;
+    let session_delegation = http.post(`${signer}/session/create`).json();
     res = http.post(`${kepler}/delegate`,
         null,
         {
-            headers: {
-                'Authorization': b64encode(session_delegation),
-            }
+            headers: session_delegation,
         });
     check(res, {
         'session delegation is succesful': (r) => r.status === 200,
     });
+
     console.log(`Session delegation (${res.headers["Spruce-Trace-Id"]}) -> ${res.status}`);
 }
