@@ -11,9 +11,10 @@ USER rust
 RUN cargo install cargo-chef
 COPY ./Cargo.lock ./
 COPY ./Cargo.toml ./
+COPY ./sdk-wasm/ ./sdk-wasm/
 COPY ./src/ ./src/
 COPY ./lib/ ./lib/
-COPY ./sdk-wasm/ ./sdk-wasm/
+COPY ./sdk/ ./sdk/
 RUN cargo chef prepare  --recipe-path recipe.json
 
 FROM $BASE_IMAGE as dep_cacher
