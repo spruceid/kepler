@@ -64,6 +64,7 @@ tempdir = "0.3.7"
 members = [
     "lib",
     "sdk-wasm",
+    "sdk"
 ]
 
 exclude = [
