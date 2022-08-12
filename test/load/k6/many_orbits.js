@@ -1,5 +1,6 @@
 import { check } from 'k6';
 import http from 'k6/http';
+import exec from 'k6/execution';
 import {
     randomString,
 } from 'https://jslib.k6.io/k6-utils/1.3.0/index.js';
@@ -7,22 +8,16 @@ import {
 import { setup_orbit, kepler, signer } from './utils.js';
 
 export const options = {
-    scenarios: {
-        constant_request_rate: {
-            executor: 'constant-arrival-rate',
-            rate: 10,
-            timeUnit: '1s',
-            duration: '5s',
-            preAllocatedVUs: 25,
-        },
-    },
+    iterations: 300,
+    vus: 100,
 };
 
-export function setup() {
-    setup_orbit(kepler, signer, 0);
+export default function() {
+    const id = exec.scenario.iterationInTest;
+    setup_orbit(kepler, signer, id);
 
     const key = randomString(15);
-    let put_invocation = http.post(`${signer}/sessions/0/invoke`,
+    let put_invocation = http.post(`${signer}/sessions/${id}/invoke`,
         JSON.stringify({ name: key, action: "put" }),
         {
             headers: {
@@ -30,49 +25,45 @@ export function setup() {
             },
         }).json();
     put_invocation['Content-Type'] = 'application/json';
-    http.post(`${kepler}/invoke`,
+    let res = http.post(`${kepler}/invoke`,
         JSON.stringify({ test: "data" }),
         {
             headers: put_invocation,
         }
     );
-    return { key };
-}
+    check(res, {
+        'is status 200': (r) => r.status === 200,
+    });
+    console.log(`[${id} PUT] ${res.headers["Spruce-Trace-Id"]} -> ${res.status}`);
 
-export default function(data) {
-    let start_now = Date.now();
-    let get_invocation = http.post(`${signer}/sessions/0/invoke`,
-        JSON.stringify({ name: data.key, action: "get" }),
+    let get_invocation = http.post(`${signer}/sessions/${id}/invoke`,
+        JSON.stringify({ name: key, action: "get" }),
         {
             headers: {
                 'Content-Type': 'application/json',
             },
         }).json();
     get_invocation['Content-Type'] = 'application/json';
-    let signer_now = Date.now();
-    let res = http.post(`${kepler}/invoke`,
+    res = http.post(`${kepler}/invoke`,
         "",
         {
             headers: get_invocation,
         }
     );
-    let invoke_now = Date.now();
     check(res, {
         'is status 200': (r) => r.status === 200,
     });
-    console.log(`${res.headers["Spruce-Trace-Id"]} -> ${res.status} [${signer_now - start_now}ms + ${invoke_now - signer_now}ms]`);
-}
+    console.log(`[${id} GET] ${res.headers["Spruce-Trace-Id"]} -> ${res.status}`);
 
-export function teardown(data) {
-    let del_invocation = http.post(`${signer}/sessions/0/invoke`,
-        JSON.stringify({ name: data.key, action: "del" }),
+    let del_invocation = http.post(`${signer}/sessions/${id}/invoke`,
+        JSON.stringify({ name: key, action: "del" }),
         {
             headers: {
                 'Content-Type': 'application/json',
             },
         }).json();
     del_invocation['Content-Type'] = 'application/json';
-    let res = http.post(`${kepler}/invoke`,
+    res = http.post(`${kepler}/invoke`,
         "",
         {
             headers: del_invocation
@@ -81,4 +72,5 @@ export function teardown(data) {
     check(res, {
         'is status 200': (r) => r.status === 200,
     });
+    console.log(`[${id} DEL] ${res.headers["Spruce-Trace-Id"]} -> ${res.status}`);
 }

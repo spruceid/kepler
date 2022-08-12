@@ -1,4 +1,4 @@
-use axum::{routing::post, Extension, Json, Router};
+use axum::{extract::Path, routing::post, Extension, Json, Router};
 use ethers::{
     core::utils::to_checksum,
     prelude::rand::{prelude::StdRng, SeedableRng},
@@ -13,8 +13,10 @@ use kepler_sdk::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, str::FromStr, sync::Arc};
+use tokio::sync::RwLock;
 
+#[derive(Clone)]
 struct User {
     wallet: LocalWallet,
     session: Session,
@@ -82,9 +84,19 @@ struct OrbitParams {
 }
 
 async fn create_orbit(
+    Path(id): Path<u128>,
     Json(params): Json<OrbitParams>,
-    Extension(user): Extension<Arc<User>>,
+    Extension(jwk): Extension<Arc<JWK>>,
+    Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
 ) -> Json<DelegationHeaders> {
+    let id_bytes = id.to_ne_bytes();
+    let mut seed = id_bytes.to_vec();
+    seed.extend_from_slice(&id_bytes);
+    let mut rng = StdRng::from_seed(seed.try_into().unwrap());
+    let wallet = LocalWallet::new(&mut rng);
+    let user = new_user(wallet, (*jwk).clone()).await;
+    users.write().await.insert(id, user.clone());
+
     let message = generate_host_siwe_message(HostConfig {
         address: user.session_config.address,
         chain_id: user.session_config.chain_id,
@@ -102,16 +114,33 @@ async fn create_orbit(
     Json(delegation)
 }
 
-async fn create_session(Extension(user): Extension<Arc<User>>) -> Json<DelegationHeaders> {
-    Json(user.session.delegation_header.clone())
+async fn create_session(
+    Path(id): Path<u128>,
+    Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
+) -> Json<DelegationHeaders> {
+    Json(
+        users
+            .read()
+            .await
+            .get(&id)
+            .unwrap()
+            .session
+            .delegation_header
+            .clone(),
+    )
 }
 async fn invoke_session(
+    Path(id): Path<u128>,
     Json(params): Json<InvokeParams>,
-    Extension(user): Extension<Arc<User>>,
+    Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
 ) -> Json<InvocationHeaders> {
-    let headers = InvocationHeaders::from(user.session.clone(), params.name, params.action)
-        .await
-        .unwrap();
+    let headers = InvocationHeaders::from(
+        users.read().await.get(&id).unwrap().session.clone(),
+        params.name,
+        params.action,
+    )
+    .await
+    .unwrap();
     Json(headers)
 }
 
@@ -120,17 +149,12 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let jwk = JWK::generate_ed25519().unwrap();
-    let id = 0_u128.to_ne_bytes();
-    let mut seed = id.to_vec();
-    seed.extend_from_slice(&id);
-    let mut rng = StdRng::from_seed(seed.try_into().unwrap());
-    let wallet = LocalWallet::new(&mut rng);
-    let user = new_user(wallet, jwk.clone()).await;
+    let users: HashMap<u128, User> = HashMap::new();
     let app = Router::new()
-        .route("/orbit", post(create_orbit))
-        .route("/session/create", post(create_session))
-        .route("/session/invoke", post(invoke_session))
-        .layer(Extension(Arc::new(user)))
+        .route("/orbits/:id", post(create_orbit))
+        .route("/sessions/:id/create", post(create_session))
+        .route("/sessions/:id/invoke", post(invoke_session))
+        .layer(Extension(Arc::new(RwLock::new(users))))
         .layer(Extension(Arc::new(jwk)));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));

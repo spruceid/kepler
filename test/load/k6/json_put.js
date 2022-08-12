@@ -20,12 +20,12 @@ export const options = {
 };
 
 export function setup() {
-    setup_orbit(kepler, signer);
+    setup_orbit(kepler, signer, 0);
 }
 
 export default function() {
     const key = randomString(15);
-    let put_invocation = http.post(`${signer}/session/invoke`,
+    let put_invocation = http.post(`${signer}/sessions/0/invoke`,
         JSON.stringify({ name: key, action: "put" }),
         {
             headers: {
@@ -46,7 +46,7 @@ export default function() {
 }
 
 export function teardown() {
-    let list_invocation = http.post(`${signer}/session/invoke`,
+    let list_invocation = http.post(`${signer}/sessions/0/invoke`,
         JSON.stringify({ name: "", action: "list" }),
         {
             headers: {
@@ -66,7 +66,7 @@ export function teardown() {
     const keys = res.json();
 
     for (const key of keys) {
-        let del_invocation = http.post(`${signer}/session/invoke`,
+        let del_invocation = http.post(`${signer}/sessions/0/invoke`,
             JSON.stringify({ name: key, action: "del" }),
             {
                 headers: {
