@@ -3,12 +3,9 @@ name = "kepler-sdk"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-"wasm" = ["kepler-lib/wasm"]
-
 [dependencies]
 base64 = "0.13"
-chrono = { version = "0.4", features = ["wasmbind"] }
+chrono = { version = "0.4" }
 hex = "0.4"
 http = "0.2"
 iri-string = "0.4"

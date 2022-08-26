@@ -2,7 +2,7 @@ name: Publish Docker
 
 on:
   push:
-    branches: [ main, 'feat/load-testing' ]
+    branches: [ main ]
   release:
     types: [published, created, edited]
 
@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@master
     - name: Build and push image
-      uses: elgohr/Publish-Docker-Github-Action@master
+      uses: elgohr/Publish-Docker-Github-Action@v4
       with:
         name: spruceid/kepler
         username: ${{ github.actor }}
