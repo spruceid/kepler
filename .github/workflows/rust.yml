@@ -28,6 +28,7 @@ jobs:
       run: cargo build
 
     - name: Run tests
+      if: ${{ matrix.pkg != 'sdk-wasm' }}
       working-directory: ${{ matrix.pkg }}
       run: cargo test
 
