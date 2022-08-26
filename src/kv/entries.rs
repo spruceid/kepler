@@ -73,7 +73,7 @@ async fn flush_buffer_to_block(
     Ok(())
 }
 
-#[derive(DagCbor, PartialEq, Debug, Clone)]
+#[derive(DagCbor, PartialEq, Eq, Debug, Clone)]
 pub struct Object {
     pub key: Vec<u8>,
     pub value: Cid,
