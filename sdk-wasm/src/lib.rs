@@ -1,12 +1,8 @@
-mod authorization;
-mod serde_siwe;
-mod session;
-mod siwe_utils;
-mod util;
-
-use std::future::Future;
+mod definitions;
 
 use js_sys::Promise;
+use kepler_sdk::*;
+use std::future::Future;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 

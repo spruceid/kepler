@@ -8,45 +8,44 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
+        pkg: ["lib", ".", "sdk", "sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
       uses: actions/checkout@v2
-      with:
-        path: kepler
-        
-    - name: Build 
+    - name: Add WASM target
+      if: ${{ matrix.pkg == 'sdk-wasm' }}
+      run: |
+        rustup target add wasm32-unknown-unknown
+
+    - name: Build
       working-directory: ${{ matrix.pkg }}
-      run: cargo build --verbose
+      run: cargo build
 
     - name: Run tests
+      if: ${{ matrix.pkg != 'sdk-wasm' }}
       working-directory: ${{ matrix.pkg }}
-      run: cargo test --verbose
+      run: cargo test
 
   clippy:
     strategy:
       fail-fast: false
       matrix:
-        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
+        pkg: ["lib", ".", "sdk", "sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
       uses: actions/checkout@v2
-      with:
-        path: kepler
-    
-    - name: Configure rust
-      working-directory: ${{ matrix.pkg }}
+    - name: Add WASM target
+      if: ${{ matrix.pkg == 'sdk-wasm' }}
       run: |
-        rustup component add clippy
-      
+        rustup target add wasm32-unknown-unknown
+
     - name: Clippy
       working-directory: ${{ matrix.pkg }}
       run: RUSTFLAGS="-Dwarnings" cargo clippy
@@ -55,18 +54,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: ["kepler/lib", "kepler", "kepler/sdk-wasm"]
+        pkg: ["lib", ".", "sdk", "sdk-wasm"]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Kepler repository
       uses: actions/checkout@v2
-      with:
-        path: kepler
-    
-    - name: Configure rust
-      working-directory: ${{ matrix.pkg }}
+    - name: Add WASM target
+      if: ${{ matrix.pkg == 'sdk-wasm' }}
       run: |
-        rustup component add rustfmt
+        rustup target add wasm32-unknown-unknown
 
     - name: Fmt
       working-directory: ${{ matrix.pkg }}

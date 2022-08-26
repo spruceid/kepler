@@ -16,124 +16,67 @@ use kepler_lib::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::HashMap;
-use wasm_bindgen::prelude::*;
 
 #[serde_as]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    actions: HashMap<String, Vec<String>>,
+    pub actions: HashMap<String, Vec<String>>,
     #[serde(with = "crate::serde_siwe::address")]
-    address: [u8; 20],
-    chain_id: u64,
+    pub address: [u8; 20],
+    pub chain_id: u64,
     #[serde_as(as = "DisplayFromStr")]
-    domain: Authority,
+    pub domain: Authority,
     #[serde_as(as = "DisplayFromStr")]
-    issued_at: TimeStamp,
-    orbit_id: OrbitId,
+    pub issued_at: TimeStamp,
+    pub orbit_id: OrbitId,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
-    not_before: Option<TimeStamp>,
+    pub not_before: Option<TimeStamp>,
     #[serde_as(as = "DisplayFromStr")]
-    expiration_time: TimeStamp,
-    service: String,
+    pub expiration_time: TimeStamp,
+    pub service: String,
     #[serde_as(as = "Option<Vec<DisplayFromStr>>")]
     #[serde(default)]
-    parents: Option<Vec<Cid>>,
+    pub parents: Option<Vec<Cid>>,
     #[serde(default)]
-    jwk: Option<JWK>,
+    pub jwk: Option<JWK>,
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const TS_DEF: &'static str = r#"
-/**
- * Configuration object for starting a Kepler session.
- */
-export type SessionConfig = {
-  /** Actions that the session key will be permitted to perform, organized by service and path */
-  actions: { [key: string]: string[] },
-  /** Ethereum address. */
-  address: string,
-  /** Chain ID. */
-  chainId: number,
-  /** Domain of the webpage. */
-  domain: string,
-  /** Current time for SIWE message. */
-  issuedAt: string,
-  /** The orbit that is the target resource of the delegation. */
-  orbitId: string,
-  /** The earliest time that the session will be valid from. */
-  notBefore?: string,
-  /** The latest time that the session will be valid until. */
-  expirationTime: string,
-  /** The service that the session key will be permitted to perform actions against. */
-  service: string,
-  /** Optional parent delegations to inherit and attenuate */
-  parents?: string[]
-  /** Optional jwk to delegate to */
-  jwk?: object
-}
-"#;
 
 #[serde_as]
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedSession {
-    jwk: JWK,
-    orbit_id: OrbitId,
-    service: String,
+    pub jwk: JWK,
+    pub orbit_id: OrbitId,
+    pub service: String,
     #[serde_as(as = "DisplayFromStr")]
-    siwe: Message,
-    verification_method: String,
+    pub siwe: Message,
+    pub verification_method: String,
 }
 
 #[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignedSession {
-    jwk: JWK,
-    orbit_id: OrbitId,
-    service: String,
+    #[serde(flatten)]
+    pub session: PreparedSession,
     #[serde(with = "crate::serde_siwe::signature")]
-    signature: SIWESignature,
-    #[serde_as(as = "DisplayFromStr")]
-    siwe: Message,
-    verification_method: String,
+    pub signature: SIWESignature,
 }
 
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    delegation_header: DelegationHeaders,
+    pub delegation_header: DelegationHeaders,
     #[serde_as(as = "DisplayFromStr")]
-    delegation_cid: Cid,
-    jwk: JWK,
-    orbit_id: OrbitId,
-    service: String,
-    verification_method: String,
+    pub delegation_cid: Cid,
+    pub jwk: JWK,
+    pub orbit_id: OrbitId,
+    pub service: String,
+    pub verification_method: String,
 }
-
-#[wasm_bindgen(typescript_custom_section)]
-const TS_DEF: &'static str = r#"
-/**
- * A Kepler session.
- */
-export type Session = {
-  /** The delegation from the user to the session key. */
-  delegationHeader: { Authorization: string },
-  /** The delegation reference from the user to the session key. */
-  delegationCid: string,
-  /** The session key. */
-  jwk: object,
-  /** The orbit that the session key is permitted to perform actions against. */
-  orbitId: string,
-  /** The service that the session key is permitted to perform actions against. */
-  service: string,
-  /** The verification method of the session key. */
-  verificationMethod: string,
-}
-"#;
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
@@ -242,7 +185,11 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
         cacaos::siwe_cacao::SiweCacao,
         libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
     };
-    let delegation = SiweCacao::new(signed_session.siwe.into(), signed_session.signature, None);
+    let delegation = SiweCacao::new(
+        signed_session.session.siwe.into(),
+        signed_session.signature,
+        None,
+    );
     let delegation_cid =
         *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
             .map_err(Error::UnableToGenerateCid)?
@@ -252,10 +199,10 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
     Ok(Session {
         delegation_header,
         delegation_cid,
-        jwk: signed_session.jwk,
-        orbit_id: signed_session.orbit_id,
-        service: signed_session.service,
-        verification_method: signed_session.verification_method,
+        jwk: signed_session.session.jwk,
+        orbit_id: signed_session.session.orbit_id,
+        service: signed_session.session.service,
+        verification_method: signed_session.session.verification_method,
     })
 }
 

@@ -50,7 +50,7 @@ impl<'r> FromRequest<'r> for TracingSpan {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, ()> {
-        match &*request.local_cache(|| Option::<TracingSpan>::None) {
+        match request.local_cache(|| Option::<TracingSpan>::None) {
             Some(TracingSpan(span)) => Outcome::Success(TracingSpan(span.to_owned())),
             None => Outcome::Failure((Status::InternalServerError, ())),
         }

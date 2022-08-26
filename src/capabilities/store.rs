@@ -14,8 +14,17 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
 };
 use rocket::futures::future::try_join_all;
+use thiserror::Error;
 
 use crate::config;
+
+#[derive(Error, Debug)]
+pub enum InvokeError {
+    #[error(transparent)]
+    Unauthorized(anyhow::Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 const SERVICE_NAME: &str = "capabilities";
 
@@ -152,7 +161,10 @@ impl Store {
         Ok(())
     }
 
-    pub async fn invoke(&self, invocations: impl IntoIterator<Item = Invocation>) -> Result<Cid> {
+    pub async fn invoke(
+        &self,
+        invocations: impl IntoIterator<Item = Invocation>,
+    ) -> Result<Cid, InvokeError> {
         let cid = self
             .apply_invocations(Invocations {
                 prev: self.invocation_heads.get_heads().await?.0,

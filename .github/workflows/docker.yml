@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@master
     - name: Build and push image
-      uses: elgohr/Publish-Docker-Github-Action@master
+      uses: elgohr/Publish-Docker-Github-Action@v4
       with:
         name: spruceid/kepler
         username: ${{ github.actor }}
@@ -21,3 +21,4 @@ jobs:
         tag_names: true
         tag_semver: true
         snapshot: true
+        cache: true
