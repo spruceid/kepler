@@ -151,7 +151,7 @@ impl Session {
 pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, Error> {
     let mut jwk = match &config.jwk {
         Some(k) => k.clone(),
-        None => JWK::generate_ed25519().map_err(Error::UnableToGenerateKey)?,
+        None => JWK::generate_ed25519()?,
     };
     jwk.algorithm = Some(kepler_lib::ssi::jwk::Algorithm::EdDSA);
 
@@ -209,7 +209,7 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("unable to generate session key: {0}")]
-    UnableToGenerateKey(kepler_lib::ssi::error::Error),
+    UnableToGenerateKey(#[from] kepler_lib::ssi::jwk::Error),
     #[error("unable to generate the DID of the session key")]
     UnableToGenerateDID,
     #[error("unable to generate the SIWE message to start the session: {0}")]

@@ -104,15 +104,17 @@ pub async fn make_invocation(
 #[derive(Debug, thiserror::Error)]
 pub enum InvocationError {
     #[error(transparent)]
-    ResourceCapErr(#[from] ResourceCapErr),
+    ResourceCap(#[from] ResourceCapErr),
     #[error(transparent)]
-    SSIError(#[from] ssi::error::Error),
+    NumericDateConversion(#[from] ssi::jwt::NumericDateConversionError),
+    #[error(transparent)]
+    UCAN(#[from] ssi::ucan::error::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum EncodingError {
     #[error(transparent)]
-    SSIError(#[from] ssi::error::Error),
+    SSIError(#[from] ssi::ucan::error::Error),
     #[error(transparent)]
     IpldError(#[from] libipld::error::Error),
     #[error(transparent)]
