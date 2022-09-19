@@ -3,7 +3,6 @@ use crate::{
     ipfs::Block,
 };
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use kepler_lib::libipld::Cid;
 use kepler_lib::{
     authorization::{
@@ -21,6 +20,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 use std::{convert::TryFrom, str::FromStr};
+use time::OffsetDateTime;
 
 #[derive(Clone, Debug)]
 pub struct Capability {
@@ -346,7 +346,7 @@ pub trait Verifiable {
     async fn verify<C>(
         &self,
         store: &C,
-        timestamp: Option<DateTime<Utc>>,
+        timestamp: Option<OffsetDateTime>,
         root: &str,
     ) -> Result<()>
     where
@@ -355,17 +355,17 @@ pub trait Verifiable {
 
 #[rocket::async_trait]
 impl Verifiable for Delegation {
-    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    async fn verify<C>(&self, store: &C, time: Option<OffsetDateTime>, root: &str) -> Result<()>
     where
         C: CapStore + Send + Sync,
     {
-        let t = time.unwrap_or_else(Utc::now);
+        let t = time.unwrap_or_else(OffsetDateTime::now_utc);
 
         match &self.delegation {
             KeplerDelegation::Ucan(u) => {
                 u.verify_signature(DID_METHODS.to_resolver()).await?;
                 u.payload
-                    .validate_time(Some(t.timestamp_nanos() as f64 / 1e+9_f64))?;
+                    .validate_time(Some(t.nanosecond() as f64 / 1e+9_f64))?;
             }
             KeplerDelegation::Cacao(c) => {
                 c.verify().await?;
@@ -414,18 +414,18 @@ impl Verifiable for Delegation {
 
 #[rocket::async_trait]
 impl Verifiable for Invocation {
-    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    async fn verify<C>(&self, store: &C, time: Option<OffsetDateTime>, root: &str) -> Result<()>
     where
         C: CapStore + Sync + Send,
     {
-        let t = time.unwrap_or_else(Utc::now);
+        let t = time.unwrap_or_else(OffsetDateTime::now_utc);
 
         self.invocation
             .verify_signature(DID_METHODS.to_resolver())
             .await?;
         self.invocation
             .payload
-            .validate_time(Some(t.timestamp_nanos() as f64 / 1e+9_f64))?;
+            .validate_time(Some(t.nanosecond() as f64 / 1e+9_f64))?;
 
         if self.parents.is_empty() && self.invoker.starts_with(root) {
             // if it's a root cap without parents
@@ -462,11 +462,11 @@ impl Verifiable for Invocation {
 
 #[rocket::async_trait]
 impl Verifiable for Revocation {
-    async fn verify<C>(&self, store: &C, time: Option<DateTime<Utc>>, root: &str) -> Result<()>
+    async fn verify<C>(&self, store: &C, time: Option<OffsetDateTime>, root: &str) -> Result<()>
     where
         C: CapStore + Sync + Send,
     {
-        let t = time.unwrap_or_else(Utc::now);
+        let t = time.unwrap_or_else(OffsetDateTime::now_utc);
 
         match &self.revocation {
             KeplerRevocation::Cacao(c) => {
@@ -511,7 +511,7 @@ mod test {
             did_resolve::DIDResolver,
             jwk::{Algorithm, JWK},
             jws::Header,
-            ucan::{Capability, Payload, Ucan},
+            ucan::{Capability, Payload},
             vc::NumericDate,
         },
     };
