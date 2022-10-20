@@ -11,10 +11,6 @@ use futures::{
     lock::Mutex,
     stream::{self, StreamExt, TryStreamExt},
 };
-use ipfs::{
-    refs::IpldRefsError,
-    repo::{PinKind, PinMode, PinStore},
-};
 use kepler_lib::libipld::cid::{multibase::Base, Cid};
 use rocket::async_trait;
 use std::{collections::BTreeSet, str::FromStr};

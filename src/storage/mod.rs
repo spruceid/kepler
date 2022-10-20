@@ -4,23 +4,15 @@ use aws_sdk_s3::{
     types::{ByteStream, SdkError},
 };
 use aws_smithy_http::body::SdkBody;
-use ipfs::{
-    repo::{
-        fs::{FsBlockStore, FsDataStore, FsLock},
-        mem::MemLock,
-        BlockPut, BlockRm, BlockRmError, BlockStore, Column, DataStore, Lock, LockError, PinKind,
-        PinMode, PinStore,
-    },
-    Block, RepoTypes,
-};
 use kepler_lib::libipld::cid::{multibase::Base, Cid};
 use kepler_lib::resource::OrbitId;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
-use std::{path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tracing::instrument;
 
 mod dynamodb;
+mod file_system;
 mod indexes;
 mod s3;
 mod utils;
@@ -40,19 +32,13 @@ pub struct Repo;
 #[derive(Debug)]
 pub enum BlockStores {
     S3(Box<s3::S3BlockStore>),
-    Local(Box<FsBlockStore>),
+    Local(Box<file_system::FileSystemStore>),
 }
 
 #[derive(Debug)]
 pub enum DataStores {
     S3(Box<s3::S3DataStore>),
-    Local(Box<FsDataStore>),
-}
-
-#[derive(Debug)]
-pub enum Locks {
-    S3(MemLock),
-    Local(FsLock),
+    Local(Box<file_system::FileSystemStore>),
 }
 
 impl StorageUtils {
@@ -244,7 +230,7 @@ impl StorageUtils {
             config::BlockStorage::Local(r) => {
                 let path = r.path.join(orbit.to_string_of_base(Base::Base58Btc)?);
                 if !path.exists() {
-                    tokio::fs::create_dir_all(&path).await?;
+                    fs::create_dir_all(&path).await?;
                 }
                 Ok(path)
             }
@@ -252,10 +238,54 @@ impl StorageUtils {
     }
 }
 
-impl RepoTypes for Repo {
-    type TBlockStore = BlockStores;
-    type TDataStore = DataStores;
-    type TLock = Locks;
+#[derive(Error)]
+pub enum VecReadError<E> {
+    #[error(transparent)]
+    Store(#[from] E),
+    #[error(transparent)]
+    Read(#[from] futures::io::Error),
+}
+
+#[async_trait]
+trait ImmutableStore {
+    type Error;
+    type Readable: futures::io::AsyncRead;
+    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Cid, Self::Error>;
+    async fn remove(&self, id: &Cid) -> Result<Option<()>, Self::Error>;
+    async fn read(&self, id: &Cid) -> Result<Option<Self::Readable>, Self::Error>;
+    async fn read_to_vec(&self, id: &Cid) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>> {
+        Ok(match self.read(id).await? {
+            Some(r) => {
+                let mut v = Vec::new();
+                r.read_all(&mut v).await?;
+                Some(v)
+            }
+            _ => None,
+        })
+    }
+}
+
+#[async_trait]
+trait StoreSeek: ImmutableStore {
+    type Seekable: futures::io::AsyncSeek;
+    async fn seek(&self, id: &Cid) -> Result<Option<Self::Seekable>, Self::Error>;
+}
+
+#[async_trait]
+trait IdempotentHeightGroup {
+    // write a height value for a Cid
+    // should error if given value already exists
+    // if successful, marks a Cid as 'fresh'
+    async fn see(&self, id: impl IntoIterator<Item = (&Cid, &u64)>) -> Result<(), Error>;
+    // mark a Cid as no longer 'fresh'
+    async fn stale(&self, id: impl IntoIterator<Item = &Cid>) -> Result<(), Error>;
+    // return 'fresh' Cids and their heights
+    async fn fresh(&self) -> Result<HashMap<Cid, u64>, Error>;
+    // return the heights of any Cids
+    async fn height<'a>(
+        &self,
+        id: impl IntoIterator<Item = &'a Cid>,
+    ) -> Result<HashMap<&'a Cid, u64>, Error>;
 }
 
 #[async_trait]
