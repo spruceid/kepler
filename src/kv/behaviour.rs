@@ -9,8 +9,8 @@ use std::{
 use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        handler::DummyConnectionHandler, IntoConnectionHandler, NetworkBehaviour,
-        NetworkBehaviourAction, PollParameters,
+        handler::ConnectionHandler as DummyConnectionHandler, IntoConnectionHandler,
+        NetworkBehaviour, NetworkBehaviourAction, PollParameters,
     },
 };
 use void::Void;
@@ -80,7 +80,7 @@ impl NetworkBehaviour for Behaviour {
 pub struct BehaviourProcess(Arc<AbortOnDrop<()>>);
 
 impl BehaviourProcess {
-    pub fn new(store: Store, mut receiver: Receiver<Event>) -> Self {
+    pub fn new<B>(store: Store<B>, mut receiver: Receiver<Event>) -> Self {
         Self(Arc::new(AbortOnDrop::new(tokio::spawn(async move {
             while let Ok(Ok((event, returned_receiver))) =
                 tokio::task::spawn_blocking(move || receiver.recv().map(|ev| (ev, receiver))).await
@@ -88,20 +88,22 @@ impl BehaviourProcess {
                 receiver = returned_receiver;
                 match event {
                     Event::ConnectionEstablished(peer_id) => {
-                        if let Err(e) = store.ipfs.pubsub_add_peer(peer_id).await {
-                            tracing::error!("failed to add new peer to allowed pubsub peers: {}", e)
-                        }
-                        if let Err(e) = store.request_heads().await {
-                            tracing::error!("failed to request heads from peers: {}", e)
-                        }
+                        todo!("synchronise state with peer");
+                        // if let Err(e) = store.ipfs.pubsub_add_peer(peer_id).await {
+                        //     tracing::error!("failed to add new peer to allowed pubsub peers: {}", e)
+                        // }
+                        // if let Err(e) = store.request_heads().await {
+                        //     tracing::error!("failed to request heads from peers: {}", e)
+                        // }
                     }
                     Event::ConnectionTerminated(peer_id) => {
-                        if let Err(e) = store.ipfs.pubsub_remove_peer(peer_id).await {
-                            tracing::error!(
-                                "failed to remove disconnected peer from allowed pubsub peers: {}",
-                                e
-                            )
-                        }
+                        todo!("remove peer from set/deny connection");
+                        // if let Err(e) = store.ipfs.pubsub_remove_peer(peer_id).await {
+                        //     tracing::error!(
+                        //         "failed to remove disconnected peer from allowed pubsub peers: {}",
+                        //         e
+                        //     )
+                        // }
                     }
                 }
             }

@@ -362,7 +362,10 @@ impl Store<B> {
 }
 
 #[rocket::async_trait]
-impl CapStore for Store {
+impl<B> CapStore for Store<B>
+where
+    B: ImmutableStore,
+{
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here
         Ok(self.get_obj(c).await.ok().map(|d| d.base))

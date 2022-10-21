@@ -3,10 +3,7 @@ use kepler_lib::libipld::cid::{
     multibase::{encode, Base},
     multihash::Multihash,
 };
-use std::{
-    io::{Error, ErrorKind},
-    path::PathBuf,
-};
+use std::{io::ErrorKind, path::PathBuf};
 use tokio::{
     fs::{remove_file, File},
     io::copy,
@@ -21,11 +18,12 @@ impl FileSystemStore {
         Self { path }
     }
 
-    fn get_path(mh: &Multihash) -> PathBuf {
+    fn get_path(&self, mh: &Multihash) -> PathBuf {
         self.path.join(encode(Base::Base64Url, mh))
     }
 }
 
+#[async_trait]
 impl ImmutableStore for FileSystemStore {
     type Error = std::io::Error;
     type Readable = File;
@@ -42,14 +40,14 @@ impl ImmutableStore for FileSystemStore {
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match remove_file(self.get_path(id)).await {
             Ok(()) => Ok(Some(())),
-            Err(e) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
         match File::open(self.get_path(id)).await {
             Ok(f) => Ok(Some(f)),
-            Err(e) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
     }
