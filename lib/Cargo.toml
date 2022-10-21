@@ -5,15 +5,15 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
-iri-string = "0.5"
-libipld = "0.13"
+iri-string = "0.6"
+libipld = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
-cacaos = { git = "https://github.com/spruceid/cacao-rs" }
-capgrok = "0.2"
+cacaos = "0.5"
+capgrok = "0.3"
 lazy_static = "1.4"
 did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
 did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
