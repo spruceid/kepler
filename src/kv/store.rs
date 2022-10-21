@@ -1,6 +1,7 @@
 use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::kv::entries::{read_from_store, write_to_store};
 use crate::kv::{Object, ObjectBuilder, Service};
+use crate::storage::ImmutableStore;
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -9,7 +10,7 @@ use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::{debug, instrument};
 
-use super::{to_block, Block, Ipfs, KVMessage, ObjectReader};
+use super::{to_block, Block, KVMessage, ObjectReader};
 use crate::config;
 
 #[derive(DagCbor)]
@@ -98,21 +99,21 @@ impl Element {
 }
 
 #[derive(Clone)]
-pub struct Store {
+pub struct Store<B> {
     pub id: String,
-    pub ipfs: Ipfs,
+    blocks: B,
     index: AddRemoveSetStore,
     heads: HeadStore,
 }
 
-impl Store {
-    pub async fn new(orbit_id: Cid, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
+impl Store<B> {
+    pub async fn new(orbit_id: Cid, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let index = AddRemoveSetStore::new(orbit_id, "kv".to_string(), config.clone()).await?;
         // heads tracking store
         let heads = HeadStore::new(orbit_id, "kv".to_string(), "heads".to_string(), config).await?;
         Ok(Self {
             id: orbit_id.to_string_of_base(Base::Base58Btc)?,
-            ipfs,
+            blocks,
             index,
             heads,
         })
@@ -145,27 +146,34 @@ impl Store {
             .await
             .into_iter()
     }
+}
 
+impl Store<B>
+where
+    B: ImmutableStore,
+{
     #[instrument(name = "kv::get", skip_all)]
-    pub async fn get<N: AsRef<[u8]>>(&self, name: N) -> Result<Option<Object>> {
-        let key = name;
-        match self.index.element(&key).await? {
+    pub async fn get<N>(&self, name: N) -> Result<Option<Object>>
+    where
+        N: AsRef<[u8]>,
+    {
+        let cid = match self.index.element(&name).await? {
             Some(Element(_, cid)) => Ok(
                 match self
                     .index
-                    .is_tombstoned(&Version(key, cid).to_bytes())
+                    .is_tombstoned(&Version(name, cid).to_bytes())
                     .await?
                 {
-                    false => Some(self.ipfs.get_block(&cid).await?.decode()?),
-                    _ => None,
+                    false => self.blocks.read_to_vec(cid).await,
+                    _ => return Ok(None),
                 },
             ),
-            None => Ok(None),
-        }
+            None => return Ok(None),
+        };
     }
 
     #[instrument(name = "kv::read", skip_all)]
-    pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, ObjectReader)>>
+    pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, B::Readable)>>
     where
         N: AsRef<[u8]>,
     {
@@ -173,27 +181,10 @@ impl Store {
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
-        match self
-            .ipfs
-            .get_block(&kv_obj.value)
-            .await?
-            .decode::<DagCborCodec, Vec<(Cid, u32)>>()
-        {
-            Ok(content) => Ok(Some((
-                kv_obj.metadata,
-                read_from_store(self.ipfs.clone(), content),
-            ))),
-            Err(_) => Ok(None),
+        match self.blocks.read(&kv_obj.value).await? {
+            Some(r) => Ok(Some((kv_obj.metadata, r))),
+            None => Err(anyhow!("Indexed contents missing from block store")),
         }
-    }
-
-    #[instrument(name = "kv::request_heads", skip_all)]
-    pub(crate) async fn request_heads(&self) -> Result<()> {
-        debug!("requesting heads");
-        self.ipfs
-            .pubsub_publish(self.id.clone(), bincode::serialize(&KVMessage::StateReq)?)
-            .await?;
-        Ok(())
     }
 
     #[instrument(name = "kv::write", skip_all)]
@@ -201,6 +192,7 @@ impl Store {
         &self,
         add: impl IntoIterator<Item = (ObjectBuilder, R)>,
         remove: impl IntoIterator<Item = (N, Option<(u64, Cid)>, Cid)>,
+        // TODO return list of new heads to be broadcast?
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
@@ -209,10 +201,11 @@ impl Store {
         tracing::debug!("writing tx");
         let indexes: Vec<(Vec<u8>, Cid)> = try_join_all(add.into_iter().map(|(o, r)| async {
             // tracing::debug!("adding {:#?}", &o.key);
-            let cid = write_to_store(&self.ipfs, r).await?;
+            // store aaalllllll the content bytes under 1 CID
+            let cid = Cid::new_v1(0x55, self.blocks.write(r).await?);
             let obj = o.add_content(cid);
             let block = obj.to_block()?;
-            let obj_cid = self.ipfs.put_block(block).await?;
+            let obj_cid = Cid::new_v1(obj.cid().codec(), self.blocks.write(block.data()).await?);
             Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
         }))
         .await?
@@ -265,28 +258,6 @@ impl Store {
         // apply/pin root/update heads
         self.apply(&(block, delta), adds.0, rmvs.0).await?;
 
-        // broadcast
-        self.broadcast_heads().await?;
-        Ok(())
-    }
-
-    #[instrument(name = "kv::broadcast_heads", skip_all)]
-    pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let (heads, height) = self.heads.get_heads().await?;
-        if !heads.is_empty() {
-            debug!(
-                "broadcasting {} heads at maxheight {} on {}",
-                heads.len(),
-                height,
-                self.id,
-            );
-            self.ipfs
-                .pubsub_publish(
-                    self.id.clone(),
-                    bincode::serialize(&KVMessage::Heads(heads))?,
-                )
-                .await?;
-        }
         Ok(())
     }
 
@@ -345,61 +316,8 @@ impl Store {
         self.heads
             .new_heads([*block.cid()], delta.prev.clone())
             .await?;
-        self.ipfs.put_block(block.clone()).await?;
+        self.blocks.write(block.data()).await?;
 
-        Ok(())
-    }
-
-    #[async_recursion]
-    pub(crate) async fn try_merge_heads(
-        &self,
-        heads: impl Iterator<Item = Cid> + Send + 'async_recursion,
-    ) -> Result<()> {
-        try_join_all(heads.map(|head| async move {
-            // fetch head block check block is an event
-            let delta_block = self.ipfs.get_block(&head).await?;
-            let delta: LinkedDelta = delta_block.decode()?;
-
-            // recurse through unseen prevs first
-            self.try_merge_heads(
-                stream::iter(delta.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
-                    .try_filter_map(|p| async move {
-                        self.heads.get_height(p).await.map(|o| match o {
-                            Some(_) => None,
-                            None => Some(p),
-                        })
-                    })
-                    .try_collect::<Vec<Cid>>()
-                    .await?
-                    .into_iter(),
-            )
-            .await?;
-
-            let adds: Vec<(Vec<u8>, Cid)> =
-                try_join_all(delta.delta.add.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.get_block(c).await?.decode()?;
-                    Ok((obj.key, *c)) as Result<(Vec<u8>, Cid)>
-                }))
-                .await?;
-
-            let removes: Vec<(Vec<u8>, Cid)> =
-                try_join_all(delta.delta.rmv.iter().map(|c| async move {
-                    let obj: Object = self.ipfs.get_block(&c.0).await?.decode()?;
-                    Ok((obj.key, c.0)) as Result<(Vec<u8>, Cid)>
-                }))
-                .await?;
-
-            // TODO verify authz stuff
-
-            self.apply(&(delta_block, delta), adds, removes).await?;
-
-            // dispatch ipfs::sync
-            debug!("syncing head {}", head);
-
-            self.ipfs.insert_pin(&head, true).await?;
-            Ok(()) as Result<()>
-        }))
-        .await?;
         Ok(())
     }
     pub async fn start_service(self) -> Result<Service> {

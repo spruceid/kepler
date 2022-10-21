@@ -13,66 +13,6 @@ use rocket::tokio::io::AsyncRead;
 use tokio_stream::iter;
 use tokio_util::io::{ReaderStream, StreamReader};
 
-pub type ObjectReader =
-    StreamReader<BoxStream<'static, Result<Cursor<Block>, io::Error>>, Cursor<Block>>;
-
-pub fn read_from_store(ipfs: Ipfs, content: Vec<(Cid, u32)>) -> ObjectReader {
-    let chunk_stream = Box::pin(
-        iter(content)
-            .then(move |(cid, _)| get_block(ipfs.clone(), cid))
-            .map_ok(Cursor::new)
-            .map_err(|ipfs_err| io::Error::new(ErrorKind::Other, ipfs_err)),
-    );
-    StreamReader::new(chunk_stream)
-}
-
-async fn get_block(ipfs: Ipfs, cid: Cid) -> Result<Block, ipfs::Error> {
-    ipfs.get_block(&cid).await
-}
-
-pub async fn write_to_store<R>(store: &Ipfs, source: R) -> anyhow::Result<Cid>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut reader = ReaderStream::new(source);
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut content: Vec<(Cid, u32)> = Vec::new();
-    while let Some(chunk) = reader.next().await.transpose()? {
-        buffer.write_all(&chunk)?;
-        while buffer.len() >= KeplerParams::MAX_BLOCK_SIZE {
-            flush_buffer_to_block(store, &mut buffer, &mut content).await?;
-        }
-    }
-    while !buffer.is_empty() {
-        flush_buffer_to_block(store, &mut buffer, &mut content).await?;
-    }
-    let block = to_block(&content)?;
-    let cid = store.put_block(block).await?;
-    Ok(cid)
-}
-
-async fn flush_buffer_to_block(
-    store: &Ipfs,
-    buffer: &mut Vec<u8>,
-    content: &mut Vec<(Cid, u32)>,
-) -> Result<(), io::Error> {
-    let len = KeplerParams::MAX_BLOCK_SIZE.min(buffer.len());
-    if len > 0 {
-        let (block_data, overflow) = buffer.split_at(len);
-        let block =
-            to_block_raw(&block_data).map_err(|e| io::Error::new(ErrorKind::InvalidData, e))?;
-        *buffer = overflow.to_vec();
-        tracing::debug!("flushing {} bytes to block {}", len, block.cid());
-        let cid = store
-            .put_block(block)
-            .await
-            .map_err(|e| io::Error::new(ErrorKind::Other, e))?;
-        tracing::debug!("block {} flushed {} bytes with {}", content.len(), len, cid);
-        content.push((cid, len as u32));
-    }
-    Ok(())
-}
-
 #[derive(DagCbor, PartialEq, Eq, Debug, Clone)]
 pub struct Object {
     pub key: Vec<u8>,

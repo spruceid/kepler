@@ -11,48 +11,30 @@ pub mod behaviour;
 mod entries;
 mod store;
 
-use super::{
-    ipfs::{Block, Ipfs},
-    orbit::AbortOnDrop,
-};
+use super::{ipfs::Block, orbit::AbortOnDrop};
 
-pub use entries::{Object, ObjectBuilder, ObjectReader};
+pub use entries::{Object, ObjectBuilder};
 pub use store::Store;
 
 type TaskHandle = AbortOnDrop<()>;
 
 #[derive(Clone)]
-pub struct Service {
-    pub store: Store,
-    _task: Arc<TaskHandle>,
+pub struct Service<B> {
+    pub store: Store<B>,
 }
 
-impl Service {
-    fn new(store: Store, task: TaskHandle) -> Self {
-        Self {
-            store,
-            _task: Arc::new(task),
-        }
+impl Service<B> {
+    fn new(store: Store<B>) -> Self {
+        Self { store }
     }
 
-    pub async fn start(store: Store) -> Result<Self> {
-        let events = store
-            .ipfs
-            .pubsub_subscribe(store.id.clone())
-            .await?
-            .map(|msg| match bincode::deserialize(&msg.data) {
-                Ok(kv_msg) => Ok((msg.source, kv_msg)),
-                Err(e) => Err(anyhow!(e)),
-            });
-        let peer_id = store.ipfs.identity().await?.0.to_peer_id();
-        let task = AbortOnDrop::new(tokio::spawn(kv_task(events, store.clone(), peer_id)));
-        store.request_heads().await?;
-        Ok(Service::new(store, task))
+    pub async fn start(store: Store<B>) -> Result<Self> {
+        Ok(Self::new(store))
     }
 }
 
-impl std::ops::Deref for Service {
-    type Target = Store;
+impl<B> std::ops::Deref for Service<B> {
+    type Target = Store<B>;
     fn deref(&self) -> &Self::Target {
         &self.store
     }
@@ -98,9 +80,9 @@ enum KVMessage {
     StateReq,
 }
 
-async fn kv_task(
+async fn kv_task<B>(
     events: impl Stream<Item = Result<(PeerId, KVMessage)>> + Send,
-    store: Store,
+    store: Store<B>,
     peer_id: PeerId,
 ) {
     debug!("starting KV task");
@@ -118,11 +100,11 @@ async fn kv_task(
                     };
                 }
                 Ok((p, KVMessage::StateReq)) => {
-                    debug!("{} requests state", p);
+                    // debug!("{} requests state", p);
                     // send heads
-                    if let Err(e) = store.broadcast_heads().await {
-                        error!("failed to broadcast heads {}", e);
-                    };
+                    // if let Err(e) = store.broadcast_heads().await {
+                    //     error!("failed to broadcast heads {}", e);
+                    // };
                 }
                 Err(e) => {
                     error!("{}", e);
