@@ -21,16 +21,6 @@ use std::{path::PathBuf, str::FromStr};
 use super::dynamodb::{DynamoPinStore, References};
 use crate::config;
 
-#[derive(Debug)]
-pub struct S3DataStore {
-    // TODO Remove is unused (orbit::delete is never called).
-    // When that changes we will need to use a mutex, either local or in Dynamo
-    pub client: Client,
-    pub bucket: String,
-    pub dynamodb: DynamoPinStore,
-    pub orbit: Cid,
-}
-
 // TODO we could use the same struct for both the block store and the data
 // (pin) store, but we need to remember that for now it will be two different
 // objects in rust-ipfs
@@ -40,7 +30,6 @@ pub struct S3BlockStore {
     // When that changes we will need to use a mutex, either local or in Dynamo
     pub client: Client,
     pub bucket: String,
-    pub dynamodb: DynamoPinStore,
     pub orbit: Cid,
 }
 
@@ -60,7 +49,6 @@ impl S3DataStore {
         S3DataStore {
             client: new_client(config.clone()),
             bucket: config.bucket,
-            dynamodb: DynamoPinStore::new(config.dynamodb, orbit),
             orbit,
         }
     }
@@ -111,7 +99,6 @@ impl S3BlockStore {
         S3BlockStore {
             client: new_client(config.clone()),
             bucket: config.bucket,
-            dynamodb: DynamoPinStore::new(config.dynamodb, orbit),
             orbit,
         }
     }
@@ -254,102 +241,5 @@ impl BlockStore for S3BlockStore {
 
     async fn wipe(&self) {
         unimplemented!("wipe")
-    }
-}
-
-#[async_trait]
-impl DataStore for S3DataStore {
-    fn new(path: PathBuf) -> S3DataStore {
-        let (config, orbit) = path_to_config(path);
-        S3DataStore::new_(config, orbit)
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        self.dynamodb.healthcheck().await?;
-        self.client
-            .head_bucket()
-            .bucket(self.bucket.clone())
-            .send()
-            .await?;
-        Ok(())
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    // None of those methods are implemented for Sled of Fs data stores 🤡
-
-    async fn contains(&self, _col: Column, _key: &[u8]) -> Result<bool, Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn get(&self, _col: Column, _key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn put(&self, _col: Column, _key: &[u8], _value: &[u8]) -> Result<(), Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn remove(&self, _col: Column, _key: &[u8]) -> Result<(), Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn wipe(&self) {
-        todo!()
-    }
-}
-
-#[async_trait]
-impl PinStore for S3DataStore {
-    async fn is_pinned(&self, _cid: &Cid) -> Result<bool, Error> {
-        // self.dynamodb.is_pinned(cid).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn insert_direct_pin(&self, _target: &Cid) -> Result<(), Error> {
-        // self.dynamodb.insert_direct_pin(target).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn insert_recursive_pin(
-        &self,
-        _target: &Cid,
-        _referenced: References<'_>,
-    ) -> Result<(), Error> {
-        // self.dynamodb.insert_recursive_pin(target, referenced).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn remove_direct_pin(&self, _target: &Cid) -> Result<(), Error> {
-        // self.dynamodb.remove_direct_pin(target).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn remove_recursive_pin(
-        &self,
-        _target: &Cid,
-        _referenced: References<'_>,
-    ) -> Result<(), Error> {
-        // self.dynamodb.remove_recursive_pin(target, referenced).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn list(
-        &self,
-        _requirement: Option<PinMode>,
-    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        // self.dynamodb.list(requirement).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn query(
-        &self,
-        _ids: Vec<Cid>,
-        _requirement: Option<PinMode>,
-    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        // self.dynamodb.query(ids, requirement).await
-        unimplemented!("Unused (so untested)");
     }
 }
