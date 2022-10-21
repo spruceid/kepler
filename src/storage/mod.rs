@@ -4,7 +4,7 @@ use aws_sdk_s3::{
     types::{ByteStream, SdkError},
 };
 use aws_smithy_http::body::SdkBody;
-use kepler_lib::libipld::cid::{multibase::Base, Cid};
+use kepler_lib::libipld::cid::{multibase::Base, multihash::Multihash, Cid};
 use kepler_lib::resource::OrbitId;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
@@ -250,10 +250,14 @@ pub enum VecReadError<E> {
 trait ImmutableStore {
     type Error;
     type Readable: futures::io::AsyncRead;
-    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Cid, Self::Error>;
-    async fn remove(&self, id: &Cid) -> Result<Option<()>, Self::Error>;
-    async fn read(&self, id: &Cid) -> Result<Option<Self::Readable>, Self::Error>;
-    async fn read_to_vec(&self, id: &Cid) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>> {
+    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
+    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Multihash, Self::Error>;
+    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
+    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
+    async fn read_to_vec(
+        &self,
+        id: &Multihash,
+    ) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>> {
         Ok(match self.read(id).await? {
             Some(r) => {
                 let mut v = Vec::new();
@@ -286,217 +290,4 @@ trait IdempotentHeightGroup {
         &self,
         id: impl IntoIterator<Item = &'a Cid>,
     ) -> Result<HashMap<&'a Cid, u64>, Error>;
-}
-
-#[async_trait]
-impl BlockStore for BlockStores {
-    fn new(path: PathBuf) -> Self {
-        if path.to_str().unwrap().starts_with("/s3bucket/") {
-            Self::S3(Box::new(s3::S3BlockStore::new(path)))
-        } else {
-            Self::Local(Box::new(FsBlockStore::new(path)))
-        }
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.init().await,
-            Self::Local(r) => r.init().await,
-        }
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.open().await,
-            Self::Local(r) => r.open().await,
-        }
-    }
-
-    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        match self {
-            Self::S3(r) => r.contains(cid).await,
-            Self::Local(r) => r.contains(cid).await,
-        }
-    }
-
-    #[instrument(name = "blocks::get", skip_all)]
-    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        match self {
-            Self::S3(r) => r.get(cid).await,
-            Self::Local(r) => r.get(cid).await,
-        }
-    }
-
-    #[instrument(name = "blocks::put", skip_all)]
-    async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
-        match self {
-            Self::S3(r) => r.put(block).await,
-            Self::Local(r) => r.put(block).await,
-        }
-    }
-
-    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
-        match self {
-            Self::S3(r) => r.remove(cid).await,
-            Self::Local(r) => r.remove(cid).await,
-        }
-    }
-
-    async fn list(&self) -> Result<Vec<Cid>, Error> {
-        match self {
-            Self::S3(r) => r.list().await,
-            Self::Local(r) => r.list().await,
-        }
-    }
-
-    async fn wipe(&self) {
-        match self {
-            Self::S3(r) => r.wipe().await,
-            Self::Local(r) => r.wipe().await,
-        }
-    }
-}
-
-#[async_trait]
-impl DataStore for DataStores {
-    fn new(path: PathBuf) -> DataStores {
-        if path.to_str().unwrap().starts_with("/s3bucket/") {
-            Self::S3(Box::new(s3::S3DataStore::new(path)))
-        } else {
-            Self::Local(Box::new(FsDataStore::new(path)))
-        }
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.init().await,
-            Self::Local(r) => r.init().await,
-        }
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.open().await,
-            Self::Local(r) => r.open().await,
-        }
-    }
-
-    async fn contains(&self, col: Column, key: &[u8]) -> Result<bool, Error> {
-        match self {
-            Self::S3(r) => r.contains(col, key).await,
-            Self::Local(r) => r.contains(col, key).await,
-        }
-    }
-
-    async fn get(&self, col: Column, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        match self {
-            Self::S3(r) => r.get(col, key).await,
-            Self::Local(r) => r.get(col, key).await,
-        }
-    }
-
-    async fn put(&self, col: Column, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.put(col, key, value).await,
-            Self::Local(r) => r.put(col, key, value).await,
-        }
-    }
-
-    async fn remove(&self, col: Column, key: &[u8]) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.remove(col, key).await,
-            Self::Local(r) => r.remove(col, key).await,
-        }
-    }
-
-    async fn wipe(&self) {
-        match self {
-            Self::S3(r) => r.wipe().await,
-            Self::Local(r) => r.wipe().await,
-        }
-    }
-}
-
-#[async_trait]
-impl PinStore for DataStores {
-    async fn is_pinned(&self, cid: &Cid) -> Result<bool, Error> {
-        match self {
-            Self::S3(r) => r.is_pinned(cid).await,
-            Self::Local(r) => r.is_pinned(cid).await,
-        }
-    }
-
-    async fn insert_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.insert_direct_pin(target).await,
-            Self::Local(r) => r.insert_direct_pin(target).await,
-        }
-    }
-
-    async fn insert_recursive_pin(
-        &self,
-        target: &Cid,
-        referenced: References<'_>,
-    ) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.insert_recursive_pin(target, referenced).await,
-            Self::Local(r) => r.insert_recursive_pin(target, referenced).await,
-        }
-    }
-
-    async fn remove_direct_pin(&self, target: &Cid) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.remove_direct_pin(target).await,
-            Self::Local(r) => r.remove_direct_pin(target).await,
-        }
-    }
-
-    async fn remove_recursive_pin(
-        &self,
-        target: &Cid,
-        referenced: References<'_>,
-    ) -> Result<(), Error> {
-        match self {
-            Self::S3(r) => r.remove_recursive_pin(target, referenced).await,
-            Self::Local(r) => r.remove_recursive_pin(target, referenced).await,
-        }
-    }
-
-    async fn list(
-        &self,
-        requirement: Option<PinMode>,
-    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        match self {
-            Self::S3(r) => r.list(requirement).await,
-            Self::Local(r) => r.list(requirement).await,
-        }
-    }
-
-    async fn query(
-        &self,
-        ids: Vec<Cid>,
-        requirement: Option<PinMode>,
-    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        match self {
-            Self::S3(r) => r.query(ids, requirement).await,
-            Self::Local(r) => r.query(ids, requirement).await,
-        }
-    }
-}
-
-impl Lock for Locks {
-    fn new(path: PathBuf) -> Self {
-        if path.to_str().unwrap().starts_with("/s3bucket/") {
-            Self::S3(MemLock::new(path))
-        } else {
-            Self::Local(FsLock::new(path))
-        }
-    }
-
-    fn try_exclusive(&mut self) -> Result<(), LockError> {
-        match self {
-            Self::S3(r) => r.try_exclusive(),
-            Self::Local(r) => r.try_exclusive(),
-        }
-    }
 }

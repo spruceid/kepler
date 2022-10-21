@@ -1,4 +1,8 @@
 use super::ImmutableStore;
+use kepler_lib::libipld::cid::{
+    multibase::{encode, Base},
+    multihash::Multihash,
+};
 use std::{
     io::{Error, ErrorKind},
     path::PathBuf,
@@ -16,13 +20,18 @@ impl FileSystemStore {
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
+
+    fn get_path(mh: &Multihash) -> PathBuf {
+        self.path.join(encode(Base::Base64Url, mh))
+    }
 }
 
 impl ImmutableStore for FileSystemStore {
     type Error = std::io::Error;
     type Readable = File;
-    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Cid, Self::Error> {
+    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Multihash, Self::Error> {
         todo!();
+        // write into tmp then rename, to name after the hash
         // need to stream data through a hasher into the file and return hash
         // match File::open(path.join(cid.to_string())),await {
         //     Ok(f) => copy(data, file).await
@@ -30,15 +39,15 @@ impl ImmutableStore for FileSystemStore {
         //     Err(e) => Err(e),
         // }
     }
-    async fn remove(&self, id: &Cid) -> Result<Option<()>, Self::Error> {
-        match remove_file(self.path.join(cid.to_string())).await {
+    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
+        match remove_file(self.get_path(id)).await {
             Ok(()) => Ok(Some(())),
             Err(e) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
     }
-    async fn read(&self, id: &Cid) -> Result<Option<Self::Readable>, Self::Error> {
-        match File::open(path.join(cid.to_string())).await {
+    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+        match File::open(self.get_path(id)).await {
             Ok(f) => Ok(Some(f)),
             Err(e) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
