@@ -5,12 +5,14 @@ use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::routes::Metadata;
 use anyhow::Result;
-use ipfs::{Multiaddr, PeerId};
 use kepler_lib::{
     libipld::Cid,
     resource::{OrbitId, ResourceId},
 };
-use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
+use libp2p::{
+    core::{Multiaddr, PeerId},
+    identity::ed25519::Keypair as Ed25519Keypair,
+};
 use rocket::{
     futures::future::try_join_all,
     http::Status,

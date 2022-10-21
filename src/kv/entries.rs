@@ -1,5 +1,5 @@
 use super::{to_block, to_block_raw};
-use crate::ipfs::{Block, Ipfs, KeplerParams};
+use crate::ipfs::{Block, KeplerParams};
 use anyhow::Result;
 use kepler_lib::libipld::{cid::Cid, store::StoreParams, DagCbor};
 use libp2p::futures::stream::BoxStream;
@@ -67,7 +67,6 @@ impl ObjectBuilder {
 
 #[cfg(test)]
 mod test {
-    use ipfs::IpfsOptions;
 
     use super::*;
     use crate::{config, kv::DagCborCodec, tracing::tracing_try_init};

@@ -1,7 +1,7 @@
 use crate::{
     authorization::{CapStore, Delegation, Invocation, Revocation, Verifiable},
     indexes::{AddRemoveSetStore, HeadStore},
-    ipfs::{Block, Ipfs},
+    ipfs::Block,
     kv::to_block_raw,
 };
 use anyhow::Result;

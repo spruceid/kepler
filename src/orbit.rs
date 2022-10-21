@@ -7,7 +7,6 @@ use crate::{
     manifest::Manifest,
 };
 use anyhow::{anyhow, Result};
-use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use kepler_lib::libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
@@ -15,7 +14,7 @@ use kepler_lib::libipld::cid::{
 use kepler_lib::resource::OrbitId;
 use libp2p::{
     core::Multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
+    identity::{ed25519::Keypair as Ed25519Keypair, Keypair, PublicKey},
     PeerId,
 };
 use rocket::{futures::TryStreamExt, tokio::task::JoinHandle};
@@ -78,7 +77,7 @@ impl Orbit {
         relay: Option<(PeerId, Multiaddr)>,
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
-        let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
+        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(kp.public()));
 
         // TODO config into block store
         let blocks = todo!();
@@ -184,37 +183,6 @@ pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
         c.codec(),
         Code::try_from(c.hash().code())?.digest(b.as_ref()),
     ))
-}
-
-#[rocket::async_trait]
-impl ContentAddressedStorage for Orbit {
-    type Error = anyhow::Error;
-    async fn put(
-        &self,
-        content: &[u8],
-        codec: SupportedCodecs,
-    ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.put(content, codec).await
-    }
-    async fn get(
-        &self,
-        address: &Cid,
-    ) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
-        ContentAddressedStorage::get(&self.service.ipfs, address).await
-    }
-    async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.delete(address).await
-    }
-    async fn list(&self) -> Result<Vec<Cid>, <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.list().await
-    }
-}
-
-impl Deref for Orbit {
-    type Target = Manifest;
-    fn deref(&self) -> &Self::Target {
-        &self.manifest
-    }
 }
 
 #[cfg(test)]

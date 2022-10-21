@@ -6,9 +6,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use ipfs::{Multiaddr, PeerId};
 use libp2p::{
-    core::{connection::ConnectionId, ConnectedPoint},
+    core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
         handler::DummyConnectionHandler, IntoConnectionHandler, NetworkBehaviour,
         NetworkBehaviourAction, PollParameters,

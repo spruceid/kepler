@@ -1,8 +1,8 @@
 use anyhow::Result;
-use ipfs::PeerId;
 use kepler_lib::libipld::{
     cbor::DagCborCodec, cid::Cid, codec::Encode, multihash::Code, raw::RawCodec,
 };
+use libp2p::core::PeerId;
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -116,10 +116,10 @@ async fn kv_task<B>(
 
 #[cfg(test)]
 mod test {
-    use ipfs::{Keypair, MultiaddrWithoutPeerId, Protocol};
+    use libp2p::{identity::Keypair, multiaddr::Protocol};
 
     use super::*;
-    use crate::{config, ipfs::create_ipfs, relay::test::test_relay};
+    use crate::{config, relay::test::test_relay};
     use std::{
         collections::BTreeMap, convert::TryFrom, path::PathBuf, str::FromStr, time::Duration,
     };

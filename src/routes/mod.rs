@@ -1,7 +1,10 @@
 use anyhow::Result;
-use ipfs::{PeerId, Protocol};
 use kepler_lib::libipld::Cid;
-use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
+use libp2p::{
+    core::PeerId,
+    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
+    multiaddr::Protocol,
+};
 use rocket::{
     data::{Data, ToByteUnit},
     http::{Header, Status},
@@ -89,7 +92,7 @@ pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
     let keypair = Ed25519Keypair::generate();
-    let id = ipfs::PublicKey::Ed25519(keypair.public()).to_peer_id();
+    let id = PublicKey::Ed25519(keypair.public()).to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);

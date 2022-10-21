@@ -3,8 +3,10 @@ use std::{
     future::{ready, Ready},
 };
 
-use ipfs::PeerId;
-use libp2p::{core::Endpoint, noise::NoiseError};
+use libp2p::{
+    core::{Endpoint, PeerId},
+    noise::NoiseError,
+};
 
 pub fn auth_mapper<A, I>(
     i: I,
@@ -42,7 +44,7 @@ mod test {
     use std::convert::TryFrom;
 
     use crate::{config, ipfs::create_ipfs, relay::test::test_relay};
-    use ipfs::{MultiaddrWithoutPeerId, Protocol};
+    use ipfs::multiaddr::Protocol;
     use kepler_lib::libipld::Cid;
     use libp2p::identity::Keypair;
     use std::str::FromStr;
