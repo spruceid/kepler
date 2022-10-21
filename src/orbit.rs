@@ -3,7 +3,6 @@ use crate::{
     cas::ContentAddressedStorage,
     codec::SupportedCodecs,
     config,
-    ipfs::create_ipfs,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
 };
@@ -52,26 +51,23 @@ impl<T> Deref for AbortOnDrop<T> {
 
 #[derive(Clone, Debug)]
 struct OrbitTasks {
-    _ipfs: Arc<AbortOnDrop<()>>,
     _behaviour_process: BehaviourProcess,
 }
 
 impl OrbitTasks {
-    fn new(ipfs_future: JoinHandle<()>, behaviour_process: BehaviourProcess) -> Self {
-        let ipfs = Arc::new(AbortOnDrop::new(ipfs_future));
+    fn new(behaviour_process: BehaviourProcess) -> Self {
         Self {
-            _ipfs: ipfs,
             _behaviour_process: behaviour_process,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct Orbit {
-    pub service: KVService,
+pub struct Orbit<B> {
+    pub service: KVService<B>,
     _tasks: OrbitTasks,
     pub manifest: Manifest,
-    pub capabilities: CapService,
+    pub capabilities: CapService<B>,
 }
 
 impl Orbit {
@@ -83,52 +79,23 @@ impl Orbit {
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
         let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
-        let (ipfs, ipfs_future, receiver) = create_ipfs(
-            id,
-            config,
-            Keypair::Ed25519(kp),
-            manifest
-                .bootstrap_peers()
-                .peers
-                .iter()
-                .map(|p| p.id)
-                .collect::<Vec<PeerId>>(),
-        )
-        .await?;
 
-        let ipfs_task = spawn(ipfs_future);
-        if let Some(r) = relay {
-            ipfs.connect(MultiaddrWithoutPeerId::try_from(r.1)?.with(r.0))
-                .await?;
-        };
-
-        let service_store = Store::new(id, ipfs.clone(), config.storage.indexes.clone()).await?;
+        // TODO config into block store
+        let blocks = todo!();
+        let service_store = Store::new(id, blocks.clone(), config.storage.indexes.clone()).await?;
         let service = KVService::start(service_store).await?;
 
-        let cap_store =
-            CapStore::new(manifest.id(), ipfs.clone(), config.storage.indexes.clone()).await?;
+        let cap_store = CapStore::new(
+            manifest.id(),
+            blocks.clone(),
+            config.storage.indexes.clone(),
+        )
+        .await?;
         let capabilities = CapService::start(cap_store).await?;
 
         let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
 
-        let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
-
-        tokio_stream::iter(
-            manifest
-                .bootstrap_peers()
-                .peers
-                .iter()
-                .filter(|p| p.id != local_peer_id)
-                .flat_map(|peer| {
-                    peer.addrs
-                        .clone()
-                        .into_iter()
-                        .zip(std::iter::repeat(peer.id))
-                })
-                .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
-        )
-        .try_for_each(|multiaddr| ipfs.connect(multiaddr))
-        .await?;
+        let tasks = OrbitTasks::new(behaviour_process);
 
         Ok(Orbit {
             service,
