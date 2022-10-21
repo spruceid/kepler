@@ -16,46 +16,29 @@ pub trait Invoke<T> {
 }
 
 #[derive(Clone)]
-pub struct Service {
-    pub store: Store,
-    _task: Arc<AbortOnDrop<()>>,
+pub struct Service<B> {
+    pub store: Store<B>,
 }
 
-impl std::ops::Deref for Service {
-    type Target = Store;
+impl<B> std::ops::Deref for Service<B> {
+    type Target = Store<B>;
     fn deref(&self) -> &Self::Target {
         &self.store
     }
 }
 
-impl Service {
-    fn new(store: Store, task: AbortOnDrop<()>) -> Self {
-        Self {
-            store,
-            _task: Arc::new(task),
-        }
+impl Service<B> {
+    fn new(store: Store<B>) -> Self {
+        Self { store }
     }
-    pub async fn start(store: Store) -> Result<Self> {
-        let events = store
-            .ipfs
-            .pubsub_subscribe(store.id.get_cid().to_string_of_base(Base::Base58Btc)?)
-            .await?
-            .map(
-                |msg| match CapsMessage::decode(DagCborCodec, &mut Cursor::new(&msg.data)) {
-                    Ok(m) => Ok((msg.source, m)),
-                    Err(e) => Err(anyhow!(e)),
-                },
-            );
-        let peer_id = store.ipfs.identity().await?.0.to_peer_id();
-        let task = AbortOnDrop::new(tokio::spawn(caps_task(events, store.clone(), peer_id)));
-        store.request_heads().await?;
-        Ok(Service::new(store, task))
+    pub async fn start(store: Store<B>) -> Result<Self> {
+        Ok(Service::new(store))
     }
 }
 
-async fn caps_task(
+async fn caps_task<B>(
     events: impl Stream<Item = Result<(PeerId, CapsMessage)>> + Send,
-    store: Store,
+    store: Store<B>,
     peer_id: PeerId,
 ) {
     debug!("starting caps task");
@@ -72,12 +55,12 @@ async fn caps_task(
                     }
                 }
                 Ok((_, CapsMessage::StateReq)) => {
-                    if let Err(e) = store.broadcast_heads().await {
-                        debug!(
-                            "failed to broadcast updates in response to state request {}",
-                            e
-                        );
-                    }
+                    // if let Err(e) = store.broadcast_heads().await {
+                    //     debug!(
+                    //         "failed to broadcast updates in response to state request {}",
+                    //         e
+                    //     );
+                    // }
                 }
                 Ok((
                     _,

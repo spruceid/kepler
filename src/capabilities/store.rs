@@ -29,17 +29,17 @@ pub enum InvokeError {
 const SERVICE_NAME: &str = "capabilities";
 
 #[derive(Clone)]
-pub struct Store {
+pub struct Store<B> {
     pub id: ResourceId,
-    pub ipfs: Ipfs,
     pub(crate) root: String,
+    blocks: B,
     index: AddRemoveSetStore,
     delegation_heads: HeadStore,
     invocation_heads: HeadStore,
 }
 
-impl Store {
-    pub async fn new(oid: &OrbitId, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
+impl Store<B> {
+    pub async fn new(oid: &OrbitId, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let id = oid
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
@@ -70,7 +70,7 @@ impl Store {
         .await?;
         Ok(Self {
             id,
-            ipfs,
+            blocks,
             index,
             delegation_heads,
             invocation_heads,
@@ -84,7 +84,6 @@ impl Store {
     pub async fn transact(&self, updates: Updates) -> Result<()> {
         let event = self.make_event(updates).await?;
         self.apply(event).await?;
-        self.broadcast_heads().await?;
         Ok(())
     }
 
@@ -99,7 +98,7 @@ impl Store {
             revoke: event.revoke.iter().map(|r| *r.0.block.cid()).collect(),
         };
 
-        let cid = self.ipfs.put_block(eb.to_block()?).await?;
+        let cid = self.blocks.write(eb.to_block()?.data()).await?;
 
         // write element indexes
         try_join_all(event.delegate.into_iter().map(|d| async {
@@ -109,9 +108,9 @@ impl Store {
                 .await?;
             tracing::debug!("applied delegation {:?}", d.1.block.cid());
             // put delegation block (encoded ucan or cacao)
-            self.ipfs.put_block(d.1.block).await?;
+            self.blocks.write(d.1.block.data()).await?;
             // put link block
-            self.ipfs.put_block(d.0.block).await?;
+            self.blocks.write(d.0.block.data()).await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -126,9 +125,9 @@ impl Store {
                 .await?;
             tracing::debug!("applied revocation {:?}", r.1.block.cid());
             // put revocation block (encoded ucan revocation or cacao)
-            self.ipfs.put_block(r.1.block).await?;
+            self.blocks.write(r.1.block.data()).await?;
             // put link block
-            self.ipfs.put_block(r.0.block).await?;
+            self.blocks.write(r.0.block.data()).await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -212,7 +211,7 @@ impl Store {
             prev: event.prev,
             invoke: event.invoke.iter().map(|i| *i.0.block.cid()).collect(),
         };
-        let cid = self.ipfs.put_block(eb.to_block()?).await?;
+        let cid = self.blocks.write(eb.to_block()?.data()).await?;
 
         for e in event.invoke.iter() {
             self.index
@@ -284,49 +283,7 @@ impl Store {
     where
         T: FromBlock,
     {
-        WithBlock::<T>::try_from(self.ipfs.get_block(c).await?)
-    }
-
-    pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let updates = self.delegation_heads.get_heads().await?.0;
-        let invocations = self.invocation_heads.get_heads().await?.0;
-        if !updates.is_empty() || !invocations.is_empty() {
-            debug!(
-                "broadcasting {} update heads and {} invocation heads on {}",
-                updates.len(),
-                invocations.len(),
-                self.id,
-            );
-            self.ipfs
-                .pubsub_publish(
-                    self.id
-                        .clone()
-                        .get_cid()
-                        .to_string_of_base(Base::Base58Btc)?,
-                    CapsMessage::Heads {
-                        updates,
-                        invocations,
-                    }
-                    .to_block()?
-                    .into_inner()
-                    .1,
-                )
-                .await?;
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn request_heads(&self) -> Result<()> {
-        self.ipfs
-            .pubsub_publish(
-                self.id
-                    .clone()
-                    .get_cid()
-                    .to_string_of_base(Base::Base58Btc)?,
-                CapsMessage::StateReq.to_block()?.into_inner().1,
-            )
-            .await?;
-        Ok(())
+        WithBlock::<T>::try_from(Block::new_v1(c, self.blocks.read_to_vec(c.hash()).await?))
     }
 
     pub(crate) async fn try_merge_heads(
