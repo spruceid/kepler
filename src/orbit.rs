@@ -1,7 +1,6 @@
 use crate::{
     capabilities::{store::Store as CapStore, Service as CapService},
     cas::ContentAddressedStorage,
-    codec::SupportedCodecs,
     config,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,

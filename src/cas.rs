@@ -1,4 +1,3 @@
-use super::codec::SupportedCodecs;
 use anyhow::Result;
 use kepler_lib::libipld::cid::Cid;
 use rocket::{

@@ -9,7 +9,6 @@ use kepler_lib::libipld::{
 use libp2p::{core::transport::MemoryTransport, futures::TryStreamExt, swarm::Swarm as TSwarm};
 use std::{future::Future, sync::mpsc::Receiver};
 
-use super::{cas::ContentAddressedStorage, codec::SupportedCodecs};
 use crate::{
     config,
     kv::behaviour::{Behaviour, Event as BehaviourEvent},
