@@ -1,5 +1,4 @@
 use anyhow::Result;
-use ipfs::{p2p::transport::TransportBuilder, Ipfs, IpfsOptions, TestTypes, UninitializedIpfs};
 use libp2p::core::{
     identity::Keypair, multiaddr::multiaddr, transport::MemoryTransport, Multiaddr, PeerId,
 };
@@ -10,50 +9,47 @@ use crate::orbit::AbortOnDrop;
 pub struct RelayNode {
     pub port: u16,
     pub id: PeerId,
-    _task: AbortOnDrop<()>,
-    _ipfs: Ipfs<TestTypes>,
 }
 
 impl RelayNode {
     pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
-        let local_public_key = keypair.public();
-        let id = local_public_key.to_peer_id();
-        let relay_tcp_addr = Self::_external(port);
-        let relay_mem_addr = Self::_internal(port);
+        // let local_public_key = keypair.public();
+        // let id = local_public_key.to_peer_id();
+        // let relay_tcp_addr = Self::_external(port);
+        // let relay_mem_addr = Self::_internal(port);
 
-        let (transport_builder, relay_behaviour) = TransportBuilder::new(keypair.clone())?
-            .or(MemoryTransport::default())
-            .relay();
+        // let (transport_builder, relay_behaviour) = TransportBuilder::new(keypair.clone())?
+        //     .or(MemoryTransport::default())
+        //     .relay();
 
-        let ipfs_opts = IpfsOptions {
-            ipfs_path: std::env::temp_dir(),
-            keypair,
-            bootstrap: vec![],
-            mdns: false,
-            kad_protocol: "/kepler/relay".to_string().into(),
-            listening_addrs: vec![relay_tcp_addr, relay_mem_addr],
-            span: None,
-        };
+        // let ipfs_opts = IpfsOptions {
+        //     ipfs_path: std::env::temp_dir(),
+        //     keypair,
+        //     bootstrap: vec![],
+        //     mdns: false,
+        //     kad_protocol: "/kepler/relay".to_string().into(),
+        //     listening_addrs: vec![relay_tcp_addr, relay_mem_addr],
+        //     span: None,
+        // };
 
-        // TestTypes designates an in-memory Ipfs instance, but this peer won't store data anyway.
-        let (_ipfs, ipfs_task) =
-            UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
-                .start()
-                .await?;
+        // // TestTypes designates an in-memory Ipfs instance, but this peer won't store data anyway.
+        // let (_ipfs, ipfs_task) =
+        //     UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
+        //         .start()
+        //         .await?;
 
-        tracing::debug!(
-            "opened relay: {} at {}, {}",
-            id,
-            Self::_internal(port),
-            Self::_external(port),
-        );
+        // tracing::debug!(
+        //     "opened relay: {} at {}, {}",
+        //     id,
+        //     Self::_internal(port),
+        //     Self::_external(port),
+        // );
 
-        let task = spawn(ipfs_task);
+        // let task = spawn(ipfs_task);
         Ok(Self {
             port,
-            _task: AbortOnDrop::new(task),
+            // _task: AbortOnDrop::new(task),
             id,
-            _ipfs,
         })
     }
 
