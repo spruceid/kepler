@@ -14,7 +14,6 @@ pub mod auth_guards;
 pub mod authorization;
 pub mod capabilities;
 pub mod cas;
-pub mod codec;
 pub mod config;
 pub mod indexes;
 pub mod ipfs;

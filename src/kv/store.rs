@@ -1,5 +1,4 @@
 use crate::indexes::{AddRemoveSetStore, HeadStore};
-use crate::kv::entries::{read_from_store, write_to_store};
 use crate::kv::{Object, ObjectBuilder, Service};
 use crate::storage::ImmutableStore;
 use anyhow::Result;
@@ -10,7 +9,7 @@ use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::{debug, instrument};
 
-use super::{to_block, Block, KVMessage, ObjectReader};
+use super::{to_block, Block, KVMessage};
 use crate::config;
 
 #[derive(DagCbor)]
@@ -106,7 +105,7 @@ pub struct Store<B> {
     heads: HeadStore,
 }
 
-impl Store<B> {
+impl<B> Store<B> {
     pub async fn new(orbit_id: Cid, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let index = AddRemoveSetStore::new(orbit_id, "kv".to_string(), config.clone()).await?;
         // heads tracking store
@@ -148,7 +147,7 @@ impl Store<B> {
     }
 }
 
-impl Store<B>
+impl<B> Store<B>
 where
     B: ImmutableStore,
 {

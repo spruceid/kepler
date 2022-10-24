@@ -5,7 +5,6 @@ use kepler_lib::libipld::{
 use libp2p::core::PeerId;
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 pub mod behaviour;
 mod entries;
@@ -23,7 +22,7 @@ pub struct Service<B> {
     pub store: Store<B>,
 }
 
-impl Service<B> {
+impl<B> Service<B> {
     fn new(store: Store<B>) -> Self {
         Self { store }
     }

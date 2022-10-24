@@ -3,7 +3,7 @@ pub mod store;
 use crate::orbit::AbortOnDrop;
 use anyhow::Result;
 use kepler_lib::libipld::{cbor::DagCborCodec, codec::Decode, multibase::Base, Cid};
-use libp2p::identity::PeerId;
+use libp2p::core::PeerId;
 use rocket::futures::{Stream, StreamExt};
 use store::{CapsMessage, Store};
 
@@ -27,7 +27,7 @@ impl<B> std::ops::Deref for Service<B> {
     }
 }
 
-impl Service<B> {
+impl<B> Service<B> {
     fn new(store: Store<B>) -> Self {
         Self { store }
     }

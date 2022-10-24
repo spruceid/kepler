@@ -3,6 +3,7 @@ use crate::{
     indexes::{AddRemoveSetStore, HeadStore},
     ipfs::Block,
     kv::to_block_raw,
+    storage::ImmutableStore,
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
@@ -38,7 +39,7 @@ pub struct Store<B> {
     invocation_heads: HeadStore,
 }
 
-impl Store<B> {
+impl<B> Store<B> {
     pub async fn new(oid: &OrbitId, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let id = oid
             .clone()
