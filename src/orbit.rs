@@ -1,9 +1,9 @@
 use crate::{
     capabilities::{store::Store as CapStore, Service as CapService},
-    cas::ContentAddressedStorage,
     config,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
+    storage::{BlockStores, ImmutableStore},
 };
 use anyhow::{anyhow, Result};
 use kepler_lib::libipld::cid::{
@@ -63,12 +63,11 @@ impl OrbitTasks {
 #[derive(Clone)]
 pub struct Orbit<B> {
     pub service: KVService<B>,
-    _tasks: OrbitTasks,
     pub manifest: Manifest,
     pub capabilities: CapService<B>,
 }
 
-impl Orbit {
+impl<B> Orbit<B> {
     async fn new(
         config: &config::Config,
         kp: Ed25519Keypair,
@@ -91,21 +90,16 @@ impl Orbit {
         .await?;
         let capabilities = CapService::start(cap_store).await?;
 
-        let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
-
-        let tasks = OrbitTasks::new(behaviour_process);
-
         Ok(Orbit {
             service,
             manifest,
-            _tasks: tasks,
             capabilities,
         })
     }
 
-    pub async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
-        self.service.store.ipfs.connect(node).await
-    }
+    // pub async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
+    // self.service.store.ipfs.connect(node).await
+    // }
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -115,7 +109,7 @@ pub async fn create_orbit(
     auth: &[u8],
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
-) -> Result<Option<Orbit>> {
+) -> Result<Option<Orbit<BlockStores>>> {
     let md = match Manifest::resolve_dyn(id, None).await? {
         Some(m) => m,
         _ => return Ok(None),
@@ -140,7 +134,7 @@ pub async fn load_orbit(
     id_cid: Cid,
     config: &config::Config,
     relay: (PeerId, Multiaddr),
-) -> Result<Option<Orbit>> {
+) -> Result<Option<Orbit<BlockStores>>> {
     let storage_utils = StorageUtils::new(config.storage.blocks.clone());
     if !storage_utils.exists(id_cid).await? {
         return Ok(None);
@@ -157,7 +151,7 @@ async fn load_orbit_inner(
     orbit: Cid,
     config: config::Config,
     relay: (PeerId, Multiaddr),
-) -> Result<Orbit> {
+) -> Result<Orbit<BlockStores>> {
     let storage_utils = StorageUtils::new(config.storage.blocks.clone());
     let id = storage_utils
         .orbit_id(orbit)

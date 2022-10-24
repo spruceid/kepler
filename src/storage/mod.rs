@@ -12,6 +12,7 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tracing::instrument;
 
 mod dynamodb;
+mod either;
 mod file_system;
 mod indexes;
 mod s3;
@@ -20,7 +21,6 @@ mod utils;
 pub use indexes::KV;
 
 use crate::config;
-use dynamodb::References;
 
 pub struct StorageUtils {
     config: config::BlockStorage,
@@ -29,11 +29,8 @@ pub struct StorageUtils {
 #[derive(Debug)]
 pub struct Repo;
 
-#[derive(Debug)]
-pub enum BlockStores {
-    S3(Box<s3::S3BlockStore>),
-    Local(Box<file_system::FileSystemStore>),
-}
+pub type BlockStores =
+    either::EitherStore<Box<s3::S3BlockStore>, Box<file_system::FileSystemStore>>;
 
 #[derive(Debug)]
 pub enum DataStores {
@@ -238,7 +235,7 @@ impl StorageUtils {
     }
 }
 
-#[derive(Error)]
+#[derive(thiserror::Error)]
 pub enum VecReadError<E> {
     #[error(transparent)]
     Store(#[from] E),
@@ -247,7 +244,7 @@ pub enum VecReadError<E> {
 }
 
 #[async_trait]
-trait ImmutableStore {
+pub trait ImmutableStore {
     type Error;
     type Readable: futures::io::AsyncRead;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
