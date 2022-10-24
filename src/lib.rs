@@ -7,6 +7,7 @@ extern crate anyhow;
 extern crate tokio;
 
 use anyhow::Result;
+use kepler_lib::libipld::{block::Block as OBlock, store::DefaultParams};
 use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
 pub mod allow_list;
@@ -16,7 +17,6 @@ pub mod capabilities;
 pub mod cas;
 pub mod config;
 pub mod indexes;
-pub mod ipfs;
 pub mod kv;
 pub mod manifest;
 pub mod orbit;
@@ -34,6 +34,8 @@ use libp2p::{
 use relay::RelayNode;
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
+
+pub type Block = OBlock<DefaultParams>;
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config = config.extract::<config::Config>()?;

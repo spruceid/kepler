@@ -1,6 +1,6 @@
 use crate::{
     capabilities::store::{FromBlock, ToBlock},
-    ipfs::Block,
+    Block,
 };
 use anyhow::Result;
 use kepler_lib::libipld::Cid;

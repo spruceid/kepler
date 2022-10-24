@@ -10,7 +10,7 @@ pub mod behaviour;
 mod entries;
 mod store;
 
-use super::{ipfs::Block, orbit::AbortOnDrop};
+use super::{orbit::AbortOnDrop, Block};
 
 pub use entries::{Object, ObjectBuilder};
 pub use store::Store;

@@ -1,7 +1,7 @@
 use super::{to_block, to_block_raw};
-use crate::ipfs::{Block, KeplerParams};
+use crate::Block;
 use anyhow::Result;
-use kepler_lib::libipld::{cid::Cid, store::StoreParams, DagCbor};
+use kepler_lib::libipld::{cid::Cid, DagCbor};
 use libp2p::futures::stream::BoxStream;
 use std::{
     collections::BTreeMap,
@@ -75,7 +75,7 @@ mod test {
     async fn write() -> Result<(), anyhow::Error> {
         tracing_try_init(&config::Logging::default());
         let tmp = tempdir::TempDir::new("test_streams")?;
-        let data = vec![3u8; KeplerParams::MAX_BLOCK_SIZE * 3];
+        let data = vec![3u8; 1000000000 * 3];
 
         let mut config = IpfsOptions::inmemory_with_generated_keys();
         config.ipfs_path = tmp.path().into();

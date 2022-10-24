@@ -1,9 +1,9 @@
 use crate::{
     authorization::{CapStore, Delegation, Invocation, Revocation, Verifiable},
     indexes::{AddRemoveSetStore, HeadStore},
-    ipfs::Block,
     kv::to_block_raw,
     storage::ImmutableStore,
+    Block,
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
