@@ -13,14 +13,13 @@ use kepler_lib::libipld::cid::{
 use kepler_lib::resource::OrbitId;
 use libp2p::{
     core::Multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair, PublicKey},
+    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
     PeerId,
 };
-use rocket::{futures::TryStreamExt, tokio::task::JoinHandle};
+use rocket::tokio::task::JoinHandle;
 
 use cached::proc_macro::cached;
-use std::{convert::TryFrom, ops::Deref, sync::Arc};
-use tokio::spawn;
+use std::{convert::TryFrom, ops::Deref};
 
 use super::storage::StorageUtils;
 
@@ -67,7 +66,10 @@ pub struct Orbit<B> {
     pub capabilities: CapService<B>,
 }
 
-impl<B> Orbit<B> {
+impl<B> Orbit<B>
+where
+    B: ImmutableStore,
+{
     async fn new(
         config: &config::Config,
         kp: Ed25519Keypair,
@@ -76,6 +78,8 @@ impl<B> Orbit<B> {
     ) -> anyhow::Result<Self> {
         let id = manifest.id().get_cid();
         let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(kp.public()));
+
+        let storage_utils = StorageUtils::new(config.storage.blocks.clone());
 
         // TODO config into block store
         let blocks = todo!();
@@ -189,7 +193,7 @@ mod tests {
     use std::convert::TryInto;
     use tempdir::TempDir;
 
-    async fn op(md: Manifest) -> anyhow::Result<Orbit> {
+    async fn op(md: Manifest) -> anyhow::Result<Orbit<BlockStores>> {
         let dir = TempDir::new(&md.id().get_cid().to_string())
             .unwrap()
             .path()

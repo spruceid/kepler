@@ -13,8 +13,8 @@ pub struct RelayNode {
 
 impl RelayNode {
     pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
-        // let local_public_key = keypair.public();
-        // let id = local_public_key.to_peer_id();
+        let local_public_key = keypair.public();
+        let id = local_public_key.to_peer_id();
         // let relay_tcp_addr = Self::_external(port);
         // let relay_mem_addr = Self::_internal(port);
 
