@@ -246,7 +246,7 @@ pub enum VecReadError<E> {
 
 #[async_trait]
 pub trait ImmutableStore {
-    type Error;
+    type Error: std::error::Error;
     type Readable: futures::io::AsyncRead;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
     async fn write(

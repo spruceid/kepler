@@ -7,7 +7,11 @@ use futures::{
 use kepler_lib::libipld::cid::multihash::Multihash;
 
 #[derive(Debug, Clone)]
-pub enum EitherStore<A, B> {
+pub enum EitherStore<A, B>
+where
+    A: ImmutableStore + Sync,
+    B: ImmutableStore + Sync,
+{
     A(A),
     B(B),
 }
@@ -60,11 +64,13 @@ where
 #[derive(thiserror::Error, Debug)]
 pub enum EitherStoreError<A, B>
 where
-    A: ImmutableStore,
-    B: ImmutableStore,
+    A: std::error::Error,
+    B: std::error::Error,
 {
-    A(A::Error),
-    B(B::Error),
+    #[error(transparent)]
+    A(A),
+    #[error(transparent)]
+    B(B),
 }
 
 #[async_trait]
@@ -74,7 +80,7 @@ where
     B: ImmutableStore + Sync,
 {
     type Readable = AsyncReadEither<A, B>;
-    type Error = EitherStoreError<A, B>;
+    type Error = EitherStoreError<A::Error, B::Error>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         match self {
             Self::A(l) => l.contains(id).await.map_err(Self::Error::A),

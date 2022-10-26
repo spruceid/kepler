@@ -34,7 +34,7 @@ pub struct S3DataStore {
 // TODO we could use the same struct for both the block store and the data
 // (pin) store, but we need to remember that for now it will be two different
 // objects in rust-ipfs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3BlockStore {
     // TODO Remove is unused (orbit::delete is never called).
     // When that changes we will need to use a mutex, either local or in Dynamo

@@ -10,7 +10,7 @@ use tokio::{
 };
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileSystemStore {
     path: PathBuf,
 }
@@ -36,6 +36,8 @@ impl ImmutableStore for FileSystemStore {
         &self,
         data: impl futures::io::AsyncRead + Send,
     ) -> Result<Multihash, Self::Error> {
+        // TODO lock file to prevent overlapping writes
+        // only open to write if not existing AND not being written to right now
         todo!();
         // write into tmp then rename, to name after the hash
         // need to stream data through a hasher into the file and return hash
