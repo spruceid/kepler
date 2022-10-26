@@ -13,16 +13,16 @@ serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
 cacaos = "0.5"
-capgrok = "0.3"
+capgrok = "=0.3.0"
 lazy_static = "1.4"
-did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-pkh = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-ion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-pkh = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-ion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["v4", "js"] }
@@ -32,7 +32,7 @@ uuid = { version = "1", features = ["v4"] }
 
 [dependencies.ssi]
 git = "https://github.com/spruceid/ssi"
-branch = "main"
+branch = "feat/ucan-ipld-version"
 default-features = false
 features = ["ed25519", "rsa"]
 

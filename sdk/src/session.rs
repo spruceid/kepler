@@ -1,10 +1,9 @@
 use crate::authorization::DelegationHeaders;
-use chrono::Utc;
 use http::uri::Authority;
 use kepler_lib::{
     authorization::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
     cacaos::{
-        siwe::{nonce::generate_nonce, Message, TimeStamp, Version as SIWEVersion},
+        siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
     },
     capgrok::Builder,
@@ -16,6 +15,7 @@ use kepler_lib::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::HashMap;
+use time::OffsetDateTime;
 
 #[serde_as]
 #[derive(Deserialize, Clone)]
@@ -140,7 +140,7 @@ impl Session {
             &self.jwk,
             self.verification_method,
             // 60 seconds in the future
-            (Utc::now().timestamp_nanos() as f64 / 1e+9_f64) + 60.0,
+            (OffsetDateTime::now_utc().nanosecond() as f64 / 1e+9_f64) + 60.0,
             None,
             None,
         )
