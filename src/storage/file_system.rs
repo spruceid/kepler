@@ -4,10 +4,7 @@ use kepler_lib::libipld::cid::{
     multihash::Multihash,
 };
 use std::{io::ErrorKind, path::PathBuf};
-use tokio::{
-    fs::{remove_file, File},
-    io::copy,
-};
+use tokio::fs::{remove_file, File};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
