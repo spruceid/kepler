@@ -9,7 +9,7 @@ use std::{
 use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        handler::ConnectionHandler as DummyConnectionHandler, IntoConnectionHandler,
+        dummy::ConnectionHandler as DummyConnectionHandler, IntoConnectionHandler,
         NetworkBehaviour, NetworkBehaviourAction, PollParameters,
     },
 };
@@ -36,7 +36,7 @@ impl NetworkBehaviour for Behaviour {
     type OutEvent = ();
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        DummyConnectionHandler::default()
+        DummyConnectionHandler
     }
 
     fn inject_event(&mut self, _peer_id: PeerId, _connection: ConnectionId, _event: Void) {}

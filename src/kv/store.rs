@@ -2,14 +2,16 @@ use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::kv::{Object, ObjectBuilder, Service};
 use crate::storage::ImmutableStore;
 use anyhow::Result;
-use async_recursion::async_recursion;
-use futures::stream::{self, StreamExt, TryStreamExt};
-use kepler_lib::libipld::{cbor::DagCborCodec, cid::Cid, multibase::Base, DagCbor};
-use rocket::{futures::future::try_join_all, tokio::io::AsyncRead};
+use futures::{
+    io::AsyncRead,
+    stream::{self, StreamExt, TryStreamExt},
+};
+use kepler_lib::libipld::{cid::Cid, multibase::Base, DagCbor};
+use rocket::futures::future::try_join_all;
 use std::{collections::BTreeMap, convert::TryFrom};
-use tracing::{debug, instrument};
+use tracing::instrument;
 
-use super::{to_block, Block, KVMessage};
+use super::{to_block, Block};
 use crate::config;
 
 #[derive(DagCbor)]
@@ -149,26 +151,29 @@ impl<B> Store<B> {
 
 impl<B> Store<B>
 where
-    B: ImmutableStore,
+    B: ImmutableStore + 'static,
 {
     #[instrument(name = "kv::get", skip_all)]
     pub async fn get<N>(&self, name: N) -> Result<Option<Object>>
     where
         N: AsRef<[u8]>,
     {
-        let cid = match self.index.element(&name).await? {
-            Some(Element(_, cid)) => Ok(
-                match self
-                    .index
-                    .is_tombstoned(&Version(name, cid).to_bytes())
+        match self.index.element(&name).await? {
+            Some(Element(_, cid)) => match self
+                .index
+                .is_tombstoned(&Version(name, cid).to_bytes())
+                .await?
+            {
+                false => self
+                    .blocks
+                    .read_to_vec(cid.hash())
                     .await?
-                {
-                    false => self.blocks.read_to_vec(cid).await,
-                    _ => return Ok(None),
-                },
-            ),
-            None => return Ok(None),
-        };
+                    .map(|v| Ok(Block::new(cid, v)?.decode()?))
+                    .transpose(),
+                _ => Ok(None),
+            },
+            None => Ok(None),
+        }
     }
 
     #[instrument(name = "kv::read", skip_all)]
@@ -180,7 +185,7 @@ where
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
-        match self.blocks.read(&kv_obj.value).await? {
+        match self.blocks.read(&kv_obj.value.hash()).await? {
             Some(r) => Ok(Some((kv_obj.metadata, r))),
             None => Err(anyhow!("Indexed contents missing from block store")),
         }
@@ -195,7 +200,7 @@ where
     ) -> Result<()>
     where
         N: AsRef<[u8]>,
-        R: AsyncRead + Unpin,
+        R: AsyncRead + Send,
     {
         tracing::debug!("writing tx");
         let indexes: Vec<(Vec<u8>, Cid)> = try_join_all(add.into_iter().map(|(o, r)| async {
@@ -204,7 +209,7 @@ where
             let cid = Cid::new_v1(0x55, self.blocks.write(r).await?);
             let obj = o.add_content(cid);
             let block = obj.to_block()?;
-            let obj_cid = Cid::new_v1(obj.cid().codec(), self.blocks.write(block.data()).await?);
+            let obj_cid = Cid::new_v1(block.cid().codec(), self.blocks.write(block.data()).await?);
             Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
         }))
         .await?
@@ -319,7 +324,7 @@ where
 
         Ok(())
     }
-    pub async fn start_service(self) -> Result<Service> {
+    pub async fn start_service(self) -> Result<Service<B>> {
         Service::start(self).await
     }
 }
