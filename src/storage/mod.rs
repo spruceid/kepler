@@ -236,7 +236,7 @@ impl StorageUtils {
     }
 }
 
-#[derive(thiserror::Error)]
+#[derive(thiserror::Error, Debug)]
 pub enum VecReadError<E> {
     #[error(transparent)]
     Store(#[from] E),
@@ -245,9 +245,9 @@ pub enum VecReadError<E> {
 }
 
 #[async_trait]
-pub trait ImmutableStore {
-    type Error: std::error::Error;
-    type Readable: futures::io::AsyncRead;
+pub trait ImmutableStore: Send + Sync {
+    type Error: std::error::Error + Send + Sync;
+    type Readable: futures::io::AsyncRead + Send + Sync;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
     async fn write(
         &self,

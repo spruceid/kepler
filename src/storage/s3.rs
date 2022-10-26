@@ -15,6 +15,7 @@ use kepler_lib::libipld::cid::{
 use regex::Regex;
 use rocket::{async_trait, http::hyper::Uri};
 use std::{io::Error as IoError, path::PathBuf, str::FromStr};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::{
     config,

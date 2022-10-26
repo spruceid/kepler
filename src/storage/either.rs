@@ -9,8 +9,8 @@ use kepler_lib::libipld::cid::multihash::Multihash;
 #[derive(Debug, Clone)]
 pub enum EitherStore<A, B>
 where
-    A: ImmutableStore + Sync,
-    B: ImmutableStore + Sync,
+    A: ImmutableStore,
+    B: ImmutableStore,
 {
     A(A),
     B(B),
@@ -62,11 +62,7 @@ where
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum EitherStoreError<A, B>
-where
-    A: std::error::Error,
-    B: std::error::Error,
-{
+pub enum EitherStoreError<A, B> {
     #[error(transparent)]
     A(A),
     #[error(transparent)]
@@ -76,8 +72,8 @@ where
 #[async_trait]
 impl<A, B> ImmutableStore for EitherStore<A, B>
 where
-    A: ImmutableStore + Sync,
-    B: ImmutableStore + Sync,
+    A: ImmutableStore,
+    B: ImmutableStore,
 {
     type Readable = AsyncReadEither<A, B>;
     type Error = EitherStoreError<A::Error, B::Error>;
