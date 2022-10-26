@@ -6,81 +6,108 @@ use futures::{
 };
 use kepler_lib::libipld::cid::multihash::Multihash;
 
-#[derive(Debug)]
-pub enum EitherStore<L, R> {
-    Left(L),
-    Right(R),
+#[derive(Debug, Clone)]
+pub enum EitherStore<A, B> {
+    A(A),
+    B(B),
 }
 
-#[derive(Debug)]
-pub enum AsyncReadEither<L, R>
+#[derive(Debug, Clone)]
+pub enum AsyncReadEither<A, B>
 where
-    L: ImmutableStore,
-    R: ImmutableStore,
+    A: ImmutableStore,
+    B: ImmutableStore,
 {
-    Left(L::Readable),
-    Right(R::Readable),
+    A(A::Readable),
+    B(B::Readable),
 }
 
-impl<L, R> AsyncRead for AsyncReadEither<L, R>
+impl<A, B> AsyncRead for AsyncReadEither<A, B>
 where
-    L: ImmutableStore,
-    R: ImmutableStore,
+    A: ImmutableStore,
+    B: ImmutableStore,
 {
+    #[inline]
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<Result<usize, Error>> {
-        match self {
-            Self::L(l) => l.poll_read(cx, buf),
-            Self::R(r) => r.poll_read(cx, buf),
+        // it actually seems like this is only possible with unsafe :(
+        // TODO use pin-project crate
+        unsafe {
+            match self.get_unchecked_mut() {
+                Self::A(l) => AsyncRead::poll_read(Pin::new_unchecked(l), cx, buf),
+                Self::B(r) => AsyncRead::poll_read(Pin::new_unchecked(r), cx, buf),
+            }
+        }
+    }
+    #[inline]
+    fn poll_read_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+    ) -> Poll<Result<usize, Error>> {
+        unsafe {
+            match self.get_unchecked_mut() {
+                Self::A(l) => AsyncRead::poll_read_vectored(Pin::new_unchecked(l), cx, bufs),
+                Self::B(r) => AsyncRead::poll_read_vectored(Pin::new_unchecked(r), cx, bufs),
+            }
         }
     }
 }
 
-#[derive(thiserror::Error)]
-pub enum EitherStoreError<L, R>
+#[derive(thiserror::Error, Debug)]
+pub enum EitherStoreError<A, B>
 where
-    L: ImmutableStore,
-    R: ImmutableStore,
+    A: ImmutableStore,
+    B: ImmutableStore,
 {
-    #[error(transparent)]
-    Left(L::Error),
-    #[error(transparent)]
-    Right(R::Error),
+    A(A::Error),
+    B(B::Error),
 }
 
 #[async_trait]
-impl<L, R> ImmutableStore for EitherStore<L, R>
+impl<A, B> ImmutableStore for EitherStore<A, B>
 where
-    L: ImmutableStore,
-    R: ImmutableStore,
+    A: ImmutableStore + Sync,
+    B: ImmutableStore + Sync,
 {
-    type Readable = AsyncReadEither<L, R>;
-    type Error = EitherStoreError<L, R>;
+    type Readable = AsyncReadEither<A, B>;
+    type Error = EitherStoreError<A, B>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         match self {
-            Self::Left(l) => l.contains(id).await.map_err(Self::Error::Left),
-            Self::Right(r) => r.contains(id).await.map_err(Self::Error::Right),
+            Self::A(l) => l.contains(id).await.map_err(Self::Error::A),
+            Self::B(r) => r.contains(id).await.map_err(Self::Error::B),
         }
     }
-    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Multihash, Self::Error> {
+    async fn write(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+    ) -> Result<Multihash, Self::Error> {
         match self {
-            Self::Left(l) => l.write(data).await.map_err(Self::Error::Left),
-            Self::Right(r) => r.write(data).await.map_err(Self::Error::Right),
+            Self::A(l) => l.write(data).await.map_err(Self::Error::A),
+            Self::B(r) => r.write(data).await.map_err(Self::Error::B),
         }
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match self {
-            Self::Left(l) => l.remove(id).await.map_err(Self::Error::Left),
-            Self::Right(r) => r.remove(id).await.map_err(Self::Error::Right),
+            Self::A(l) => l.remove(id).await.map_err(Self::Error::A),
+            Self::B(r) => r.remove(id).await.map_err(Self::Error::B),
         }
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
         match self {
-            Self::Left(l) => l.read(id).await.map_err(Self::Error::Left),
-            Self::Right(r) => r.read(id).await.map_err(Self::Error::Right),
+            Self::A(l) => l
+                .read(id)
+                .await
+                .map(|o| o.map(Self::Readable::A))
+                .map_err(Self::Error::A),
+            Self::B(r) => r
+                .read(id)
+                .await
+                .map(|o| o.map(Self::Readable::B))
+                .map_err(Self::Error::B),
         }
     }
 }

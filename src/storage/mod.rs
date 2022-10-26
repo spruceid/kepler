@@ -47,7 +47,8 @@ impl StorageUtils {
         match &self.config {
             config::BlockStorage::S3(r) => {
                 let client = s3::S3BlockStore::new_(r.clone(), Cid::default());
-                client.init().await
+                // client.init().await
+                Ok(())
             }
             config::BlockStorage::Local(r) => {
                 if !r.path.is_dir() {
@@ -240,7 +241,7 @@ pub enum VecReadError<E> {
     #[error(transparent)]
     Store(#[from] E),
     #[error(transparent)]
-    Read(#[from] futures::io::Error),
+    Read(futures::io::Error),
 }
 
 #[async_trait]
@@ -248,21 +249,30 @@ pub trait ImmutableStore {
     type Error;
     type Readable: futures::io::AsyncRead;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
-    async fn write(&self, data: impl futures::io::AsyncRead) -> Result<Multihash, Self::Error>;
+    async fn write(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+    ) -> Result<Multihash, Self::Error>;
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
     async fn read_to_vec(
         &self,
         id: &Multihash,
-    ) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>> {
-        Ok(match self.read(id).await? {
-            Some(r) => {
-                let mut v = Vec::new();
-                r.read_all(&mut v).await?;
-                Some(v)
-            }
-            _ => None,
-        })
+    ) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>>
+    where
+        Self::Readable: Send,
+    {
+        use futures::io::AsyncReadExt;
+        let r = match self.read(id).await? {
+            None => return Ok(None),
+            Some(r) => r,
+        };
+        let mut v = Vec::new();
+        Box::pin(r)
+            .read_to_end(&mut v)
+            .await
+            .map_err(VecReadError::Read)?;
+        Ok(Some(v))
     }
 }
 
@@ -270,6 +280,30 @@ pub trait ImmutableStore {
 trait StoreSeek: ImmutableStore {
     type Seekable: futures::io::AsyncSeek;
     async fn seek(&self, id: &Cid) -> Result<Option<Self::Seekable>, Self::Error>;
+}
+
+#[async_trait]
+impl<S> ImmutableStore for Box<S>
+where
+    S: ImmutableStore + Send + Sync,
+{
+    type Error = S::Error;
+    type Readable = S::Readable;
+    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
+        self.contains(id).await
+    }
+    async fn write(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+    ) -> Result<Multihash, Self::Error> {
+        self.write(data).await
+    }
+    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
+        self.remove(id).await
+    }
+    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+        self.read(id).await
+    }
 }
 
 #[async_trait]
