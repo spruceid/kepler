@@ -50,9 +50,9 @@ async fn caps_task<B>(
                 }
                 Ok((_, CapsMessage::Invocation(cid))) => {
                     debug!("recieved invocation");
-                    if let Err(e) = store.try_merge_invocations([cid].into_iter()).await {
-                        debug!("failed to apply recieved invocation {}", e);
-                    }
+                    // if let Err(e) = store.try_merge_invocations([cid].into_iter()).await {
+                    //     debug!("failed to apply recieved invocation {}", e);
+                    // }
                 }
                 Ok((_, CapsMessage::StateReq)) => {
                     // if let Err(e) = store.broadcast_heads().await {
@@ -69,12 +69,12 @@ async fn caps_task<B>(
                         invocations,
                     },
                 )) => {
-                    if let Err(e) = store
-                        .try_merge_heads(updates.into_iter(), invocations.into_iter())
-                        .await
-                    {
-                        debug!("failed to merge heads {}", e);
-                    }
+                    // if let Err(e) = store
+                    //     .try_merge_heads(updates.into_iter(), invocations.into_iter())
+                    //     .await
+                    // {
+                    //     debug!("failed to merge heads {}", e);
+                    // }
                 }
                 Err(e) => {
                     debug!("cap service task error {}", e);

@@ -39,7 +39,11 @@ pub struct Store<B> {
     invocation_heads: HeadStore,
 }
 
-impl<B> Store<B> {
+impl<B> Store<B>
+where
+    B: ImmutableStore,
+    B::Error: 'static,
+{
     pub async fn new(oid: &OrbitId, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let id = oid
             .clone()
@@ -98,8 +102,12 @@ impl<B> Store<B> {
             delegate: event.delegate.iter().map(|d| *d.0.block.cid()).collect(),
             revoke: event.revoke.iter().map(|r| *r.0.block.cid()).collect(),
         };
+        let eb_block = eb.to_block()?;
 
-        let cid = self.blocks.write(eb.to_block()?.data()).await?;
+        let cid = Cid::new_v1(
+            eb_block.cid().codec(),
+            self.blocks.write(eb_block.data()).await?,
+        );
 
         // write element indexes
         try_join_all(event.delegate.into_iter().map(|d| async {
@@ -181,18 +189,28 @@ impl<B> Store<B> {
                     .collect::<Result<Vec<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>>>()?,
             })
             .await?;
-        self.broadcast_heads().await?;
+        // self.broadcast_heads().await?;
         Ok(cid)
     }
 
     async fn get_invocation(&self, i: &Cid) -> Result<Invocations> {
-        let update: InvocationsBlock = self.get_obj(i).await?.base;
+        let update: InvocationsBlock = self
+            .get_obj(i)
+            .await?
+            .ok_or_else(|| anyhow!("Incomplete Event"))?
+            .base;
 
         Ok(Invocations {
             prev: update.prev,
             invoke: try_join_all(update.invoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let inv: WithBlock<Invocation> = self.get_obj(&link.base.update).await?;
+                let link: WithBlock<LinkedUpdate> = self
+                    .get_obj(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
+                let inv: WithBlock<Invocation> = self
+                    .get_obj(&link.base.update)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
                 Result::<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>::Ok((link, inv))
             }))
             .await?,
@@ -212,7 +230,11 @@ impl<B> Store<B> {
             prev: event.prev,
             invoke: event.invoke.iter().map(|i| *i.0.block.cid()).collect(),
         };
-        let cid = self.blocks.write(eb.to_block()?.data()).await?;
+        let eb_block = eb.to_block()?;
+        let cid = Cid::new_v1(
+            eb_block.cid().codec(),
+            self.blocks.write(eb_block.data()).await?,
+        );
 
         for e in event.invoke.iter() {
             self.index
@@ -260,31 +282,50 @@ impl<B> Store<B> {
         })
     }
 
-    async fn get_event(&self, e: &Cid) -> Result<Event> {
-        let update: EventBlock = self.get_obj(e).await?.base;
+    async fn get_event(&self, e: &Cid) -> Result<Option<Event>> {
+        let update: EventBlock = match self.get_obj(e).await? {
+            Some(e) => e.base,
+            None => return Ok(None),
+        };
 
-        Ok(Event {
+        Ok(Some(Event {
             prev: update.prev,
             delegate: try_join_all(update.delegate.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let del: WithBlock<Delegation> = self.get_obj(&link.base.update).await?;
+                let link: WithBlock<LinkedUpdate> = self
+                    .get_obj(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
+                let del: WithBlock<Delegation> = self
+                    .get_obj(&link.base.update)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
                 Result::<(WithBlock<LinkedUpdate>, WithBlock<Delegation>)>::Ok((link, del))
             }))
             .await?,
             revoke: try_join_all(update.revoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let rev: WithBlock<Revocation> = self.get_obj(&link.base.update).await?;
+                let link: WithBlock<LinkedUpdate> = self
+                    .get_obj(c)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
+                let rev: WithBlock<Revocation> = self
+                    .get_obj(&link.base.update)
+                    .await?
+                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
                 Result::<(WithBlock<LinkedUpdate>, WithBlock<Revocation>)>::Ok((link, rev))
             }))
             .await?,
-        })
+        }))
     }
 
-    async fn get_obj<T>(&self, c: &Cid) -> Result<WithBlock<T>>
+    async fn get_obj<T>(&self, c: &Cid) -> Result<Option<WithBlock<T>>>
     where
         T: FromBlock,
     {
-        WithBlock::<T>::try_from(Block::new_v1(c, self.blocks.read_to_vec(c.hash()).await?))
+        self.blocks
+            .read_to_vec(c.hash())
+            .await?
+            .map(|v| Block::new(*c, v).and_then(WithBlock::try_from))
+            .transpose()
     }
 
     pub(crate) async fn try_merge_heads(
@@ -306,7 +347,10 @@ impl<B> Store<B> {
             if self.delegation_heads.get_height(&head).await?.is_some() {
                 return Ok(());
             };
-            let update = self.get_event(&head).await?;
+            let update = self
+                .get_event(&head)
+                .await?
+                .ok_or_else(|| anyhow!("Missing Event"))?;
 
             self.try_merge_updates(
                 stream::iter(update.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
@@ -369,7 +413,7 @@ where
 {
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here
-        Ok(self.get_obj(c).await.ok().map(|d| d.base))
+        self.get_obj(c).await.map(|o| o.map(|d| d.base))
     }
 }
 

@@ -4,6 +4,7 @@ use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::routes::Metadata;
+use crate::storage::BlockStores;
 use anyhow::Result;
 use kepler_lib::{
     libipld::Cid,
@@ -216,12 +217,12 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
     }
 }
 
-pub enum InvokeAuthWrapper {
-    KV(Box<KVAction>),
+pub enum InvokeAuthWrapper<B> {
+    KV(Box<KVAction<B>>),
     Revocation,
 }
 
-impl InvokeAuthWrapper {
+impl<B> InvokeAuthWrapper<B> {
     pub fn prometheus_label(&self) -> &str {
         match self {
             InvokeAuthWrapper::Revocation => "revoke_delegation",
@@ -230,33 +231,33 @@ impl InvokeAuthWrapper {
     }
 }
 
-pub enum KVAction {
+pub enum KVAction<B> {
     Delete {
-        orbit: Orbit,
+        orbit: Orbit<B>,
         key: String,
         auth_ref: Cid,
     },
     Get {
-        orbit: Orbit,
+        orbit: Orbit<B>,
         key: String,
     },
     List {
-        orbit: Orbit,
+        orbit: Orbit<B>,
         prefix: String,
     },
     Metadata {
-        orbit: Orbit,
+        orbit: Orbit<B>,
         key: String,
     },
     Put {
-        orbit: Orbit,
+        orbit: Orbit<B>,
         key: String,
         metadata: Metadata,
         auth_ref: Cid,
     },
 }
 
-impl KVAction {
+impl<B> KVAction<B> {
     pub fn prometheus_label(&self) -> &str {
         match self {
             KVAction::Delete { .. } => "kv_delete",
@@ -269,7 +270,7 @@ impl KVAction {
 }
 
 #[async_trait]
-impl<'l> FromRequest<'l> for InvokeAuthWrapper {
+impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {

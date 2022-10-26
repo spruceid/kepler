@@ -3,13 +3,13 @@ use crate::{
     Block,
 };
 use anyhow::Result;
-use kepler_lib::libipld::Cid;
 use kepler_lib::{
     authorization::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
     cacaos::siwe::Message,
     capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
+    libipld::{multihash::Code, Cid},
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
     ssi::ucan::Capability as UcanCap,
@@ -139,8 +139,7 @@ pub struct Invocation {
 
 impl ToBlock for Invocation {
     fn to_block(&self) -> Result<Block> {
-        self.invocation
-            .to_block(libipld::multihash::Code::Blake3_256)
+        self.invocation.to_block(Code::Blake3_256)
     }
 }
 
