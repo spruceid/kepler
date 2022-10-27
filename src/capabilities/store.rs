@@ -110,7 +110,7 @@ where
         );
 
         // write element indexes
-        try_join_all(event.delegate.into_iter().map(|d| async {
+        try_join_all(event.delegate.into_iter().map(|d| async move {
             // add backlink in index
             self.index
                 .set_element(&d.1.block.cid().to_bytes(), &d.0.block.cid().to_bytes())
