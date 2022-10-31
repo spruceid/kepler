@@ -1,8 +1,12 @@
-use super::ImmutableStore;
-use kepler_lib::libipld::cid::{
-    multibase::{encode, Base},
-    multihash::Multihash,
+use super::{ImmutableStore, StorageConfig};
+use kepler_lib::{
+    libipld::cid::{
+        multibase::{encode, Base},
+        multihash::Multihash,
+    },
+    resource::OrbitId,
 };
+use serde::{Deserialize, Serialize};
 use std::{io::ErrorKind, path::PathBuf};
 use tokio::fs::{remove_file, File};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
@@ -19,6 +23,21 @@ impl FileSystemStore {
 
     fn get_path(&self, mh: &Multihash) -> PathBuf {
         self.path.join(encode(Base::Base64Url, mh.to_bytes()))
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct FileSystemConfig {
+    pub path: PathBuf,
+}
+
+#[async_trait]
+impl StorageConfig<FileSystemStore> for FileSystemConfig {
+    type Error = std::convert::Infallible;
+    async fn open(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
+        Ok(FileSystemStore::new(
+            self.path.join(orbit.get_cid().to_string()),
+        ))
     }
 }
 

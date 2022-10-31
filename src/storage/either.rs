@@ -1,17 +1,13 @@
-use super::ImmutableStore;
+use super::{ImmutableStore, StorageConfig};
 use core::pin::Pin;
 use futures::{
     io::{AsyncRead, Error},
     task::{Context, Poll},
 };
-use kepler_lib::libipld::cid::multihash::Multihash;
+use kepler_lib::{libipld::cid::multihash::Multihash, resource::OrbitId};
 
 #[derive(Debug, Clone)]
-pub enum EitherStore<A, B>
-where
-    A: ImmutableStore,
-    B: ImmutableStore,
-{
+pub enum EitherStore<A, B> {
     A(A),
     B(B),
 }
@@ -62,7 +58,7 @@ where
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum EitherStoreError<A, B> {
+pub enum EitherError<A, B> {
     #[error(transparent)]
     A(A),
     #[error(transparent)]
@@ -76,7 +72,7 @@ where
     B: ImmutableStore,
 {
     type Readable = AsyncReadEither<A, B>;
-    type Error = EitherStoreError<A::Error, B::Error>;
+    type Error = EitherError<A::Error, B::Error>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         match self {
             Self::A(l) => l.contains(id).await.map_err(Self::Error::A),
@@ -109,6 +105,35 @@ where
                 .read(id)
                 .await
                 .map(|o| o.map(Self::Readable::B))
+                .map_err(Self::Error::B),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum EitherConfig<A, B> {
+    A(A),
+    B(B),
+}
+
+#[async_trait]
+impl<A, B, SA, SB> StorageConfig<EitherStore<SA, SB>> for EitherConfig<A, B>
+where
+    A: StorageConfig<SA> + Sync,
+    B: StorageConfig<SB> + Sync,
+{
+    type Error = EitherError<A::Error, B::Error>;
+    async fn open(&self, orbit: &OrbitId) -> Result<EitherStore<SA, SB>, Self::Error> {
+        match self {
+            Self::A(a) => a
+                .open(orbit)
+                .await
+                .map(EitherStore::A)
+                .map_err(Self::Error::A),
+            Self::B(b) => b
+                .open(orbit)
+                .await
+                .map(EitherStore::B)
                 .map_err(Self::Error::B),
         }
     }

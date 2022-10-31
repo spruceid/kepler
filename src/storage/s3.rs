@@ -7,18 +7,23 @@ use aws_sdk_s3::{
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
 use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
-use kepler_lib::libipld::cid::{
-    multibase::{encode, Base},
-    multihash::Multihash,
-    Cid,
+use kepler_lib::{
+    libipld::cid::{
+        multibase::{encode, Base},
+        multihash::Multihash,
+        Cid,
+    },
+    resource::OrbitId,
 };
 use regex::Regex;
 use rocket::{async_trait, http::hyper::Uri};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use std::{io::Error as IoError, path::PathBuf, str::FromStr};
 
 use crate::{
     config,
-    storage::{dynamodb::DynamoPinStore, ImmutableStore},
+    storage::{dynamodb::DynamoPinStore, ImmutableStore, StorageConfig},
 };
 
 #[derive(Debug)]
@@ -43,7 +48,25 @@ pub struct S3BlockStore {
     pub orbit: String,
 }
 
-pub fn new_client(config: config::S3BlockStorage) -> Client {
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct S3BlockConfig {
+    pub bucket: String,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
+    pub endpoint: Option<Uri>,
+    // pub dynamodb: DynamoStorage,
+}
+
+#[async_trait]
+impl StorageConfig<S3BlockStore> for S3BlockConfig {
+    type Error = std::convert::Infallible;
+    async fn open(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
+        Ok(S3BlockStore::new_(self, orbit.get_cid()))
+    }
+}
+
+pub fn new_client(config: &S3BlockConfig) -> Client {
     let general_config = super::utils::aws_config();
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
     let sdk_config = match config.endpoint {
@@ -55,11 +78,11 @@ pub fn new_client(config: config::S3BlockStorage) -> Client {
 }
 
 impl S3DataStore {
-    pub fn new_(config: config::S3BlockStorage, orbit: Cid) -> Self {
+    pub fn new_(config: S3BlockConfig, orbit: Cid) -> Self {
         S3DataStore {
-            client: new_client(config.clone()),
+            client: new_client(&config),
             bucket: config.bucket,
-            dynamodb: DynamoPinStore::new(config.dynamodb, orbit),
+            dynamodb: todo!(),
             orbit,
         }
     }
@@ -107,10 +130,10 @@ impl S3DataStore {
 }
 
 impl S3BlockStore {
-    pub fn new_(config: config::S3BlockStorage, orbit: Cid) -> Self {
+    pub fn new_(config: &S3BlockConfig, orbit: Cid) -> Self {
         S3BlockStore {
-            client: new_client(config.clone()),
-            bucket: config.bucket,
+            client: new_client(config),
+            bucket: config.bucket.clone(),
             orbit: orbit.to_string(),
         }
     }

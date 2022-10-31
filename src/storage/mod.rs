@@ -38,6 +38,14 @@ pub enum DataStores {
     Local(Box<file_system::FileSystemStore>),
 }
 
+pub type BlockConfig = either::EitherConfig<s3::S3BlockConfig, file_system::FileSystemConfig>;
+
+#[async_trait]
+trait StorageConfig<S> {
+    type Error;
+    async fn open(&self, orbit: &OrbitId) -> Result<S, Self::Error>;
+}
+
 impl StorageUtils {
     pub fn new(config: config::BlockStorage) -> Self {
         Self { config }
@@ -46,7 +54,7 @@ impl StorageUtils {
     pub async fn healthcheck(&self) -> Result<()> {
         match &self.config {
             config::BlockStorage::S3(r) => {
-                let client = s3::S3BlockStore::new_(r.clone(), Cid::default());
+                let client = s3::S3BlockStore::new_(r, Cid::default());
                 // client.init().await
                 Ok(())
             }
