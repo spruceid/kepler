@@ -7,7 +7,7 @@ use futures::{
 use kepler_lib::{libipld::cid::multihash::Multihash, resource::OrbitId};
 
 #[derive(Debug, Clone)]
-pub enum EitherStore<A, B> {
+pub enum Either<A, B> {
     A(A),
     B(B),
 }
@@ -66,7 +66,7 @@ pub enum EitherError<A, B> {
 }
 
 #[async_trait]
-impl<A, B> ImmutableStore for EitherStore<A, B>
+impl<A, B> ImmutableStore for Either<A, B>
 where
     A: ImmutableStore,
     B: ImmutableStore,
@@ -110,31 +110,17 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum EitherConfig<A, B> {
-    A(A),
-    B(B),
-}
-
 #[async_trait]
-impl<A, B, SA, SB> StorageConfig<EitherStore<SA, SB>> for EitherConfig<A, B>
+impl<A, B, SA, SB> StorageConfig<Either<SA, SB>> for Either<A, B>
 where
     A: StorageConfig<SA> + Sync,
     B: StorageConfig<SB> + Sync,
 {
     type Error = EitherError<A::Error, B::Error>;
-    async fn open(&self, orbit: &OrbitId) -> Result<EitherStore<SA, SB>, Self::Error> {
+    async fn open(&self, orbit: &OrbitId) -> Result<Either<SA, SB>, Self::Error> {
         match self {
-            Self::A(a) => a
-                .open(orbit)
-                .await
-                .map(EitherStore::A)
-                .map_err(Self::Error::A),
-            Self::B(b) => b
-                .open(orbit)
-                .await
-                .map(EitherStore::B)
-                .map_err(Self::Error::B),
+            Self::A(a) => a.open(orbit).await.map(Either::A).map_err(Self::Error::A),
+            Self::B(b) => b.open(orbit).await.map(Either::B).map_err(Self::Error::B),
         }
     }
 }

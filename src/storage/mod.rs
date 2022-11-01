@@ -26,11 +26,7 @@ pub struct StorageUtils {
     config: config::BlockStorage,
 }
 
-#[derive(Debug)]
-pub struct Repo;
-
-pub type BlockStores =
-    either::EitherStore<Box<s3::S3BlockStore>, Box<file_system::FileSystemStore>>;
+pub type BlockStores = either::Either<Box<s3::S3BlockStore>, Box<file_system::FileSystemStore>>;
 
 #[derive(Debug)]
 pub enum DataStores {
@@ -38,11 +34,11 @@ pub enum DataStores {
     Local(Box<file_system::FileSystemStore>),
 }
 
-pub type BlockConfig = either::EitherConfig<s3::S3BlockConfig, file_system::FileSystemConfig>;
+pub type BlockConfig = either::Either<s3::S3BlockConfig, file_system::FileSystemConfig>;
 
 #[async_trait]
-trait StorageConfig<S> {
-    type Error;
+pub trait StorageConfig<S> {
+    type Error: StdError;
     async fn open(&self, orbit: &OrbitId) -> Result<S, Self::Error>;
 }
 
@@ -252,9 +248,12 @@ pub enum VecReadError<E> {
     Read(futures::io::Error),
 }
 
+/// A Store implementing content-addressed storage
+/// Content is address by [Multihash][libipld::cid::multihash::Multihash] and represented as an
+/// [AsyncRead][futures::io::AsyncRead]-implementing type.
 #[async_trait]
 pub trait ImmutableStore: Send + Sync {
-    type Error: std::error::Error + Send + Sync;
+    type Error: StdError + Send + Sync;
     type Readable: futures::io::AsyncRead + Send + Sync;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
     async fn write(
