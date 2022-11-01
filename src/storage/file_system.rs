@@ -1,4 +1,7 @@
-use super::{ImmutableStore, StorageConfig};
+use crate::{
+    orbit::ProviderUtils,
+    storage::{ImmutableStore, StorageConfig},
+};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -6,9 +9,13 @@ use kepler_lib::{
     },
     resource::OrbitId,
 };
+use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
 use serde::{Deserialize, Serialize};
-use std::{io::ErrorKind, path::PathBuf};
-use tokio::fs::{create_dir_all, remove_file, File};
+use std::{
+    io::{Error as IoError, ErrorKind},
+    path::PathBuf,
+};
+use tokio::fs::{create_dir_all, read, remove_file, write, File};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
@@ -33,7 +40,7 @@ pub struct FileSystemConfig {
 
 #[async_trait]
 impl StorageConfig<FileSystemStore> for FileSystemConfig {
-    type Error = std::io::Error;
+    type Error = IoError;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
         if path.is_dir() {
@@ -51,9 +58,55 @@ impl StorageConfig<FileSystemStore> for FileSystemConfig {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum ProviderError {
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    KeypairDecode(#[from] DecodingError),
+}
+
+#[async_trait]
+impl ProviderUtils for FileSystemConfig {
+    type Error = ProviderError;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
+        Ok(self
+            .path
+            .join(orbit.get_cid().to_string())
+            .join("blocks")
+            .is_dir())
+    }
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
+        let path = self.path.join("kp");
+        match read(path).await {
+            Ok(mut k) => Ok(Ed25519Keypair::decode(&mut k)?),
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                let k = Ed25519Keypair::generate();
+                write(path, k.encode()).await?;
+                Ok(k)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
+        match read(self.path.join(orbit.get_cid().to_string()).join("kp")).await {
+            Ok(mut k) => Ok(Some(Ed25519Keypair::decode(&mut k)?)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
+        let dir = self.path.join(orbit.get_cid().to_string());
+        create_dir_all(&dir).await?;
+        write(dir.join("kp"), key.encode()).await?;
+        write(dir.join("id"), orbit.to_string()).await?;
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl ImmutableStore for FileSystemStore {
-    type Error = std::io::Error;
+    type Error = IoError;
     type Readable = Compat<File>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         Ok(self.get_path(id).exists())

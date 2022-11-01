@@ -8,7 +8,7 @@ use kepler_lib::libipld::cid::{multibase::Base, multihash::Multihash, Cid};
 use kepler_lib::resource::OrbitId;
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use rocket::tokio::fs;
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, error::Error as StdError, path::PathBuf, str::FromStr};
 use tracing::instrument;
 
 mod dynamodb;
@@ -26,7 +26,7 @@ pub struct StorageUtils {
     config: config::BlockStorage,
 }
 
-pub type BlockStores = either::Either<Box<s3::S3BlockStore>, Box<file_system::FileSystemStore>>;
+pub type BlockStores = either::Either<s3::S3BlockStore, file_system::FileSystemStore>;
 
 #[derive(Debug)]
 pub enum DataStores {

@@ -1,6 +1,6 @@
 use anyhow::Error;
 use aws_sdk_s3::{
-    error::{GetObjectError, GetObjectErrorKind},
+    error::{GetObjectError, GetObjectErrorKind, PutObjectError},
     types::{ByteStream, SdkError},
     Client, // Config,
     Error as S3Error,
@@ -15,6 +15,7 @@ use kepler_lib::{
     },
     resource::OrbitId,
 };
+use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
 use regex::Regex;
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ use std::{io::Error as IoError, path::PathBuf, str::FromStr};
 
 use crate::{
     config,
+    orbit::ProviderUtils,
     storage::{dynamodb::DynamoPinStore, ImmutableStore, StorageConfig},
 };
 
@@ -66,6 +68,109 @@ impl StorageConfig<S3BlockStore> for S3BlockConfig {
     }
     async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
         Ok(S3BlockStore::new_(self, orbit.get_cid()))
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProviderError {
+    #[error(transparent)]
+    S3(#[from] S3Error),
+    #[error(transparent)]
+    KeypairDecode(#[from] DecodingError),
+    #[error(transparent)]
+    ByteStream(#[from] ByteStreamError),
+}
+
+impl From<SdkError<GetObjectError>> for ProviderError {
+    fn from(e: SdkError<GetObjectError>) -> Self {
+        Self::S3(e.into())
+    }
+}
+
+impl From<SdkError<PutObjectError>> for ProviderError {
+    fn from(e: SdkError<PutObjectError>) -> Self {
+        Self::S3(e.into())
+    }
+}
+
+#[async_trait]
+impl ProviderUtils for S3BlockConfig {
+    type Error = ProviderError;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
+        self.key_pair(orbit).await.map(|o| o.is_some())
+    }
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
+        let client = new_client(&self);
+        match client
+            .get_object()
+            .bucket(self.bucket)
+            .key("kp")
+            .send()
+            .await
+        {
+            Ok(o) => Ok(Ed25519Keypair::decode(
+                &mut o.body.collect().await?.into_bytes().to_vec(),
+            )?),
+            Err(SdkError::ServiceError {
+                err:
+                    GetObjectError {
+                        kind: GetObjectErrorKind::NoSuchKey(_),
+                        ..
+                    },
+                ..
+            }) => {
+                let kp = Ed25519Keypair::generate();
+                client
+                    .put_object()
+                    .bucket(self.bucket)
+                    .key("kp")
+                    .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
+                    .send()
+                    .await?;
+                Ok(kp)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
+        match new_client(&self)
+            .get_object()
+            .bucket(self.bucket)
+            .key(format!("{}/keypair", orbit.get_cid()))
+            .send()
+            .await
+        {
+            Ok(o) => Ok(Some(Ed25519Keypair::decode(
+                &mut o.body.collect().await?.into_bytes().to_vec(),
+            )?)),
+            Err(SdkError::ServiceError {
+                err:
+                    GetObjectError {
+                        kind: GetObjectErrorKind::NoSuchKey(_),
+                        ..
+                    },
+                ..
+            }) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
+        let client = new_client(&self);
+        client
+            .put_object()
+            .bucket(self.bucket)
+            .key(format!("{}/keypair", orbit.get_cid()))
+            .body(ByteStream::new(SdkBody::from(key.encode().to_vec())))
+            .send()
+            .await?;
+        client
+            .put_object()
+            .bucket(self.bucket)
+            .key(format!("{}/orbit_url", orbit.get_cid()))
+            .body(ByteStream::new(SdkBody::from(orbit.to_string())))
+            .send()
+            .await?;
+        Ok(())
     }
 }
 

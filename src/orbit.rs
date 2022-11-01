@@ -133,7 +133,15 @@ where
             capabilities,
         })
     }
+}
 
+#[async_trait]
+pub trait ProviderUtils {
+    type Error: StdError;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error>;
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error>;
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error>;
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error>;
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error

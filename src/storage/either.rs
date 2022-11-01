@@ -1,12 +1,19 @@
-use super::{ImmutableStore, StorageConfig};
+use crate::{
+    orbit::ProviderUtils,
+    storage::{ImmutableStore, StorageConfig},
+};
 use core::pin::Pin;
 use futures::{
     io::{AsyncRead, Error},
     task::{Context, Poll},
 };
-use kepler_lib::{libipld::cid::multihash::Multihash, resource::OrbitId};
+use kepler_lib::{
+    libipld::cid::{multihash::Multihash, Cid},
+    resource::OrbitId,
+};
+use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Either<A, B> {
     A(A),
     B(B),
@@ -135,6 +142,39 @@ where
         match self {
             Self::A(a) => a.create(orbit).await.map(Either::A).map_err(Self::Error::A),
             Self::B(b) => b.create(orbit).await.map(Either::B).map_err(Self::Error::B),
+        }
+    }
+}
+
+#[async_trait]
+impl<A, B> ProviderUtils for Either<A, B>
+where
+    A: ProviderUtils + Sync,
+    B: ProviderUtils + Sync,
+{
+    type Error = EitherError<A::Error, B::Error>;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
+        match self {
+            Self::A(a) => a.exists(orbit).await.map_err(Self::Error::A),
+            Self::B(b) => b.exists(orbit).await.map_err(Self::Error::B),
+        }
+    }
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
+        match self {
+            Self::A(a) => a.relay_key_pair().await.map_err(Self::Error::A),
+            Self::B(b) => b.relay_key_pair().await.map_err(Self::Error::B),
+        }
+    }
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
+        match self {
+            Self::A(a) => a.key_pair(orbit).await.map_err(Self::Error::A),
+            Self::B(b) => b.key_pair(orbit).await.map_err(Self::Error::B),
+        }
+    }
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
+        match self {
+            Self::A(a) => a.setup_orbit(orbit, key).await.map_err(Self::Error::A),
+            Self::B(b) => b.setup_orbit(orbit, key).await.map_err(Self::Error::B),
         }
     }
 }
