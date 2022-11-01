@@ -39,7 +39,8 @@ pub type BlockConfig = either::Either<s3::S3BlockConfig, file_system::FileSystem
 #[async_trait]
 pub trait StorageConfig<S> {
     type Error: StdError;
-    async fn open(&self, orbit: &OrbitId) -> Result<S, Self::Error>;
+    async fn open(&self, orbit: &OrbitId) -> Result<Option<S>, Self::Error>;
+    async fn create(&self, orbit: &OrbitId) -> Result<S, Self::Error>;
 }
 
 impl StorageUtils {

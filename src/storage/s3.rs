@@ -61,7 +61,10 @@ pub struct S3BlockConfig {
 #[async_trait]
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = std::convert::Infallible;
-    async fn open(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
+    async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
+        Ok(Some(S3BlockStore::new_(self, orbit.get_cid())))
+    }
+    async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
         Ok(S3BlockStore::new_(self, orbit.get_cid()))
     }
 }

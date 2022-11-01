@@ -8,7 +8,7 @@ use kepler_lib::{
 };
 use serde::{Deserialize, Serialize};
 use std::{io::ErrorKind, path::PathBuf};
-use tokio::fs::{remove_file, File};
+use tokio::fs::{create_dir_all, remove_file, File};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
@@ -28,16 +28,26 @@ impl FileSystemStore {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FileSystemConfig {
-    pub path: PathBuf,
+    path: PathBuf,
 }
 
 #[async_trait]
 impl StorageConfig<FileSystemStore> for FileSystemConfig {
-    type Error = std::convert::Infallible;
-    async fn open(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
-        Ok(FileSystemStore::new(
-            self.path.join(orbit.get_cid().to_string()),
-        ))
+    type Error = std::io::Error;
+    async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
+        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
+        if path.is_dir() {
+            Ok(Some(FileSystemStore::new(path)))
+        } else {
+            Ok(None)
+        }
+    }
+    async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
+        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
+        if !path.is_dir() {
+            create_dir_all(&path).await?;
+        }
+        Ok(FileSystemStore::new(path))
     }
 }
 

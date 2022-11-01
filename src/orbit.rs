@@ -3,7 +3,7 @@ use crate::{
     config,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
-    storage::{BlockStores, ImmutableStore},
+    storage::{BlockStores, ImmutableStore, StorageConfig},
 };
 use anyhow::{anyhow, Result};
 use kepler_lib::libipld::cid::{
@@ -66,37 +66,70 @@ pub struct Orbit<B> {
     pub capabilities: CapService<B>,
 }
 
+#[derive(Clone, Debug)]
+pub struct PeerConfig {
+    kp: Ed25519Keypair,
+    manifest: Manifest,
+    relay: Option<(PeerId, Multiaddr)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StoreConfigs<B, I = config::IndexStorage> {
+    blocks: B,
+    index: I,
+}
+
 impl<B> Orbit<B>
 where
-    B: ImmutableStore,
+    B: ImmutableStore + Clone,
 {
-    async fn new(
-        config: &config::Config,
-        kp: Ed25519Keypair,
-        manifest: Manifest,
-        relay: Option<(PeerId, Multiaddr)>,
-    ) -> anyhow::Result<Self> {
-        let id = manifest.id().get_cid();
-        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(kp.public()));
+    async fn open<C>(stores: &StoreConfigs<C>, peer: PeerConfig) -> anyhow::Result<Option<Self>>
+    where
+        C: StorageConfig<B>,
+        C::Error: 'static + Sync + Send,
+        B::Error: 'static,
+    {
+        let id = peer.manifest.id().get_cid();
+        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(peer.kp.public()));
 
-        let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-
-        // TODO config into block store
-        let blocks = todo!();
-        let service_store = Store::new(id, blocks.clone(), config.storage.indexes.clone()).await?;
+        let blocks = match stores.blocks.open(peer.manifest.id()).await? {
+            Some(b) => b,
+            None => return Ok(None),
+        };
+        let service_store = Store::new(id, blocks.clone(), stores.index.clone()).await?;
         let service = KVService::start(service_store).await?;
 
-        let cap_store = CapStore::new(
-            manifest.id(),
-            blocks.clone(),
-            config.storage.indexes.clone(),
-        )
-        .await?;
+        let cap_store =
+            CapStore::new(peer.manifest.id(), blocks.clone(), stores.index.clone()).await?;
+        let capabilities = CapService::start(cap_store).await?;
+
+        Ok(Some(Orbit {
+            service,
+            manifest: peer.manifest,
+            capabilities,
+        }))
+    }
+
+    async fn create<C>(stores: &StoreConfigs<C>, peer: PeerConfig) -> anyhow::Result<Self>
+    where
+        C: StorageConfig<B>,
+        C::Error: 'static + Sync + Send,
+        B::Error: 'static,
+    {
+        let id = peer.manifest.id().get_cid();
+        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(peer.kp.public()));
+
+        let blocks = stores.blocks.create(peer.manifest.id()).await?;
+        let service_store = Store::new(id, blocks.clone(), stores.index.clone()).await?;
+        let service = KVService::start(service_store).await?;
+
+        let cap_store =
+            CapStore::new(peer.manifest.id(), blocks.clone(), stores.index.clone()).await?;
         let capabilities = CapService::start(cap_store).await?;
 
         Ok(Orbit {
             service,
-            manifest,
+            manifest: peer.manifest,
             capabilities,
         })
     }
