@@ -3,7 +3,8 @@ use crate::{
     config,
     kv::{behaviour::BehaviourProcess, Service as KVService, Store},
     manifest::Manifest,
-    storage::{BlockConfig, BlockStores, ImmutableStore, StorageConfig},
+    storage::{ImmutableStore, StorageConfig},
+    BlockConfig, BlockStores,
 };
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
@@ -147,8 +148,8 @@ pub trait ProviderUtils {
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
     id: &OrbitId,
-    config: &config::Config,
-    auth: &[u8],
+    store_config: &BlockConfig,
+    index_config: &config::IndexStorage,
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
 ) -> Result<Option<Orbit<BlockStores>>> {
@@ -158,30 +159,29 @@ pub async fn create_orbit(
     };
 
     // fails if DIR exists, this is Create, not Open
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    if storage_utils.exists(id.get_cid()).await? {
+    if store_config.exists(&id).await? {
         return Ok(None);
     }
 
-    storage_utils.setup_orbit(id.clone(), kp, auth).await?;
+    store_config.setup_orbit(&id, &kp).await?;
 
     Ok(Some(
-        load_orbit(md.id().get_cid(), config, relay)
+        load_orbit(id.clone(), store_config, index_config, relay)
             .await
             .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
     ))
 }
 
 pub async fn load_orbit(
-    id_cid: Cid,
-    config: &config::Config,
+    orbit: OrbitId,
+    store_config: &BlockConfig,
+    index_config: &config::IndexStorage,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit<BlockStores>>> {
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    if !storage_utils.exists(id_cid).await? {
+    if !store_config.exists(&orbit).await? {
         return Ok(None);
     }
-    load_orbit_inner(id_cid, config.clone(), relay)
+    load_orbit_inner(orbit, store_config.clone(), index_config.clone(), relay)
         .await
         .map(Some)
 }
