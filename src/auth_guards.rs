@@ -4,7 +4,7 @@ use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
 use crate::routes::Metadata;
-use crate::storage::BlockStores;
+use crate::{BlockConfig, BlockStores};
 use anyhow::Result;
 use kepler_lib::{
     libipld::Cid,
@@ -143,7 +143,13 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                 .map(|((orbit_id, peer), (config, relay, token))| async move {
                     match (
                         peer,
-                        load_orbit(orbit_id.get_cid(), &config, relay.clone()).await,
+                        load_orbit(
+                            (*orbit_id).clone(),
+                            &config.storage.blocks,
+                            &config.storage.indexes,
+                            relay.clone(),
+                        )
+                        .await,
                     ) {
                         (Some(p), Ok(None)) => {
                             let keys = match req
@@ -182,7 +188,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                                 }
                             };
 
-                            match create_orbit(orbit_id, &config, &[], relay.clone(), kp).await {
+                            match create_orbit(
+                                orbit_id,
+                                &config.storage.blocks,
+                                &config.storage.indexes,
+                                relay.clone(),
+                                kp,
+                            )
+                            .await
+                            {
                                 Ok(Some(orbit)) => Ok(orbit),
                                 Ok(None) => Err(conflict(anyhow!("Orbit already exists"))),
                                 Err(e) => Err(internal_server_error(e)),
@@ -301,12 +315,18 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
             let res = match target.resource.service() {
                 None => bad_request(anyhow!("missing service in invocation target")),
                 Some("kv") => {
-                    let orbit =
-                        match load_orbit(target.resource.orbit().get_cid(), &config, relay).await {
-                            Ok(Some(o)) => o,
-                            Ok(None) => return not_found(anyhow!("No Orbit found")),
-                            Err(e) => return internal_server_error(e),
-                        };
+                    let orbit = match load_orbit(
+                        target.resource.orbit().clone(),
+                        &config.storage.blocks,
+                        &config.storage.indexes,
+                        relay,
+                    )
+                    .await
+                    {
+                        Ok(Some(o)) => o,
+                        Ok(None) => return not_found(anyhow!("No Orbit found")),
+                        Err(e) => return internal_server_error(e),
+                    };
                     let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
                         Ok(c) => c,
                         Err(InvokeError::Unauthorized(e)) => return unauthorized(e),

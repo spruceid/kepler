@@ -190,27 +190,32 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_inner(
-    orbit: Cid,
-    config: config::Config,
+    orbit: OrbitId,
+    store_config: BlockConfig,
+    index_config: config::IndexStorage,
     relay: (PeerId, Multiaddr),
 ) -> Result<Orbit<BlockStores>> {
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    let id = storage_utils
-        .orbit_id(orbit)
-        .await?
-        .ok_or_else(|| anyhow!("Orbit `{}` doesn't have its orbit URL stored.", orbit))?;
-
-    let md = Manifest::resolve_dyn(&id, None)
-        .await?
-        .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
-
-    // let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
-    let kp = storage_utils.key_pair(orbit).await?.unwrap();
-
-    debug!("loading orbit {}", &id);
-
-    let orbit = Orbit::new(&config, kp, md, Some(relay)).await?;
-    Ok(orbit)
+    debug!("loading orbit {}", &orbit);
+    Orbit::open(
+        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+            .manifest(
+                Manifest::resolve_dyn(&orbit, None)
+                    .await?
+                    .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
+            )
+            .identity(
+                store_config
+                    .key_pair(&orbit)
+                    .await?
+                    .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
+            )
+            .blocks(store_config)
+            .index(index_config)
+            .relay(relay)
+            .build()?,
+    )
+    .await?
+    .ok_or_else(|| anyhow!("Orbit could not be opened: not found"))
 }
 
 pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
