@@ -7,11 +7,9 @@ use futures::{
     io::{AsyncRead, Error},
     task::{Context, Poll},
 };
-use kepler_lib::{
-    libipld::cid::{multihash::Multihash, Cid},
-    resource::OrbitId,
-};
+use kepler_lib::{libipld::cid::multihash::Multihash, resource::OrbitId};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
+use pin_project::pin_project;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Either<A, B> {
@@ -19,14 +17,15 @@ pub enum Either<A, B> {
     B(B),
 }
 
+#[pin_project(project = AsyncReadEitherProjection)]
 #[derive(Debug, Clone)]
 pub enum AsyncReadEither<A, B>
 where
     A: ImmutableStore,
     B: ImmutableStore,
 {
-    A(A::Readable),
-    B(B::Readable),
+    A(#[pin] A::Readable),
+    B(#[pin] B::Readable),
 }
 
 impl<A, B> AsyncRead for AsyncReadEither<A, B>
@@ -40,13 +39,9 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<Result<usize, Error>> {
-        // it actually seems like this is only possible with unsafe :(
-        // TODO use pin-project crate
-        unsafe {
-            match self.get_unchecked_mut() {
-                Self::A(l) => AsyncRead::poll_read(Pin::new_unchecked(l), cx, buf),
-                Self::B(r) => AsyncRead::poll_read(Pin::new_unchecked(r), cx, buf),
-            }
+        match self.project() {
+            AsyncReadEitherProjection::A(a) => a.poll_read(cx, buf),
+            AsyncReadEitherProjection::B(b) => b.poll_read(cx, buf),
         }
     }
     #[inline]
@@ -55,11 +50,9 @@ where
         cx: &mut Context<'_>,
         bufs: &mut [std::io::IoSliceMut<'_>],
     ) -> Poll<Result<usize, Error>> {
-        unsafe {
-            match self.get_unchecked_mut() {
-                Self::A(l) => AsyncRead::poll_read_vectored(Pin::new_unchecked(l), cx, bufs),
-                Self::B(r) => AsyncRead::poll_read_vectored(Pin::new_unchecked(r), cx, bufs),
-            }
+        match self.project() {
+            AsyncReadEitherProjection::A(a) => a.poll_read_vectored(cx, bufs),
+            AsyncReadEitherProjection::B(b) => b.poll_read_vectored(cx, bufs),
         }
     }
 }
