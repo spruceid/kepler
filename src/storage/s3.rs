@@ -23,7 +23,6 @@ use serde_with::{serde_as, DisplayFromStr};
 use std::{io::Error as IoError, path::PathBuf, str::FromStr};
 
 use crate::{
-    config,
     orbit::ProviderUtils,
     storage::{dynamodb::DynamoPinStore, ImmutableStore, StorageConfig},
 };
@@ -308,7 +307,7 @@ impl ImmutableStore for S3BlockStore {
     }
 }
 
-fn path_to_config(path: PathBuf) -> (config::S3BlockStorage, Cid) {
+fn path_to_config(path: PathBuf) -> (S3BlockConfig, Cid) {
     let re =
             Regex::new(r"^/s3bucket/(?P<bucket>.*)/s3endpoint/(?P<s3endpoint>.*)/dynamotable/(?P<table>.*)/dynamoendpoint/(?P<dynamoendpoint>.*)/orbitcid/(?P<orbit>.*)/(blockstore|datastore)$")
                 .unwrap();
@@ -323,13 +322,13 @@ fn path_to_config(path: PathBuf) -> (config::S3BlockStorage, Cid) {
         .map(|e| Uri::from_str(e).unwrap());
     let orbit = Cid::from_str(fields.name("orbit").unwrap().as_str()).unwrap();
 
-    let config = config::S3BlockStorage {
+    let config = S3BlockConfig {
         bucket: s3_bucket,
         endpoint: s3_endpoint,
-        dynamodb: config::DynamoStorage {
-            table: dynamo_table,
-            endpoint: dynamo_endpoint,
-        },
+        // dynamodb: config::DynamoStorage {
+        //     table: dynamo_table,
+        //     endpoint: dynamo_endpoint,
+        // },
     };
     (config, orbit)
 }

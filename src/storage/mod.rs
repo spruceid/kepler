@@ -1,40 +1,23 @@
 use anyhow::{Error, Result};
-use aws_sdk_s3::{
-    error::{GetObjectError, GetObjectErrorKind},
-    types::{ByteStream, SdkError},
-};
-use aws_smithy_http::body::SdkBody;
-use kepler_lib::libipld::cid::{multibase::Base, multihash::Multihash, Cid};
+use kepler_lib::libipld::cid::{multihash::Multihash, Cid};
 use kepler_lib::resource::OrbitId;
-use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
-use rocket::tokio::fs;
-use std::{collections::HashMap, error::Error as StdError, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, error::Error as StdError};
 use tracing::instrument;
 
 mod dynamodb;
-mod either;
-mod file_system;
+pub mod either;
+pub mod file_system;
 mod indexes;
-mod s3;
+pub mod s3;
 mod utils;
 
 pub use indexes::KV;
-
-use crate::config;
-
-pub struct StorageUtils {
-    config: config::BlockStorage,
-}
-
-pub type BlockStores = either::Either<s3::S3BlockStore, file_system::FileSystemStore>;
 
 #[derive(Debug)]
 pub enum DataStores {
     S3(Box<s3::S3DataStore>),
     Local(Box<file_system::FileSystemStore>),
 }
-
-pub type BlockConfig = either::Either<s3::S3BlockConfig, file_system::FileSystemConfig>;
 
 #[async_trait]
 pub trait StorageConfig<S> {

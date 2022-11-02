@@ -58,6 +58,14 @@ impl StorageConfig<FileSystemStore> for FileSystemConfig {
     }
 }
 
+impl Default for FileSystemConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from(r"/tmp/kepler/blocks"),
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum ProviderError {
     #[error(transparent)]
