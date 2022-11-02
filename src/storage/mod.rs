@@ -13,12 +13,6 @@ mod utils;
 
 pub use indexes::KV;
 
-#[derive(Debug)]
-pub enum DataStores {
-    S3(Box<s3::S3DataStore>),
-    Local(Box<file_system::FileSystemStore>),
-}
-
 #[async_trait]
 pub trait StorageConfig<S> {
     type Error: StdError;

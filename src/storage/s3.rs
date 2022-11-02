@@ -24,18 +24,8 @@ use std::{io::Error as IoError, path::PathBuf, str::FromStr};
 
 use crate::{
     orbit::ProviderUtils,
-    storage::{dynamodb::DynamoPinStore, ImmutableStore, StorageConfig},
+    storage::{ImmutableStore, StorageConfig},
 };
-
-#[derive(Debug)]
-pub struct S3DataStore {
-    // TODO Remove is unused (orbit::delete is never called).
-    // When that changes we will need to use a mutex, either local or in Dynamo
-    pub client: Client,
-    pub bucket: String,
-    pub dynamodb: DynamoPinStore,
-    pub orbit: Cid,
-}
 
 // TODO we could use the same struct for both the block store and the data
 // (pin) store, but we need to remember that for now it will be two different
@@ -56,7 +46,6 @@ pub struct S3BlockConfig {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub endpoint: Option<Uri>,
-    // pub dynamodb: DynamoStorage,
 }
 
 #[async_trait]
@@ -182,58 +171,6 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
     };
     let sdk_config = sdk_config.build();
     Client::from_conf(sdk_config)
-}
-
-impl S3DataStore {
-    pub fn new_(config: S3BlockConfig, orbit: Cid) -> Self {
-        S3DataStore {
-            client: new_client(&config),
-            bucket: config.bucket,
-            dynamodb: todo!(),
-            orbit,
-        }
-    }
-
-    pub async fn get_(&self, key: String) -> Result<Option<Vec<u8>>, Error> {
-        let res = self
-            .client
-            .get_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                key
-            ))
-            .send()
-            .await;
-        match res {
-            Ok(o) => Ok(Some(o.body.collect().await?.into_bytes().to_vec())),
-            Err(SdkError::ServiceError {
-                err:
-                    GetObjectError {
-                        kind: GetObjectErrorKind::NoSuchKey(_),
-                        ..
-                    },
-                ..
-            }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    pub async fn put_(&self, key: String, body: Vec<u8>) -> Result<(), Error> {
-        self.client
-            .put_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                key
-            ))
-            .body(ByteStream::new(SdkBody::from(body)))
-            .send()
-            .await?;
-        Ok(())
-    }
 }
 
 impl S3BlockStore {
