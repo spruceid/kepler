@@ -410,6 +410,7 @@ where
 impl<B> CapStore for Store<B>
 where
     B: ImmutableStore,
+    B::Error: 'static,
 {
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here

@@ -66,7 +66,7 @@ impl<R> KVResponse<R> {
 
 impl<'r, R> Responder<'r, 'static> for KVResponse<R>
 where
-    R: AsyncRead + Send,
+    R: 'static + AsyncRead + Send,
 {
     fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
         Ok(Response::build_from(self.1.respond_to(r)?)
@@ -247,7 +247,7 @@ pub enum InvocationResponse<R> {
 
 impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
 where
-    R: AsyncRead + Send,
+    R: 'static + AsyncRead + Send,
 {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         match self {

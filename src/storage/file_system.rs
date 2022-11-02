@@ -78,11 +78,11 @@ impl ProviderUtils for FileSystemConfig {
     }
     async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
         let path = self.path.join("kp");
-        match read(path).await {
+        match read(&path).await {
             Ok(mut k) => Ok(Ed25519Keypair::decode(&mut k)?),
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let k = Ed25519Keypair::generate();
-                write(path, k.encode()).await?;
+                write(&path, k.encode()).await?;
                 Ok(k)
             }
             Err(e) => Err(e.into()),

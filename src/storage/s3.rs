@@ -103,7 +103,7 @@ impl ProviderUtils for S3BlockConfig {
         let client = new_client(&self);
         match client
             .get_object()
-            .bucket(self.bucket)
+            .bucket(&self.bucket)
             .key("kp")
             .send()
             .await
@@ -122,7 +122,7 @@ impl ProviderUtils for S3BlockConfig {
                 let kp = Ed25519Keypair::generate();
                 client
                     .put_object()
-                    .bucket(self.bucket)
+                    .bucket(&self.bucket)
                     .key("kp")
                     .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
                     .send()
@@ -135,7 +135,7 @@ impl ProviderUtils for S3BlockConfig {
     async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
         match new_client(&self)
             .get_object()
-            .bucket(self.bucket)
+            .bucket(&self.bucket)
             .key(format!("{}/keypair", orbit.get_cid()))
             .send()
             .await
@@ -158,14 +158,14 @@ impl ProviderUtils for S3BlockConfig {
         let client = new_client(&self);
         client
             .put_object()
-            .bucket(self.bucket)
+            .bucket(&self.bucket)
             .key(format!("{}/keypair", orbit.get_cid()))
             .body(ByteStream::new(SdkBody::from(key.encode().to_vec())))
             .send()
             .await?;
         client
             .put_object()
-            .bucket(self.bucket)
+            .bucket(&self.bucket)
             .key(format!("{}/orbit_url", orbit.get_cid()))
             .body(ByteStream::new(SdkBody::from(orbit.to_string())))
             .send()
@@ -177,8 +177,8 @@ impl ProviderUtils for S3BlockConfig {
 pub fn new_client(config: &S3BlockConfig) -> Client {
     let general_config = super::utils::aws_config();
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
-    let sdk_config = match config.endpoint {
-        Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e)),
+    let sdk_config = match &config.endpoint {
+        Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e.clone())),
         None => sdk_config,
     };
     let sdk_config = sdk_config.build();
