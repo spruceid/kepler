@@ -165,6 +165,26 @@ pub async fn create_orbit(
 
     store_config.setup_orbit(&id, &kp).await?;
 
+    Orbit::create(
+        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+            .manifest(
+                Manifest::resolve_dyn(&id, None)
+                    .await?
+                    .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
+            )
+            .identity(
+                store_config
+                    .key_pair(&id)
+                    .await?
+                    .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
+            )
+            .blocks(store_config.clone())
+            .index(index_config.clone())
+            .relay(relay.clone())
+            .build()?,
+    )
+    .await?;
+
     Ok(Some(
         load_orbit(id.clone(), store_config, index_config, relay)
             .await
