@@ -345,9 +345,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "aws-config"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2da63196d2d0dd38667b404459a35d32562a8d83c1f46c5b789ab89ab176fd53"
+checksum = "b309b2154d224728d845a958c580834f24213037ed61b195da80c0b0fc7469fa"
 dependencies = [
  "aws-http",
  "aws-sdk-sso",
@@ -364,6 +364,7 @@ dependencies = [
  "http",
  "hyper",
  "ring",
+ "time 0.3.15",
  "tokio",
  "tower",
  "tracing",
@@ -372,11 +373,12 @@ dependencies = [
 
 [[package]]
 name = "aws-endpoint"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5279590d48e92b287f864e099c7e851af03a5e184a57cec0959872cee297c7a0"
+checksum = "76f35c8f5877ad60db4f0d9dcdfbcb2233a8cc539f9e568df39ee0581ec62e89"
 dependencies = [
  "aws-smithy-http",
+ "aws-smithy-types",
  "aws-types",
  "http",
  "regex",
@@ -385,24 +387,27 @@ dependencies = [
 
 [[package]]
 name = "aws-http"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7046bdd807c70caf28d6dbc69b9d6d8dda1728577866d3ff3862de585b8b0eb"
+checksum = "2f5422c9632d887968ccb66e2871a6d190d6104e276034912bee72ef58a5d890"
 dependencies = [
  "aws-smithy-http",
  "aws-smithy-types",
  "aws-types",
+ "bytes",
  "http",
+ "http-body",
  "lazy_static",
  "percent-encoding",
+ "pin-project-lite",
  "tracing",
 ]
 
 [[package]]
 name = "aws-sdk-dynamodb"
-version = "0.9.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "762a92e68a3a99d43593ff9b4c00dac630c1e5cfd04ed15e33f235c9c9125a09"
+checksum = "0d757928810bbc52fe8bc3005689fb2465d4d62c280054693ec6d0162ce33bbc"
 dependencies = [
  "aws-endpoint",
  "aws-http",
@@ -423,15 +428,16 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "0.9.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4fd99b22cbdb894925468005ad55defcfe0ce294fadcc5f7be9d9119646b0de"
+checksum = "a4d31765abb258c501d5572ebce43dee524b4b3b6256cb8b4c78534898dc205b"
 dependencies = [
  "aws-endpoint",
  "aws-http",
  "aws-sig-auth",
  "aws-sigv4",
  "aws-smithy-async",
+ "aws-smithy-checksums",
  "aws-smithy-client",
  "aws-smithy-eventstream",
  "aws-smithy-http",
@@ -440,17 +446,19 @@ dependencies = [
  "aws-smithy-xml",
  "aws-types",
  "bytes",
+ "bytes-utils",
  "http",
- "md5",
+ "http-body",
  "tokio-stream",
  "tower",
+ "tracing",
 ]
 
 [[package]]
 name = "aws-sdk-sso"
-version = "0.9.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96f9038b498944025a39e426ae38f64e3e8481a9d675469580e1de7397b46ed5"
+checksum = "e2cc8b50281e1350d0b5c7207c2ce53c6721186ad196472caff4f20fa4b42e96"
 dependencies = [
  "aws-endpoint",
  "aws-http",
@@ -470,9 +478,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-sts"
-version = "0.9.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e717e67debcd7f9d87563d08e7d40e3c5c28634a8badc491650d5ad2305befd3"
+checksum = "d6179f13c9fbab3226860f377354dece860e34ff129b69c7c1b0fa828d1e9c76"
 dependencies = [
  "aws-endpoint",
  "aws-http",
@@ -492,24 +500,23 @@ dependencies = [
 
 [[package]]
 name = "aws-sig-auth"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0e6e4ba09f502057ad6a4ebf3627f9dae8402e366cf7b36ca1c09cbff8b5834"
+checksum = "b16f4d70c9c865af392eb40cacfe2bec3fa18f651fbdf49919cfc1dda13b189e"
 dependencies = [
  "aws-sigv4",
  "aws-smithy-eventstream",
  "aws-smithy-http",
  "aws-types",
  "http",
- "thiserror",
  "tracing",
 ]
 
 [[package]]
 name = "aws-sigv4"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea07a5a108ee538793d681d608057218df95c5575f6c0699a1973c27a09334b2"
+checksum = "8d33790cecae42b999d197074c8a19e9b96b9e346284a6f93989e7489c9fa0f5"
 dependencies = [
  "aws-smithy-eventstream",
  "aws-smithy-http",
@@ -527,9 +534,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-async"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66ab5373d24e1651860240f122a8d956f7a2094d4553c78979617a7fac640030"
+checksum = "bc604f278bae64bbd15854baa9c46ed69a56dfb0669d04aab80974749f2d6599"
 dependencies = [
  "futures-util",
  "pin-project-lite",
@@ -538,10 +545,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-smithy-client"
-version = "0.39.0"
+name = "aws-smithy-checksums"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88e8a92747322eace67f666402a5949da27675f60a2b9098b84b63edef8e6980"
+checksum = "4b402da39bc5aae618b70a9b8d828acad21fe4a3a73b82c0205b89db55d71ce8"
+dependencies = [
+ "aws-smithy-http",
+ "aws-smithy-types",
+ "bytes",
+ "crc32c",
+ "crc32fast",
+ "hex",
+ "http",
+ "http-body",
+ "md-5 0.10.5",
+ "pin-project-lite",
+ "sha1",
+ "sha2 0.10.6",
+ "tracing",
+]
+
+[[package]]
+name = "aws-smithy-client"
+version = "0.49.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec39585f8274fa543ad5c63cc09cbd435666be16b2cf99e4e07be5cf798bc050"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -554,7 +582,6 @@ dependencies = [
  "hyper",
  "hyper-rustls",
  "lazy_static",
- "pin-project",
  "pin-project-lite",
  "tokio",
  "tower",
@@ -563,9 +590,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-eventstream"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "775b1de8d55fd1cda393c3d81cb5c3dc0e1cac38170883049e2d7a8e16cefad1"
+checksum = "98c2a7b9490fd2bc7af3a1c486ae921102d7234d1fa5e7d91039068e7af48a01"
 dependencies = [
  "aws-smithy-types",
  "bytes",
@@ -574,9 +601,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "579d0c2ae96c700499c5330f082c4170b0535835f01eb845056324aa0abd04b4"
+checksum = "014a0ef5c4508fc2f6a9d3925c214725af19f020ea388db48e20196cc4cc9d6d"
 dependencies = [
  "aws-smithy-eventstream",
  "aws-smithy-types",
@@ -588,51 +615,51 @@ dependencies = [
  "hyper",
  "once_cell",
  "percent-encoding",
- "pin-project",
+ "pin-project-lite",
  "tokio",
- "tokio-util 0.6.10",
+ "tokio-util",
  "tracing",
 ]
 
 [[package]]
 name = "aws-smithy-http-tower"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "101a2e213acebe624cfb9bfc944de5e33c849e0df0f09c3d3aa3b54368dbe7af"
+checksum = "deecb478dc3cc40203e0e97ac0fb92947e0719754bbafd0026bdc49318e2fd03"
 dependencies = [
  "aws-smithy-http",
  "bytes",
  "http",
  "http-body",
- "pin-project",
+ "pin-project-lite",
  "tower",
  "tracing",
 ]
 
 [[package]]
 name = "aws-smithy-json"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd21f28535a2538b77274aa590abfb6d37aece3281dfc4c9411c1625d3b9239e"
+checksum = "6593456af93c4a39724f7dc9d239833102ab96c1d1e94c35ea79f0e55f9fd54c"
 dependencies = [
  "aws-smithy-types",
 ]
 
 [[package]]
 name = "aws-smithy-query"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb5a2c90311b0d20cf23212a15961cad2b76480863b1f7ce0608d9ece8dacdfb"
+checksum = "b803460b71645dfa9f6be47c4f00f91632f01e5bb01f9dc43890cd6cba983f08"
 dependencies = [
  "aws-smithy-types",
- "urlencoding 1.3.3",
+ "urlencoding",
 ]
 
 [[package]]
 name = "aws-smithy-types"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "962f2da621cd29f272636eebce39ca321c91e02bbb7eb848c4587ac14933d339"
+checksum = "e93b0c93a3b963da946a0b8ef3853a7252298eb75cdbfb21dad60f5ed0ded861"
 dependencies = [
  "itoa",
  "num-integer",
@@ -642,23 +669,24 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-xml"
-version = "0.39.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "829c7efd92b7a6d0536ceb48fd93a289ddf8763c67bffe875d82eae3f9886546"
+checksum = "36b9efb4855b4acb29961a776d45680f3cbdd7c4783cbbae078da54c342575dd"
 dependencies = [
- "thiserror",
  "xmlparser",
 ]
 
 [[package]]
 name = "aws-types"
-version = "0.9.0"
+version = "0.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68159725aa77553dbc6028f36d8378563cd45b18ef9cf03d1515ac469efacf13"
+checksum = "93f3f349b39781849261db1c727369923bb97007cf7bd0deb3a6e9e461c8d38f"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-client",
+ "aws-smithy-http",
  "aws-smithy-types",
+ "http",
  "rustc_version",
  "tracing",
  "zeroize",
@@ -938,10 +966,10 @@ dependencies = [
  "hex",
  "http",
  "iri-string 0.6.0",
- "libipld 0.14.0",
+ "libipld",
  "serde",
  "serde_with 2.0.1",
- "siwe 0.5.0",
+ "siwe",
  "thiserror",
  "time 0.3.15",
  "url",
@@ -1001,15 +1029,15 @@ checksum = "3a4f925191b4367301851c6d99b09890311d74b0d43f274c0b34c86d308a3663"
 
 [[package]]
 name = "capgrok"
-version = "0.3.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5fec5445658b25821dee5ab2788b0788620194c49cddf17c7aca0431b5ffae8"
+checksum = "17b1f49d14a68f6b30e935586d15bc1fae6444c8e42cd222d4b68cf16406eecb"
 dependencies = [
  "base64 0.12.3",
- "iri-string 0.4.1",
+ "iri-string 0.6.0",
  "serde",
  "serde_json",
- "siwe 0.4.2",
+ "siwe",
  "thiserror",
 ]
 
@@ -1243,6 +1271,15 @@ name = "crc24"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd121741cf3eb82c08dd3023eb55bf2665e5f60ec20f89760cf836ae4562e6a0"
+
+[[package]]
+name = "crc32c"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dfea2db42e9927a3845fb268a10a72faed6d416065f77873f05e411457c363e"
+dependencies = [
+ "rustc_version",
+]
 
 [[package]]
 name = "crc32fast"
@@ -1601,10 +1638,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2658621297f2cf68762a6f7dc0bb7e1ff2cfd6583daef8ee0fed6f7ec468ec0"
 dependencies = [
  "darling 0.10.2",
- "derive_builder_core",
+ "derive_builder_core 0.9.0",
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "derive_builder"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d07adf7be193b71cc36b193d0f5fe60b918a3a9db4dad0449f57bcfd519704a3"
+dependencies = [
+ "derive_builder_macro",
 ]
 
 [[package]]
@@ -1616,6 +1662,28 @@ dependencies = [
  "darling 0.10.2",
  "proc-macro2",
  "quote",
+ "syn",
+]
+
+[[package]]
+name = "derive_builder_core"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f91d4cfa921f1c05904dc3c57b4a32c38aed3340cce209f3a6fd1478babafc4"
+dependencies = [
+ "darling 0.14.1",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derive_builder_macro"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f0314b72bed045f3a68671b3c86328386762c93f82d98c65c3cb5e5f573dd68"
+dependencies = [
+ "derive_builder_core 0.11.2",
  "syn",
 ]
 
@@ -1666,7 +1734,7 @@ dependencies = [
 [[package]]
 name = "did-ethr"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1682,7 +1750,7 @@ dependencies = [
 [[package]]
 name = "did-ion"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1704,7 +1772,7 @@ dependencies = [
 [[package]]
 name = "did-method-key"
 version = "0.1.3"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "multibase 0.8.0",
@@ -1719,7 +1787,7 @@ dependencies = [
 [[package]]
 name = "did-onion"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "http",
@@ -1732,7 +1800,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "bech32",
@@ -1749,7 +1817,7 @@ dependencies = [
 [[package]]
 name = "did-tz"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1769,7 +1837,7 @@ dependencies = [
 [[package]]
 name = "did-web"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "http",
@@ -1781,7 +1849,7 @@ dependencies = [
 [[package]]
 name = "did-webkey"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1908,7 +1976,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9720bba047d567ffc8a3cba48bf19126600e249ab7f128e9233e6376976a116"
 dependencies = [
- "heck 0.4.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn",
@@ -2297,7 +2365,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util",
  "tracing",
 ]
 
@@ -2339,15 +2407,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7f66481bfee273957b1f20485a4ff3362987f85b2c236580d81b4eb7a326429"
 dependencies = [
  "http",
-]
-
-[[package]]
-name = "heck"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
-dependencies = [
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -2644,15 +2703,6 @@ dependencies = [
 
 [[package]]
 name = "iri-string"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f0f7638c1e223529f1bfdc48c8b133b9e0b434094d1d28473161ee48b235f78"
-dependencies = [
- "nom 7.1.1",
-]
-
-[[package]]
-name = "iri-string"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf071934ee7ee97e52fa1868a9540a7885eab75926bd70794030304a9797cea1"
@@ -2767,13 +2817,14 @@ dependencies = [
  "bincode",
  "bs58",
  "cached 0.34.1",
+ "derive_builder 0.11.2",
  "futures",
  "hex",
  "hyper",
  "iri-string 0.5.6",
  "kepler-lib",
  "lazy_static",
- "libipld 0.14.0",
+ "libipld",
  "libp2p",
  "opentelemetry",
  "opentelemetry-jaeger",
@@ -2791,12 +2842,12 @@ dependencies = [
  "time 0.3.15",
  "tokio",
  "tokio-stream",
- "tokio-util 0.6.10",
+ "tokio-util",
  "tracing",
  "tracing-log",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "urlencoding 2.1.2",
+ "urlencoding",
  "uuid",
  "void",
 ]
@@ -2819,7 +2870,7 @@ dependencies = [
  "did-webkey",
  "iri-string 0.6.0",
  "lazy_static",
- "libipld 0.14.0",
+ "libipld",
  "serde",
  "serde_json",
  "serde_with 1.14.0",
@@ -2834,15 +2885,15 @@ name = "kepler-sdk"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
- "chrono",
  "hex",
  "http",
- "iri-string 0.4.1",
+ "iri-string 0.6.0",
  "kepler-lib",
  "serde",
  "serde_json",
  "serde_with 1.14.0",
  "thiserror",
+ "time 0.3.15",
  "tokio",
  "tracing",
 ]
@@ -2892,27 +2943,6 @@ checksum = "68783febc7782c6c5cb401fbda4de5a9898be1762314da0bb2c10ced61f18b0c"
 
 [[package]]
 name = "libipld"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfb2f6a99d838dcb1cc18361c79e827b76e91987227406e705d07cbef51ab7be"
-dependencies = [
- "async-trait",
- "cached 0.30.0",
- "fnv",
- "libipld-cbor 0.13.1",
- "libipld-cbor-derive 0.13.1",
- "libipld-core 0.13.1",
- "libipld-json 0.13.1",
- "libipld-macro 0.13.1",
- "libipld-pb 0.13.1",
- "log",
- "multihash",
- "parking_lot 0.12.1",
- "thiserror",
-]
-
-[[package]]
-name = "libipld"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac9c3aa309c260aa2f174bac968901eddc546e9d85950c28eae6a7bec402f926"
@@ -2920,26 +2950,15 @@ dependencies = [
  "async-trait",
  "cached 0.30.0",
  "fnv",
- "libipld-cbor 0.14.0",
- "libipld-cbor-derive 0.14.0",
- "libipld-core 0.14.0",
- "libipld-json 0.14.0",
- "libipld-macro 0.14.0",
- "libipld-pb 0.14.0",
+ "libipld-cbor",
+ "libipld-cbor-derive",
+ "libipld-core",
+ "libipld-json",
+ "libipld-macro",
+ "libipld-pb",
  "log",
  "multihash",
  "parking_lot 0.12.1",
- "thiserror",
-]
-
-[[package]]
-name = "libipld-cbor"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46b3bbc4f35b8f25eb140d183f33d4610a1eb6531b312f01161fa06693f8c28a"
-dependencies = [
- "byteorder",
- "libipld-core 0.13.1",
  "thiserror",
 ]
 
@@ -2950,21 +2969,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd1ab68c9d26f20c7d0dfea6eecbae8c00359875210001b33ca27d4a02f3d09"
 dependencies = [
  "byteorder",
- "libipld-core 0.14.0",
+ "libipld-core",
  "thiserror",
-]
-
-[[package]]
-name = "libipld-cbor-derive"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6ec17d094f4f62e33e201ded63d911fd0bff3b12121ddc50d611e967f7e6824"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn",
- "synstructure",
 ]
 
 [[package]]
@@ -2982,21 +2988,6 @@ dependencies = [
 
 [[package]]
 name = "libipld-core"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbdd758764f9680a818af33c31db733eb7c45224715d8816b9dcf0548c75f7c5"
-dependencies = [
- "anyhow",
- "cid",
- "core2",
- "multibase 0.9.1",
- "multihash",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "libipld-core"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d44790246ec6b7314cba745992c23d479d018073e66d49ae40ae1b64e5dd8eb5"
@@ -3006,19 +2997,8 @@ dependencies = [
  "core2",
  "multibase 0.9.1",
  "multihash",
- "thiserror",
-]
-
-[[package]]
-name = "libipld-json"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415427568962961e21009eb92fd6052de95174423cff9d3c583491858e060f4e"
-dependencies = [
- "libipld-core 0.13.1",
- "multihash",
  "serde",
- "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -3027,19 +3007,10 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18aa481a87f084d98473dd9ece253a9569c762b75f6bbba8217d54e48c9d63b3"
 dependencies = [
- "libipld-core 0.14.0",
+ "libipld-core",
  "multihash",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "libipld-macro"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6c4cb1056262ef4056ad9e5fb41f252c45f55009888e21b7837ac051f38814a"
-dependencies = [
- "libipld-core 0.13.1",
 ]
 
 [[package]]
@@ -3048,19 +3019,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "852c011562ae5059b67c3a917f9f5945af5a68df8e39ede4444fff33274d25e2"
 dependencies = [
- "libipld-core 0.14.0",
-]
-
-[[package]]
-name = "libipld-pb"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b851a08aeff23e1e8df42081ef22052a838e8e39b769fcb7867d2fadd834d2d"
-dependencies = [
- "libipld-core 0.13.1",
- "prost 0.9.0",
- "prost-build 0.9.0",
- "thiserror",
+ "libipld-core",
 ]
 
 [[package]]
@@ -3069,7 +3028,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c003be513496578115256a1b4ac7b80d4ece2462c9869dfb736fd30d8bb1d1c0"
 dependencies = [
- "libipld-core 0.14.0",
+ "libipld-core",
  "prost 0.10.4",
  "prost-build 0.10.4",
  "thiserror",
@@ -3350,7 +3309,7 @@ version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0eddc4497a8b5a506013c40e8189864f9c3a00db2b25671f428ae9007f3ba32"
 dependencies = [
- "heck 0.4.0",
+ "heck",
  "quote",
  "syn",
 ]
@@ -3492,10 +3451,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "md5"
-version = "0.7.0"
+name = "md-5"
+version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+checksum = "6365506850d44bff6e2fbcb5176cf63650e48bd45ef2fe2665ae1570e0f4b9ca"
+dependencies = [
+ "digest 0.10.5",
+]
 
 [[package]]
 name = "memchr"
@@ -3517,12 +3479,6 @@ name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
-
-[[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
@@ -3567,7 +3523,7 @@ dependencies = [
  "mime",
  "spin 0.9.4",
  "tokio",
- "tokio-util 0.7.4",
+ "tokio-util",
  "version_check 0.9.4",
 ]
 
@@ -3773,16 +3729,6 @@ checksum = "2ad2a91a8e869eeb30b9cb3119ae87773a8f4ae617f41b1eb9c154b2905f7bd6"
 dependencies = [
  "memchr",
  "version_check 0.1.5",
-]
-
-[[package]]
-name = "nom"
-version = "7.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8903e5a29a317527874d0402f867152a3d21c908bb0b933e416c65e301d4c36"
-dependencies = [
- "memchr",
- "minimal-lexical",
 ]
 
 [[package]]
@@ -4181,7 +4127,7 @@ dependencies = [
  "circular",
  "clear_on_drop",
  "crc24",
- "derive_builder",
+ "derive_builder 0.9.0",
  "des",
  "digest 0.9.0",
  "ed25519-dalek",
@@ -4190,8 +4136,8 @@ dependencies = [
  "hex",
  "lazy_static",
  "log",
- "md-5",
- "nom 4.2.3",
+ "md-5 0.9.1",
+ "nom",
  "num-bigint-dig",
  "num-derive",
  "num-traits",
@@ -4456,16 +4402,6 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "444879275cb4fd84958b1a1d5420d15e6fcf7c235fe47f053c9c2a80aceb6001"
-dependencies = [
- "bytes",
- "prost-derive 0.9.0",
-]
-
-[[package]]
-name = "prost"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71adf41db68aa0daaefc69bb30bcd68ded9b9abaad5d1fbb6304c4fb390e083e"
@@ -4486,26 +4422,6 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62941722fb675d463659e49c4f3fe1fe792ff24fe5bbaa9c08cd3b98a1c354f5"
-dependencies = [
- "bytes",
- "heck 0.3.3",
- "itertools",
- "lazy_static",
- "log",
- "multimap",
- "petgraph",
- "prost 0.9.0",
- "prost-types 0.9.0",
- "regex",
- "tempfile",
- "which",
-]
-
-[[package]]
-name = "prost-build"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ae5a4388762d5815a9fc0dea33c56b021cdc8dde0c55e0c9ca57197254b0cab"
@@ -4513,7 +4429,7 @@ dependencies = [
  "bytes",
  "cfg-if",
  "cmake",
- "heck 0.4.0",
+ "heck",
  "itertools",
  "lazy_static",
  "log",
@@ -4533,7 +4449,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f835c582e6bd972ba8347313300219fed5bfa52caf175298d860b61ff6069bb"
 dependencies = [
  "bytes",
- "heck 0.4.0",
+ "heck",
  "itertools",
  "lazy_static",
  "log",
@@ -4561,19 +4477,6 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9cc1a3263e07e0bf68e96268f37665207b49560d98739662cdfaae215c720fe"
-dependencies = [
- "anyhow",
- "itertools",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "prost-derive"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b670f45da57fb8542ebdbb6105a925fe571b67f9e7ed9f47a06a84e72b4e7cc"
@@ -4596,16 +4499,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "534b7a0e836e3c482d2693070f982e39e7611da9695d4d1f5a4b186b51faef0a"
-dependencies = [
- "bytes",
- "prost 0.9.0",
 ]
 
 [[package]]
@@ -4945,7 +4838,7 @@ dependencies = [
  "time 0.3.15",
  "tokio",
  "tokio-stream",
- "tokio-util 0.7.4",
+ "tokio-util",
  "ubyte",
  "version_check 0.9.4",
  "yansi",
@@ -5441,22 +5334,6 @@ dependencies = [
 
 [[package]]
 name = "siwe"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f24fe2b646c33a670e7d79a232bffb41821fed28b1870a8bd1a47e6ae686ace6"
-dependencies = [
- "hex",
- "http",
- "iri-string 0.4.1",
- "k256",
- "rand 0.8.5",
- "sha3 0.9.1",
- "thiserror",
- "time 0.3.15",
-]
-
-[[package]]
-name = "siwe"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec4cc2eafb2354c1aeaeac5f53b7726ca4ea5ad16314a0b5ebacb6676f599c2b"
@@ -5481,7 +5358,7 @@ dependencies = [
  "iri-string 0.6.0",
  "serde",
  "serde_json",
- "siwe 0.5.0",
+ "siwe",
  "thiserror",
 ]
 
@@ -5589,7 +5466,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.4.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "ssi-caips",
  "ssi-core",
@@ -5610,7 +5487,7 @@ dependencies = [
 [[package]]
 name = "ssi-caips"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "bs58",
  "ssi-jwk",
@@ -5620,12 +5497,12 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.3"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 
 [[package]]
 name = "ssi-core"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "serde",
@@ -5635,7 +5512,7 @@ dependencies = [
 [[package]]
 name = "ssi-crypto"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "bs58",
  "digest 0.9.0",
@@ -5650,14 +5527,14 @@ dependencies = [
 [[package]]
 name = "ssi-dids"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "anyhow",
  "async-std",
  "async-trait",
  "bs58",
  "chrono",
- "derive_builder",
+ "derive_builder 0.9.0",
  "hex",
  "multibase 0.8.0",
  "percent-encoding",
@@ -5675,7 +5552,7 @@ dependencies = [
 [[package]]
 name = "ssi-json-ld"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-std",
  "chrono",
@@ -5695,7 +5572,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwk"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "base64 0.12.3",
  "blake2b_simd 0.5.11",
@@ -5719,7 +5596,7 @@ dependencies = [
 [[package]]
 name = "ssi-jws"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "base64 0.12.3",
  "blake2",
@@ -5740,7 +5617,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwt"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "chrono",
  "serde",
@@ -5753,7 +5630,7 @@ dependencies = [
 [[package]]
 name = "ssi-ldp"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "bs58",
@@ -5778,7 +5655,7 @@ dependencies = [
 [[package]]
 name = "ssi-ssh"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
@@ -5788,7 +5665,7 @@ dependencies = [
 [[package]]
 name = "ssi-tzkey"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5800,11 +5677,11 @@ dependencies = [
 [[package]]
 name = "ssi-ucan"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "base64 0.12.3",
  "chrono",
- "libipld 0.13.1",
+ "libipld",
  "serde",
  "serde_json",
  "serde_with 1.14.0",
@@ -5820,7 +5697,7 @@ dependencies = [
 [[package]]
 name = "ssi-vc"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "base64 0.12.3",
@@ -5828,7 +5705,7 @@ dependencies = [
  "cacaos",
  "chrono",
  "flate2",
- "libipld 0.14.0",
+ "libipld",
  "multihash",
  "reqwest",
  "serde",
@@ -5847,7 +5724,7 @@ dependencies = [
 [[package]]
 name = "ssi-zcap-ld"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=main#c4a2051c9ed8fdaa503bec39175b13ca24523812"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
 dependencies = [
  "async-trait",
  "serde",
@@ -6166,26 +6043,13 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.6.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36943ee01a6d67977dd3f84a5a1d2efeb4ada3a1ae771cadfaa535d9d9fc6507"
-dependencies = [
- "bytes",
- "futures-core",
- "futures-sink",
- "log",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
-name = "tokio-util"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb2e075f03b3d66d8d8785356224ba688d2906a371015e225beeb65ca92c740"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -6449,12 +6313,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-segmentation"
-version = "1.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdbf052a0783de01e944a6ce7a8cb939e295b1e7be835a1112c3b9a7f047a5a"
-
-[[package]]
 name = "unicode-width"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6512,12 +6370,6 @@ dependencies = [
  "idna 0.3.0",
  "percent-encoding",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a1f0175e03a0973cf4afd476bef05c26e228520400eb1fd473ad417b1c00ffb"
 
 [[package]]
 name = "urlencoding"
