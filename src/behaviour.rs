@@ -1,6 +1,7 @@
 use core::time::Duration;
 use derive_builder::Builder;
 use libp2p::{
+    core::PeerId,
     dcutr::behaviour::Behaviour as DcutrBehaviour,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
@@ -57,8 +58,6 @@ pub struct OrbitNodeConfig {
     kademlia: KademliaConfig,
     #[builder(setter(into), default)]
     kademlia_store: MemoryStoreConfig,
-    #[builder(setter(into, strip_option), default)]
-    relay: Option<Client>,
 }
 
 #[derive(NetworkBehaviour)]
@@ -92,13 +91,23 @@ impl OrbitNode {
                     .map_err(OrbitNodeInitError::Gossipsub)?,
             )
             .map_err(OrbitNodeInitError::Gossipsub)?,
-            relay: c.relay.into(),
             kademlia: Kademlia::with_config(
                 peer_id,
                 MemoryStore::with_config(peer_id, c.kademlia_store),
                 c.kademlia,
             ),
+            relay: None.into(),
             dcutr: DcutrBehaviour::new(),
+        })
+    }
+
+    pub fn new_with_relay(
+        c: OrbitNodeConfig,
+        relay_client: Client,
+    ) -> Result<Self, OrbitNodeInitError> {
+        Ok(Self {
+            relay: Some(relay_client).into(),
+            ..Self::new(c)?
         })
     }
 }
