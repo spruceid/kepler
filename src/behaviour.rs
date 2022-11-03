@@ -1,7 +1,7 @@
 use core::time::Duration;
 use derive_builder::Builder;
 use libp2p::{
-    core::PeerId,
+    core::{muxing::StreamMuxerBox, transport::Boxed, PeerId},
     dcutr::behaviour::Behaviour as DcutrBehaviour,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
@@ -14,12 +14,14 @@ use libp2p::{
     },
     ping::{Behaviour as Ping, Config as PingConfig},
     relay::v2::client::Client,
-    swarm::behaviour::toggle::Toggle,
+    swarm::{behaviour::toggle::Toggle, Swarm},
     NetworkBehaviour,
 };
 use thiserror::Error;
 
 const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
+
+pub type OrbitSwarm<KS = MemoryStore> = Swarm<OrbitNodeBehaviour<KS>>;
 
 #[derive(Builder, Default, Debug)]
 pub struct IdentifyConfig {
@@ -63,8 +65,42 @@ where
     kademlia_store: KSC,
 }
 
+impl<KSC> OrbitNodeConfig<KSC>
+where
+    KSC: Default,
+{
+    fn init_behaviour<KS>(self) -> Result<OrbitNodeBehaviour<KS>, OrbitNodeInitError>
+    where
+        KSC: RecordStoreConfig<KS> + Default,
+        KS: for<'a> RecordStore<'a> + Send,
+    {
+        OrbitNodeBehaviour::new(self)
+    }
+    fn init_behaviour_with_relay<KS>(
+        self,
+        relay: Client,
+    ) -> Result<OrbitNodeBehaviour<KS>, OrbitNodeInitError>
+    where
+        KSC: RecordStoreConfig<KS> + Default,
+        KS: for<'a> RecordStore<'a> + Send,
+    {
+        OrbitNodeBehaviour::new_with_relay(self, relay)
+    }
+    pub fn init<KS>(
+        self,
+        transport: Boxed<(PeerId, StreamMuxerBox)>,
+    ) -> Result<OrbitSwarm<KS>, OrbitNodeInitError>
+    where
+        KSC: RecordStoreConfig<KS> + Default,
+        KS: for<'a> RecordStore<'a> + Send,
+    {
+        let peer_id = self.identity.public().to_peer_id();
+        Ok(OrbitSwarm::new(transport, self.init_behaviour()?, peer_id))
+    }
+}
+
 #[derive(NetworkBehaviour)]
-pub struct OrbitNode<KS>
+pub struct OrbitNodeBehaviour<KS>
 where
     KS: 'static + for<'a> RecordStore<'a> + Send,
 {
@@ -82,11 +118,11 @@ pub enum OrbitNodeInitError {
     Gossipsub(&'static str),
 }
 
-impl<KS> OrbitNode<KS>
+impl<KS> OrbitNodeBehaviour<KS>
 where
     KS: 'static + for<'a> RecordStore<'a> + Send,
 {
-    pub fn new<KSC>(c: OrbitNodeConfig<KSC>) -> Result<Self, OrbitNodeInitError>
+    fn new<KSC>(c: OrbitNodeConfig<KSC>) -> Result<Self, OrbitNodeInitError>
     where
         KSC: RecordStoreConfig<KS> + Default,
     {
@@ -109,7 +145,7 @@ where
         })
     }
 
-    pub fn new_with_relay<KSC>(
+    fn new_with_relay<KSC>(
         c: OrbitNodeConfig<KSC>,
         relay_client: Client,
     ) -> Result<Self, OrbitNodeInitError>
