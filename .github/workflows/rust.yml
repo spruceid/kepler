@@ -49,6 +49,9 @@ jobs:
       run: |
         rustup target add wasm32-unknown-unknown
 
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+
     - name: Clippy
       working-directory: ${{ matrix.pkg }}
       run: RUSTFLAGS="-Dwarnings" cargo clippy
