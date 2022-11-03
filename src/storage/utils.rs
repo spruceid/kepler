@@ -2,7 +2,7 @@ use aws_types::sdk_config::SdkConfig;
 use core::pin::Pin;
 use futures::{
     executor::block_on,
-    io::{AllowStdIo, AsyncWrite, Error},
+    io::{AsyncWrite, Error},
     task::{Context, Poll},
 };
 use libipld::cid::multihash::Hasher;

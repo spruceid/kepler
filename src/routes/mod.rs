@@ -22,7 +22,7 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
-    kv::ObjectBuilder,
+    kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
     storage::ImmutableStore,
     tracing::TracingSpan,
@@ -148,9 +148,9 @@ pub async fn invoke(
     .await
 }
 
-pub async fn handle_kv_action<'a, B>(
+pub async fn handle_kv_action<B>(
     action: KVAction<B>,
-    data: Data<'a>,
+    data: Data<'_>,
 ) -> Result<InvocationResponse<B::Readable>, (Status, String)>
 where
     B: 'static + ImmutableStore,
@@ -175,7 +175,7 @@ where
             Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::Get { orbit, key } => match orbit.service.read(key).await {
-            Ok(Some((md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
+            Ok(Some(ReadResponse(md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
                 Metadata(md),
                 r,
             ))),

@@ -6,8 +6,6 @@ use crate::{
     Block,
 };
 use anyhow::Result;
-use async_recursion::async_recursion;
-use futures::stream::{self, TryStreamExt};
 use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
@@ -192,31 +190,6 @@ where
         // self.broadcast_heads().await?;
         Ok(cid)
     }
-
-    async fn get_invocation(&self, i: &Cid) -> Result<Invocations> {
-        let update: InvocationsBlock = self
-            .get_obj(i)
-            .await?
-            .ok_or_else(|| anyhow!("Incomplete Event"))?
-            .base;
-
-        Ok(Invocations {
-            prev: update.prev,
-            invoke: try_join_all(update.invoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self
-                    .get_obj(c)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                let inv: WithBlock<Invocation> = self
-                    .get_obj(&link.base.update)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>::Ok((link, inv))
-            }))
-            .await?,
-        })
-    }
-
     pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
         try_join_all(
             event
@@ -282,41 +255,6 @@ where
         })
     }
 
-    async fn get_event(&self, e: &Cid) -> Result<Option<Event>> {
-        let update: EventBlock = match self.get_obj(e).await? {
-            Some(e) => e.base,
-            None => return Ok(None),
-        };
-
-        Ok(Some(Event {
-            prev: update.prev,
-            delegate: try_join_all(update.delegate.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self
-                    .get_obj(c)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                let del: WithBlock<Delegation> = self
-                    .get_obj(&link.base.update)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Delegation>)>::Ok((link, del))
-            }))
-            .await?,
-            revoke: try_join_all(update.revoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self
-                    .get_obj(c)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                let rev: WithBlock<Revocation> = self
-                    .get_obj(&link.base.update)
-                    .await?
-                    .ok_or_else(|| anyhow!("Incomplete Event"))?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Revocation>)>::Ok((link, rev))
-            }))
-            .await?,
-        }))
-    }
-
     async fn get_obj<T>(&self, c: &Cid) -> Result<Option<WithBlock<T>>>
     where
         T: FromBlock,
@@ -326,83 +264,6 @@ where
             .await?
             .map(|v| Block::new(*c, v).and_then(WithBlock::try_from))
             .transpose()
-    }
-
-    pub(crate) async fn try_merge_heads(
-        &self,
-        updates: impl Iterator<Item = Cid> + Send,
-        invocations: impl Iterator<Item = Cid> + Send,
-    ) -> Result<()> {
-        self.try_merge_updates(updates).await?;
-        self.try_merge_invocations(invocations).await?;
-        Ok(())
-    }
-
-    #[async_recursion]
-    async fn try_merge_updates(
-        &self,
-        updates: impl Iterator<Item = Cid> + Send + 'async_recursion,
-    ) -> Result<()> {
-        try_join_all(updates.map(|head| async move {
-            if self.delegation_heads.get_height(&head).await?.is_some() {
-                return Ok(());
-            };
-            let update = self
-                .get_event(&head)
-                .await?
-                .ok_or_else(|| anyhow!("Missing Event"))?;
-
-            self.try_merge_updates(
-                stream::iter(update.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
-                    .try_filter_map(|d| async move {
-                        self.delegation_heads.get_height(d).await.map(|o| match o {
-                            Some(_) => None,
-                            None => Some(*d),
-                        })
-                    })
-                    .try_collect::<Vec<Cid>>()
-                    .await?
-                    .into_iter(),
-            )
-            .await?;
-
-            self.apply(update).await
-        }))
-        .await?;
-        Ok(())
-    }
-
-    #[async_recursion]
-    pub(crate) async fn try_merge_invocations(
-        &self,
-        invocations: impl Iterator<Item = Cid> + Send + 'async_recursion,
-    ) -> Result<()> {
-        try_join_all(invocations.map(|head| async move {
-            if self.invocation_heads.get_height(&head).await?.is_some() {
-                return Result::<()>::Ok(());
-            };
-
-            let invs: Invocations = self.get_invocation(&head).await?;
-
-            self.try_merge_invocations(
-                stream::iter(invs.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
-                    .try_filter_map(|i| async move {
-                        self.invocation_heads.get_height(i).await.map(|o| match o {
-                            Some(_) => None,
-                            None => Some(*i),
-                        })
-                    })
-                    .try_collect::<Vec<Cid>>()
-                    .await?
-                    .into_iter(),
-            )
-            .await?;
-
-            self.apply_invocations(invs).await?;
-            Ok(())
-        }))
-        .await?;
-        Ok(())
     }
 }
 

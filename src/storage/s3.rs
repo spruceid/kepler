@@ -22,11 +22,10 @@ use kepler_lib::{
     resource::OrbitId,
 };
 use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
-use regex::Regex;
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{io::Error as IoError, path::PathBuf, str::FromStr};
+use std::io::Error as IoError;
 use tempfile::tempfile;
 use tokio::fs::File;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
@@ -97,7 +96,7 @@ impl ProviderUtils for S3BlockConfig {
         self.key_pair(orbit).await.map(|o| o.is_some())
     }
     async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
-        let client = new_client(&self);
+        let client = new_client(self);
         match client
             .get_object()
             .bucket(&self.bucket)
@@ -130,7 +129,7 @@ impl ProviderUtils for S3BlockConfig {
         }
     }
     async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
-        match new_client(&self)
+        match new_client(self)
             .get_object()
             .bucket(&self.bucket)
             .key(format!("{}/keypair", orbit.get_cid()))
@@ -152,7 +151,7 @@ impl ProviderUtils for S3BlockConfig {
         }
     }
     async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
-        let client = new_client(&self);
+        let client = new_client(self);
         client
             .put_object()
             .bucket(&self.bucket)
@@ -300,30 +299,4 @@ impl ImmutableStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-}
-
-fn path_to_config(path: PathBuf) -> (S3BlockConfig, Cid) {
-    let re =
-            Regex::new(r"^/s3bucket/(?P<bucket>.*)/s3endpoint/(?P<s3endpoint>.*)/dynamotable/(?P<table>.*)/dynamoendpoint/(?P<dynamoendpoint>.*)/orbitcid/(?P<orbit>.*)/(blockstore|datastore)$")
-                .unwrap();
-    let fields = re.captures(path.to_str().unwrap()).unwrap();
-    let s3_bucket = fields.name("bucket").unwrap().as_str().to_string();
-    let s3_endpoint = Some(fields.name("s3endpoint").unwrap().as_str())
-        .filter(|s| !s.is_empty())
-        .map(|e| Uri::from_str(e).unwrap());
-    let dynamo_table = fields.name("table").unwrap().as_str().to_string();
-    let dynamo_endpoint = Some(fields.name("dynamoendpoint").unwrap().as_str())
-        .filter(|s| !s.is_empty())
-        .map(|e| Uri::from_str(e).unwrap());
-    let orbit = Cid::from_str(fields.name("orbit").unwrap().as_str()).unwrap();
-
-    let config = S3BlockConfig {
-        bucket: s3_bucket,
-        endpoint: s3_endpoint,
-        // dynamodb: config::DynamoStorage {
-        //     table: dynamo_table,
-        //     endpoint: dynamo_endpoint,
-        // },
-    };
-    (config, orbit)
 }

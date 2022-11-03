@@ -2,9 +2,7 @@ pub mod store;
 
 use anyhow::Result;
 use kepler_lib::libipld::Cid;
-use libp2p::core::PeerId;
-use rocket::futures::{Stream, StreamExt};
-use store::{CapsMessage, Store};
+use store::Store;
 
 #[rocket::async_trait]
 pub trait Invoke<T> {
@@ -30,52 +28,4 @@ impl<B> Service<B> {
     pub async fn start(store: Store<B>) -> Result<Self> {
         Ok(Service::new(store))
     }
-}
-
-async fn caps_task<B>(
-    events: impl Stream<Item = Result<(PeerId, CapsMessage)>> + Send,
-    store: Store<B>,
-    peer_id: PeerId,
-) {
-    debug!("starting caps task");
-    events
-        .for_each_concurrent(None, |ev| async {
-            match ev {
-                Ok((p, ev)) if p == peer_id => {
-                    debug!("{} filtered out this event from self: {:?}", p, ev)
-                }
-                Ok((_, CapsMessage::Invocation(cid))) => {
-                    debug!("recieved invocation");
-                    // if let Err(e) = store.try_merge_invocations([cid].into_iter()).await {
-                    //     debug!("failed to apply recieved invocation {}", e);
-                    // }
-                }
-                Ok((_, CapsMessage::StateReq)) => {
-                    // if let Err(e) = store.broadcast_heads().await {
-                    //     debug!(
-                    //         "failed to broadcast updates in response to state request {}",
-                    //         e
-                    //     );
-                    // }
-                }
-                Ok((
-                    _,
-                    CapsMessage::Heads {
-                        updates,
-                        invocations,
-                    },
-                )) => {
-                    // if let Err(e) = store
-                    //     .try_merge_heads(updates.into_iter(), invocations.into_iter())
-                    //     .await
-                    // {
-                    //     debug!("failed to merge heads {}", e);
-                    // }
-                }
-                Err(e) => {
-                    debug!("cap service task error {}", e);
-                }
-            }
-        })
-        .await;
 }

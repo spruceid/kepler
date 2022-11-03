@@ -71,7 +71,7 @@ impl From<BlockConfig> for BlockStorage {
 }
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
-    let kepler_config: Config = config.extract::<Config>()?.into();
+    let kepler_config: Config = config.extract::<Config>()?;
 
     tracing::tracing_try_init(&kepler_config.log);
 

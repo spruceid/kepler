@@ -78,7 +78,8 @@ where
         B::Error: 'static,
     {
         let id = config.manifest.id().get_cid();
-        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _relay = &config.relay;
 
         let blocks = match config.blocks.open(config.manifest.id()).await? {
             Some(b) => b,
@@ -105,7 +106,8 @@ where
         B::Error: 'static,
     {
         let id = config.manifest.id().get_cid();
-        let local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _relay = &config.relay;
 
         let blocks = config.blocks.create(config.manifest.id()).await?;
         let service_store = Store::new(id, blocks.clone(), config.index.clone()).await?;
@@ -140,28 +142,28 @@ pub async fn create_orbit(
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
 ) -> Result<Option<Orbit<BlockStores>>> {
-    let md = match Manifest::resolve_dyn(id, None).await? {
-        Some(m) => m,
+    match Manifest::resolve_dyn(id, None).await? {
+        Some(_) => {}
         _ => return Ok(None),
     };
 
     // fails if DIR exists, this is Create, not Open
-    if store_config.exists(&id).await? {
+    if store_config.exists(id).await? {
         return Ok(None);
     }
 
-    store_config.setup_orbit(&id, &kp).await?;
+    store_config.setup_orbit(id, &kp).await?;
 
     Orbit::create(
         &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
             .manifest(
-                Manifest::resolve_dyn(&id, None)
+                Manifest::resolve_dyn(id, None)
                     .await?
                     .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
             )
             .identity(
                 store_config
-                    .key_pair(&id)
+                    .key_pair(id)
                     .await?
                     .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
             )
@@ -242,7 +244,7 @@ mod tests {
     };
     use std::convert::TryInto;
 
-    async fn op(md: Manifest) -> anyhow::Result<Orbit<BlockStores>> {
+    async fn op(_md: Manifest) -> anyhow::Result<Orbit<BlockStores>> {
         // let dir = Tempfile::new(&md.id().get_cid().to_string())
         //     .unwrap()
         //     .path()

@@ -149,6 +149,8 @@ impl<B> Store<B> {
     }
 }
 
+pub struct ReadResponse<R>(pub BTreeMap<String, String>, pub R);
+
 impl<B> Store<B>
 where
     B: ImmutableStore + 'static,
@@ -168,7 +170,7 @@ where
                     .blocks
                     .read_to_vec(cid.hash())
                     .await?
-                    .map(|v| Ok(Block::new(cid, v)?.decode()?))
+                    .map(|v| Block::new(cid, v)?.decode())
                     .transpose(),
                 _ => Ok(None),
             },
@@ -177,7 +179,7 @@ where
     }
 
     #[instrument(name = "kv::read", skip_all)]
-    pub async fn read<N>(&self, key: N) -> Result<Option<(BTreeMap<String, String>, B::Readable)>>
+    pub async fn read<N>(&self, key: N) -> Result<Option<ReadResponse<B::Readable>>>
     where
         N: AsRef<[u8]>,
     {
@@ -185,8 +187,8 @@ where
             Ok(Some(content)) => content,
             _ => return Ok(None),
         };
-        match self.blocks.read(&kv_obj.value.hash()).await? {
-            Some(r) => Ok(Some((kv_obj.metadata, r))),
+        match self.blocks.read(kv_obj.value.hash()).await? {
+            Some(r) => Ok(Some(ReadResponse(kv_obj.metadata, r))),
             None => Err(anyhow!("Indexed contents missing from block store")),
         }
     }
