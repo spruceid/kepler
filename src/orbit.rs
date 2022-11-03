@@ -1,7 +1,7 @@
 use crate::{
     capabilities::{store::Store as CapStore, Service as CapService},
     config,
-    kv::{behaviour::BehaviourProcess, Service as KVService, Store},
+    kv::{Service as KVService, Store},
     manifest::Manifest,
     storage::{ImmutableStore, StorageConfig},
     BlockConfig, BlockStores,
@@ -43,19 +43,6 @@ impl<T> Deref for AbortOnDrop<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-#[derive(Clone, Debug)]
-struct OrbitTasks {
-    _behaviour_process: BehaviourProcess,
-}
-
-impl OrbitTasks {
-    fn new(behaviour_process: BehaviourProcess) -> Self {
-        Self {
-            _behaviour_process: behaviour_process,
-        }
     }
 }
 
@@ -254,25 +241,25 @@ mod tests {
         jwk::JWK,
     };
     use std::convert::TryInto;
-    use tempdir::TempDir;
 
     async fn op(md: Manifest) -> anyhow::Result<Orbit<BlockStores>> {
-        let dir = TempDir::new(&md.id().get_cid().to_string())
-            .unwrap()
-            .path()
-            .to_path_buf();
-        let config = config::Config {
-            storage: config::Storage {
-                blocks: config::BlockStorage::Local(config::LocalBlockStorage {
-                    path: dir.clone(),
-                }),
-                indexes: config::IndexStorage::Local(config::LocalIndexStorage {
-                    path: dir.clone(),
-                }),
-            },
-            ..Default::default()
-        };
-        Orbit::new(&config, Ed25519Keypair::generate(), md, None).await
+        // let dir = Tempfile::new(&md.id().get_cid().to_string())
+        //     .unwrap()
+        //     .path()
+        //     .to_path_buf();
+        // let config = config::Config {
+        //     storage: config::Storage {
+        //         blocks: config::BlockStorage::Local(config::LocalBlockStorage {
+        //             path: dir.clone(),
+        //         }),
+        //         indexes: config::IndexStorage::Local(config::LocalIndexStorage {
+        //             path: dir.clone(),
+        //         }),
+        //     },
+        //     ..Default::default()
+        // };
+        // Orbit::new(&config, Ed25519Keypair::generate(), md, None).await
+        todo!()
     }
 
     #[test]

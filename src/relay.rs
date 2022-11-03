@@ -1,10 +1,5 @@
 use anyhow::Result;
-use libp2p::core::{
-    identity::Keypair, multiaddr::multiaddr, transport::MemoryTransport, Multiaddr, PeerId,
-};
-use rocket::tokio::spawn;
-
-use crate::orbit::AbortOnDrop;
+use libp2p::core::{identity::Keypair, multiaddr::multiaddr, Multiaddr, PeerId};
 
 pub struct RelayNode {
     pub port: u16,
