@@ -65,7 +65,7 @@ mod test {
     // #[tokio::test(flavor = "multi_thread")]
     // async fn write() -> Result<(), anyhow::Error> {
     //     tracing_try_init(&config::Logging::default());
-    //     let tmp = tempdir::TempDir::new("test_streams")?;
+    //     let tmp = tempfile::TempDir::new("test_streams")?;
     //     let data = vec![3u8; 1000000000 * 3];
 
     //     let mut config = IpfsOptions::inmemory_with_generated_keys();

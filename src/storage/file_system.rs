@@ -1,11 +1,14 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{ImmutableStore, StorageConfig},
+    storage::{utils::HashBuffer, ImmutableStore, StorageConfig},
 };
+use futures::io::{copy, AllowStdIo};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
-        multihash::Multihash,
+        multihash::{
+            Blake3Hasher, Code, Error as MultihashError, Hasher, Multihash, MultihashDigest,
+        },
     },
     resource::OrbitId,
 };
@@ -15,6 +18,7 @@ use std::{
     io::{Error as IoError, ErrorKind},
     path::PathBuf,
 };
+use tempfile::{NamedTempFile, PersistError};
 use tokio::fs::{create_dir_all, read, remove_file, write, File};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
@@ -112,9 +116,19 @@ impl ProviderUtils for FileSystemConfig {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum FileSystemStoreError {
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    Multihash(#[from] MultihashError),
+    #[error(transparent)]
+    Persist(#[from] PersistError),
+}
+
 #[async_trait]
 impl ImmutableStore for FileSystemStore {
-    type Error = IoError;
+    type Error = FileSystemStoreError;
     type Readable = Compat<File>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         Ok(self.get_path(id).exists())
@@ -123,29 +137,32 @@ impl ImmutableStore for FileSystemStore {
         &self,
         data: impl futures::io::AsyncRead + Send,
     ) -> Result<Multihash, Self::Error> {
-        // TODO lock file to prevent overlapping writes
-        // only open to write if not existing AND not being written to right now
-        todo!();
-        // write into tmp then rename, to name after the hash
-        // need to stream data through a hasher into the file and return hash
-        // match File::open(path.join(cid.to_string())),await {
-        //     Ok(f) => copy(data, file).await
-        //     Err(e) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        //     Err(e) => Err(e),
-        // }
+        let mut hb = HashBuffer::<Blake3Hasher<32>, AllowStdIo<NamedTempFile>>::new(
+            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
+        );
+
+        copy(data, &mut hb).await?;
+
+        let (mut hasher, file) = hb.into_inner();
+
+        let multihash = Code::Blake3_256.wrap(hasher.finalize())?;
+
+        let file = file.into_inner();
+        file.persist(self.get_path(&multihash))?;
+        Ok(multihash)
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match remove_file(self.get_path(id)).await {
             Ok(()) => Ok(Some(())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
         match File::open(self.get_path(id)).await {
             Ok(f) => Ok(Some(f.compat())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 }

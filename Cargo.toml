@@ -39,6 +39,7 @@ serde_json = "1"
 serde_with = { version = "1", features = ["hex"] }
 sled = "0.34"
 thiserror = "1"
+tempfile = "3"
 time = "0.3"
 tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", features = ["fs"] }
@@ -54,9 +55,6 @@ percent-encoding = "2.1"
 
 [dependencies.kepler-lib]
 path = "lib/"
-
-[dev-dependencies]
-tempdir = "0.3.7"
 
 [workspace]
 

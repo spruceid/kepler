@@ -622,7 +622,7 @@ mod test {
     // use crate::ipfs::create_ipfs;
     // use ipfs::Keypair;
     // async fn get_store(id: &OrbitId) -> Store {
-    //     let tmp = tempdir::TempDir::new("test_streams").unwrap();
+    //     let tmp = tempfile::TempDir::new("test_streams").unwrap();
     //     let kp = Keypair::generate_ed25519();
     //     let (ipfs, ipfs_task, receiver) = create_ipfs(id.to_string(), &tmp.path(), kp, [])
     //         .await

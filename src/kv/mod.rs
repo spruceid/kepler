@@ -159,7 +159,7 @@ mod test {
     //     let relay_peer_id = relay.id.clone();
     //     let relay_internal = relay.internal();
 
-    //     let tmp = tempdir::TempDir::new("test_streams")?;
+    //     let tmp = tempfile::TempDir::new("test_streams")?;
     //     let id =
     //         Cid::from_str("bafkreieq5jui4j25lacwomsqgjeswwl3y5zcdrresptwgmfylxo2depppq").unwrap();
 
