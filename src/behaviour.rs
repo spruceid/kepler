@@ -9,7 +9,7 @@ use libp2p::{
     identify::{Behaviour as Identify, Config as OIdentifyConfig},
     identity::{Keypair, PublicKey},
     kad::{
-        record::store::{MemoryStore, MemoryStoreConfig},
+        record::store::{MemoryStore, MemoryStoreConfig, RecordStore},
         Kademlia, KademliaConfig,
     },
     ping::{Behaviour as Ping, Config as PingConfig},
@@ -45,7 +45,10 @@ impl IdentifyConfig {
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
-pub struct OrbitNodeConfig {
+pub struct OrbitNodeConfig<KSC = MemoryStoreConfig>
+where
+    KSC: Default,
+{
     #[builder(setter(into))]
     identity: Keypair,
     #[builder(setter(into), default)]
@@ -57,16 +60,19 @@ pub struct OrbitNodeConfig {
     #[builder(setter(into), default)]
     kademlia: KademliaConfig,
     #[builder(setter(into), default)]
-    kademlia_store: MemoryStoreConfig,
+    kademlia_store: KSC,
 }
 
 #[derive(NetworkBehaviour)]
-pub struct OrbitNode {
+pub struct OrbitNode<KS>
+where
+    KS: 'static + for<'a> RecordStore<'a> + Send,
+{
     identify: Identify,
     ping: Ping,
     gossipsub: Gossipsub,
     relay: Toggle<Client>,
-    kademlia: Kademlia<MemoryStore>,
+    kademlia: Kademlia<KS>,
     dcutr: DcutrBehaviour,
 }
 
@@ -76,8 +82,14 @@ pub enum OrbitNodeInitError {
     Gossipsub(&'static str),
 }
 
-impl OrbitNode {
-    pub fn new(c: OrbitNodeConfig) -> Result<Self, OrbitNodeInitError> {
+impl<KS> OrbitNode<KS>
+where
+    KS: 'static + for<'a> RecordStore<'a> + Send,
+{
+    pub fn new<KSC>(c: OrbitNodeConfig<KSC>) -> Result<Self, OrbitNodeInitError>
+    where
+        KSC: RecordStoreConfig<KS> + Default,
+    {
         let peer_id = c.identity.public().to_peer_id();
         Ok(Self {
             identify: Identify::new(c.identify.to_config(c.identity.public())),
@@ -91,23 +103,35 @@ impl OrbitNode {
                     .map_err(OrbitNodeInitError::Gossipsub)?,
             )
             .map_err(OrbitNodeInitError::Gossipsub)?,
-            kademlia: Kademlia::with_config(
-                peer_id,
-                MemoryStore::with_config(peer_id, c.kademlia_store),
-                c.kademlia,
-            ),
             relay: None.into(),
+            kademlia: Kademlia::with_config(peer_id, c.kademlia_store.init(peer_id), c.kademlia),
             dcutr: DcutrBehaviour::new(),
         })
     }
 
-    pub fn new_with_relay(
-        c: OrbitNodeConfig,
+    pub fn new_with_relay<KSC>(
+        c: OrbitNodeConfig<KSC>,
         relay_client: Client,
-    ) -> Result<Self, OrbitNodeInitError> {
+    ) -> Result<Self, OrbitNodeInitError>
+    where
+        KSC: RecordStoreConfig<KS> + Default,
+    {
         Ok(Self {
             relay: Some(relay_client).into(),
             ..Self::new(c)?
         })
+    }
+}
+
+pub trait RecordStoreConfig<S>
+where
+    S: for<'a> RecordStore<'a>,
+{
+    fn init(self, id: PeerId) -> S;
+}
+
+impl RecordStoreConfig<MemoryStore> for MemoryStoreConfig {
+    fn init(self, id: PeerId) -> MemoryStore {
+        MemoryStore::with_config(id, self)
     }
 }
