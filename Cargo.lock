@@ -1401,17 +1401,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cuckoofilter"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b810a8449931679f64cd7eef1bbd0fa315801b6d5d9cdc1ace2804d6529eee18"
-dependencies = [
- "byteorder",
- "fnv",
- "rand 0.7.3",
-]
-
-[[package]]
 name = "curve25519-dalek"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2427,6 +2416,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hex_fmt"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b07f60793ff0a4d9cef0f18e63b5357e06209987153a64648c972c1e5aff336f"
+
+[[package]]
 name = "hkdf"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3063,8 +3058,9 @@ dependencies = [
  "instant",
  "lazy_static",
  "libp2p-core",
+ "libp2p-dcutr",
  "libp2p-dns",
- "libp2p-floodsub",
+ "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-kad",
  "libp2p-metrics",
@@ -3116,6 +3112,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-dcutr"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380846ac24e641d38bfdb317cd77cbbb923527ce2eb8f71bce0b107c7249e2a9"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "either",
+ "futures",
+ "futures-timer",
+ "instant",
+ "libp2p-core",
+ "libp2p-swarm",
+ "log",
+ "prost 0.11.0",
+ "prost-build 0.11.1",
+ "prost-codec",
+ "thiserror",
+ "void",
+]
+
+[[package]]
 name = "libp2p-dns"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3130,21 +3148,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "libp2p-floodsub"
-version = "0.40.1"
+name = "libp2p-gossipsub"
+version = "0.42.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e88a413aac86cd30078192e5c110fd4c859ba36a6d694e040e75f1ef0dc41583"
+checksum = "a7b8d02b9089241196479c6fdae22df4d4444509edb3a8e7ef388218ca9b5e3e"
 dependencies = [
- "cuckoofilter",
+ "asynchronous-codec",
+ "base64 0.13.1",
+ "byteorder",
+ "bytes",
  "fnv",
  "futures",
+ "hex_fmt",
+ "instant",
  "libp2p-core",
  "libp2p-swarm",
  "log",
+ "prometheus-client",
  "prost 0.11.0",
  "prost-build 0.11.1",
  "rand 0.8.5",
+ "regex",
+ "sha2 0.10.6",
  "smallvec",
+ "unsigned-varint",
+ "wasm-timer",
 ]
 
 [[package]]
@@ -3203,6 +3231,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ee31b08e78b7b8bfd1c4204a9dd8a87b4fcdf6dafc57eb51701c1c264a81cb9"
 dependencies = [
  "libp2p-core",
+ "libp2p-dcutr",
+ "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-kad",
  "libp2p-ping",
@@ -6547,6 +6577,21 @@ name = "wasm-bindgen-shared"
 version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
+
+[[package]]
+name = "wasm-timer"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
+dependencies = [
+ "futures",
+ "js-sys",
+ "parking_lot 0.11.2",
+ "pin-utils",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
 
 [[package]]
 name = "web-sys"

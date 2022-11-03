@@ -13,6 +13,7 @@ use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 pub mod allow_list;
 pub mod auth_guards;
 pub mod authorization;
+pub mod behaviour;
 pub mod capabilities;
 pub mod cas;
 pub mod config;
