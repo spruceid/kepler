@@ -23,6 +23,9 @@ jobs:
       run: |
         rustup target add wasm32-unknown-unknown
 
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+
     - name: Build
       working-directory: ${{ matrix.pkg }}
       run: cargo build
