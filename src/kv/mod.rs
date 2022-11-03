@@ -6,7 +6,6 @@ use libp2p::core::PeerId;
 use rocket::futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
-pub mod behaviour;
 mod entries;
 mod store;
 

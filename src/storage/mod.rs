@@ -2,9 +2,7 @@ use anyhow::{Error, Result};
 use kepler_lib::libipld::cid::{multihash::Multihash, Cid};
 use kepler_lib::resource::OrbitId;
 use std::{collections::HashMap, error::Error as StdError};
-use tracing::instrument;
 
-mod dynamodb;
 pub mod either;
 pub mod file_system;
 mod indexes;
