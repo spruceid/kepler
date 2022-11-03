@@ -18,7 +18,7 @@ lazy_static = "1.4"
 did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-pkh = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-pkh = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
 did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
@@ -34,7 +34,7 @@ uuid = { version = "1", features = ["v4"] }
 git = "https://github.com/spruceid/ssi"
 branch = "feat/ucan-ipld-version"
 default-features = false
-features = ["ed25519", "rsa"]
+features = ["ed25519", "rsa", "secp256k1"]
 
 [dev-dependencies.tokio]
 version = "1"

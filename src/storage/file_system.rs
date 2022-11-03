@@ -16,7 +16,7 @@ use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError}
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Error as IoError, ErrorKind},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use tempfile::{NamedTempFile, PersistError};
 use tokio::fs::{create_dir_all, read, remove_file, write, File};
@@ -40,6 +40,17 @@ impl FileSystemStore {
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FileSystemConfig {
     path: PathBuf,
+}
+
+impl FileSystemConfig {
+    pub fn new<P: AsRef<Path>>(p: P) -> Self {
+        Self {
+            path: p.as_ref().into(),
+        }
+    }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 #[async_trait]

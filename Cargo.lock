@@ -41,9 +41,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe0133578c0986e1fe3dfcd4af1cc5b2dd6c3dbf534d69916ce16a2701d40ba"
+checksum = "433cfd6710c9986c576a25ca913c39d66a6474107b406f34f91d4a8923395241"
 dependencies = [
  "cfg-if",
  "cipher 0.4.3",
@@ -71,7 +71,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82e1366e0c69c9f927b1fa5ce2c7bf9eafc8f9268c0b9800729e8b267612447c"
 dependencies = [
  "aead 0.5.1",
- "aes 0.8.1",
+ "aes 0.8.2",
  "cipher 0.4.3",
  "ctr 0.9.2",
  "ghash 0.5.0",
@@ -174,9 +174,9 @@ dependencies = [
 
 [[package]]
 name = "async-global-executor"
-version = "2.3.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0da5b41ee986eed3f524c380e6d64965aea573882a8907682ad100f7859305ca"
+checksum = "f1b6f5d7df27bd294849f8eec66ecfc63d11814df7a4f5d74168a2394467b776"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -189,16 +189,16 @@ dependencies = [
 
 [[package]]
 name = "async-io"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83e21f3a490c72b3b0cf44962180e60045de2925d8dff97918f7ee43c8f637c7"
+checksum = "e8121296a9f05be7f34aa4196b1747243b3b62e048bb7906f644f3fbfc490cf7"
 dependencies = [
+ "async-lock",
  "autocfg",
  "concurrent-queue",
  "futures-lite",
  "libc",
  "log",
- "once_cell",
  "parking",
  "polling",
  "slab",
@@ -209,11 +209,12 @@ dependencies = [
 
 [[package]]
 name = "async-lock"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e97a171d191782fba31bb902b14ad94e24a68145032b7eedf871ab0bc0d077b6"
+checksum = "c8101efe8695a6c17e02911402145357e718ac92d3ff88ae8419e84b1707b685"
 dependencies = [
  "event-listener",
+ "futures-lite",
 ]
 
 [[package]]
@@ -364,7 +365,7 @@ dependencies = [
  "http",
  "hyper",
  "ring",
- "time 0.3.15",
+ "time 0.3.16",
  "tokio",
  "tower",
  "tracing",
@@ -528,7 +529,7 @@ dependencies = [
  "percent-encoding",
  "regex",
  "ring",
- "time 0.3.15",
+ "time 0.3.16",
  "tracing",
 ]
 
@@ -580,7 +581,7 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
- "hyper-rustls",
+ "hyper-rustls 0.22.1",
  "lazy_static",
  "pin-project-lite",
  "tokio",
@@ -664,7 +665,7 @@ dependencies = [
  "itoa",
  "num-integer",
  "ryu",
- "time 0.3.15",
+ "time 0.3.16",
 ]
 
 [[package]]
@@ -971,7 +972,7 @@ dependencies = [
  "serde_with 2.0.1",
  "siwe",
  "thiserror",
- "time 0.3.15",
+ "time 0.3.16",
  "url",
 ]
 
@@ -1054,9 +1055,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.73"
+version = "1.0.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fff2a6927b3bb87f9595d67196a70493f627687a71d87a0d692242c33f58c11"
+checksum = "581f5dba903aac52ea3feb5ec4810848460ee833876f1f9b0fdeab1f19091574"
 
 [[package]]
 name = "cfb-mode"
@@ -1164,9 +1165,9 @@ dependencies = [
 
 [[package]]
 name = "cmake"
-version = "0.1.48"
+version = "0.1.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8ad8cef104ac57b68b89df3208164d228503abbdce70f6880ffa3d970e7443a"
+checksum = "db34956e100b30725f2eb215f90d4871051239535632f84fea3bc92722c66b7c"
 dependencies = [
  "cc",
 ]
@@ -1228,7 +1229,7 @@ dependencies = [
  "rand 0.8.5",
  "sha2 0.10.6",
  "subtle",
- "time 0.3.15",
+ "time 0.3.16",
  "version_check 0.9.4",
 ]
 
@@ -1367,7 +1368,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1a816186fa68d9e426e3cb4ae4dff1fcd8e4a2c34b781bf7a822574a0d0aac8"
 dependencies = [
- "sct",
+ "sct 0.6.1",
 ]
 
 [[package]]
@@ -1437,9 +1438,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.79"
+version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f83d0ebf42c6eafb8d7c52f7e5f2d3003b89c7aa4fd2b79229209459a849af8"
+checksum = "6b7d4e43b25d3c994662706a1d4fcfc32aaa6afd287502c111b237093bb23f3a"
 dependencies = [
  "cc",
  "cxxbridge-flags",
@@ -1449,9 +1450,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.79"
+version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07d050484b55975889284352b0ffc2ecbda25c0c55978017c132b29ba0818a86"
+checksum = "84f8829ddc213e2c1368e51a2564c552b65a8cb6a28f31e576270ac81d5e5827"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -1464,15 +1465,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.79"
+version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99d2199b00553eda8012dfec8d3b1c75fce747cf27c169a270b3b99e3448ab78"
+checksum = "e72537424b474af1460806647c41d4b6d35d09ef7fe031c5c2fa5766047cc56a"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.79"
+version = "1.0.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb67a6de1f602736dd7eaead0080cf3435df806c61b24b13328db128c58868f"
+checksum = "309e4fb93eed90e1e14bea0da16b209f81813ba9fc7830c20ed151dd7bc0a4d7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1501,12 +1502,12 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4529658bdda7fd6769b8614be250cdcfc3aeb0ee72fe66f9e41e5e5eb73eac02"
+checksum = "b0dd3cd20dc6b5a876612a6e5accfe7f3dd883db6d07acfbf14c128f61550dfa"
 dependencies = [
- "darling_core 0.14.1",
- "darling_macro 0.14.1",
+ "darling_core 0.14.2",
+ "darling_macro 0.14.2",
 ]
 
 [[package]]
@@ -1539,9 +1540,9 @@ dependencies = [
 
 [[package]]
 name = "darling_core"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "649c91bc01e8b1eac09fb91e8dbc7d517684ca6be8ebc75bb9cafc894f9fdb6f"
+checksum = "a784d2ccaf7c98501746bf0be29b2022ba41fd62a2e622af997a03e9f972859f"
 dependencies = [
  "fnv",
  "ident_case",
@@ -1575,11 +1576,11 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.14.1"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddfc69c5bfcbd2fc09a0f38451d2daf0e372e367986a83906d1b0dbc88134fb5"
+checksum = "7618812407e9402654622dd402b0a89dff9ba93badd6540781526117b92aab7e"
 dependencies = [
- "darling_core 0.14.1",
+ "darling_core 0.14.2",
  "quote",
  "syn",
 ]
@@ -1671,7 +1672,7 @@ version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f91d4cfa921f1c05904dc3c57b4a32c38aed3340cce209f3a6fd1478babafc4"
 dependencies = [
- "darling 0.14.1",
+ "darling 0.14.2",
  "proc-macro2",
  "quote",
  "syn",
@@ -1734,7 +1735,7 @@ dependencies = [
 [[package]]
 name = "did-ethr"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1750,7 +1751,7 @@ dependencies = [
 [[package]]
 name = "did-ion"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1772,7 +1773,7 @@ dependencies = [
 [[package]]
 name = "did-method-key"
 version = "0.1.3"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "multibase 0.8.0",
@@ -1787,7 +1788,7 @@ dependencies = [
 [[package]]
 name = "did-onion"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "http",
@@ -1800,7 +1801,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "bech32",
@@ -1817,7 +1818,7 @@ dependencies = [
 [[package]]
 name = "did-tz"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1837,7 +1838,7 @@ dependencies = [
 [[package]]
 name = "did-web"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "http",
@@ -1849,7 +1850,7 @@ dependencies = [
 [[package]]
 name = "did-webkey"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2026,9 +2027,9 @@ dependencies = [
 
 [[package]]
 name = "ff"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df689201f395c6b90dfe87127685f8dbfc083a5e779e613575d8bd7314300c3e"
+checksum = "d013fc25338cc558c5c2cfbad646908fb23591e2404481826742b651c9af7160"
 dependencies = [
  "rand_core 0.6.4",
  "subtle",
@@ -2346,9 +2347,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca32592cf21ac7ccab1825cd87f6c9b3d9022c44d086172ed0966bec8af30be"
+checksum = "5f9f29bc9dda355256b2916cf526ab02ce0aeaaaf2bad60d65ef3f12f11dd0f4"
 dependencies = [
  "bytes",
  "fnv",
@@ -2489,9 +2490,9 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.20"
+version = "0.14.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02c929dc5c39e335a03c405292728118860721b10190d98c2a0f0efd5baafbac"
+checksum = "abfba89e19b959ca163c7752ba59d737c1ceea53a5d31a149c805446fc958064"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2521,11 +2522,24 @@ dependencies = [
  "futures-util",
  "hyper",
  "log",
- "rustls",
+ "rustls 0.19.1",
  "rustls-native-certs",
  "tokio",
- "tokio-rustls",
- "webpki",
+ "tokio-rustls 0.22.0",
+ "webpki 0.21.4",
+]
+
+[[package]]
+name = "hyper-rustls"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d87c48c02e0dc5e3b849a2041db3029fd066650f8f717c07bf8ed78ccb895cac"
+dependencies = [
+ "http",
+ "hyper",
+ "rustls 0.20.7",
+ "tokio",
+ "tokio-rustls 0.23.4",
 ]
 
 [[package]]
@@ -2543,9 +2557,9 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.51"
+version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5a6ef98976b22b3b7f2f3a806f858cb862044cfa66805aa3ad84cb3d3b785ed"
+checksum = "64c122667b287044802d6ce17ee2ddf13207ed924c712de9a66a5814d5b64765"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
@@ -2663,9 +2677,9 @@ checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
 name = "io-lifetimes"
-version = "0.7.3"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ea37f355c05dde75b84bba2d767906ad522e97cd9e2eef2be7a4ab7fb442c06"
+checksum = "59ce5ef949d49ee85593fc4d3f3f95ad61657076395cbbce23e2121fc5542074"
 
 [[package]]
 name = "ipconfig"
@@ -2834,7 +2848,7 @@ dependencies = [
  "sled",
  "tempfile",
  "thiserror",
- "time 0.3.15",
+ "time 0.3.16",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -2888,7 +2902,7 @@ dependencies = [
  "serde_json",
  "serde_with 1.14.0",
  "thiserror",
- "time 0.3.15",
+ "time 0.3.16",
  "tokio",
  "tracing",
 ]
@@ -2932,9 +2946,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.135"
+version = "0.2.137"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68783febc7782c6c5cb401fbda4de5a9898be1762314da0bb2c10ced61f18b0c"
+checksum = "fc7fcc620a3bff7cdd7a365be3376c97191aeaccc2a603e600951e452615bf89"
 
 [[package]]
 name = "libipld"
@@ -3486,14 +3500,14 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57ee1c23c7c63b0c9250c339ffdc69255f110b298b901b9f6c82547b7b87caaf"
+checksum = "e5d732bc30207a6423068df043e3d02e0735b155ad7ce1a6f76fe2baa5b158de"
 dependencies = [
  "libc",
  "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "windows-sys 0.36.1",
+ "windows-sys 0.42.0",
 ]
 
 [[package]]
@@ -3617,9 +3631,9 @@ dependencies = [
 
 [[package]]
 name = "native-tls"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd7e2f3618557f980e0b17e8856252eee3c97fa12c54dff0ca290fb6266ca4a9"
+checksum = "07226173c32f2926027b63cce4bcd8076c3552846cbe7925f3aaffeac0a3b92e"
 dependencies = [
  "lazy_static",
  "libc",
@@ -3828,9 +3842,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e82dad04139b71a90c080c8463fe0dc7902db5192d939bd0950f074d014339e1"
+checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
 
 [[package]]
 name = "opaque-debug"
@@ -3878,18 +3892,18 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-src"
-version = "111.22.0+1.1.1q"
+version = "111.24.0+1.1.1s"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f31f0d509d1c1ae9cada2f9539ff8f37933831fd5098879e482aa687d659853"
+checksum = "3498f259dab01178c6228c6b00dcef0ed2a2d5e20d648c017861227773ea4abd"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.76"
+version = "0.9.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5230151e44c0f05157effb743e8d517472843121cf9243e8b81393edb5acd9ce"
+checksum = "b03b84c3b2d099b81f0953422b4d4ad58761589d0229b5506356afca05a3670a"
 dependencies = [
  "autocfg",
  "cc",
@@ -4216,15 +4230,15 @@ dependencies = [
 
 [[package]]
 name = "pkg-config"
-version = "0.3.25"
+version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
+checksum = "6ac9a59f73473f1b8d852421e59e64809f025994837ef743615c6d0c5b305160"
 
 [[package]]
 name = "polling"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "899b00b9c8ab553c743b3e11e87c5c7d423b2a2de229ba95b24a756344748011"
+checksum = "ab4609a838d88b73d8238967b60dd115cc08d38e2bbaf51ee1e4b695f89122e2"
 dependencies = [
  "autocfg",
  "cfg-if",
@@ -4625,18 +4639,18 @@ dependencies = [
 
 [[package]]
 name = "ref-cast"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12a733f1746c929b4913fe48f8697fcf9c55e3304ba251a79ffb41adfeaf49c2"
+checksum = "53b15debb4f9d60d767cd8ca9ef7abb2452922f3214671ff052defc7f3502c44"
 dependencies = [
  "ref-cast-impl",
 ]
 
 [[package]]
 name = "ref-cast-impl"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5887de4a01acafd221861463be6113e6e87275e79804e56779f4cdc131c60368"
+checksum = "abfa8511e9e94fd3de6585a3d3cd00e01ed556dc9814829280af0e8dc72a8f36"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4693,6 +4707,7 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
+ "hyper-rustls 0.23.0",
  "hyper-tls",
  "ipnet",
  "js-sys",
@@ -4702,17 +4717,21 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.20.7",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "tokio",
  "tokio-native-tls",
+ "tokio-rustls 0.23.4",
  "tokio-socks",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "webpki-roots",
  "winreg 0.10.1",
 ]
 
@@ -4793,7 +4812,7 @@ dependencies = [
  "serde_json",
  "state",
  "tempfile",
- "time 0.3.15",
+ "time 0.3.16",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -4840,7 +4859,7 @@ dependencies = [
  "smallvec",
  "stable-pattern",
  "state",
- "time 0.3.15",
+ "time 0.3.16",
  "tokio",
  "uncased",
 ]
@@ -4891,16 +4910,16 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.35.11"
+version = "0.35.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbb2fda4666def1433b1b05431ab402e42a1084285477222b72d6c564c417cef"
+checksum = "727a1a6d65f786ec22df8a81ca3121107f235970dc1705ed681d3e6e8b9cd5f9"
 dependencies = [
  "bitflags",
  "errno",
  "io-lifetimes",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.36.1",
+ "windows-sys 0.42.0",
 ]
 
 [[package]]
@@ -4912,8 +4931,20 @@ dependencies = [
  "base64 0.13.1",
  "log",
  "ring",
- "sct",
- "webpki",
+ "sct 0.6.1",
+ "webpki 0.21.4",
+]
+
+[[package]]
+name = "rustls"
+version = "0.20.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "539a2bfe908f471bfa933876bd1eb6a19cf2176d375f82ef7f99530a40e48c2c"
+dependencies = [
+ "log",
+ "ring",
+ "sct 0.7.0",
+ "webpki 0.22.0",
 ]
 
 [[package]]
@@ -4923,9 +4954,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a07b7c1885bd8ed3831c289b7870b13ef46fe0e856d288c30d9cc17d75a2092"
 dependencies = [
  "openssl-probe",
- "rustls",
+ "rustls 0.19.1",
  "schannel",
  "security-framework",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0864aeff53f8c05aa08d86e5ef839d3dfcf07aeba2db32f12db0ef716e87bd55"
+dependencies = [
+ "base64 0.13.1",
 ]
 
 [[package]]
@@ -4975,9 +5015,9 @@ dependencies = [
 
 [[package]]
 name = "scoped-tls"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea6a9290e3c9cf0f18145ef7ffa62d68ee0bf5fcd651017e586dc7fd5da448c2"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
@@ -4996,6 +5036,16 @@ name = "sct"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b362b83898e0e69f38515b82ee15aa80636befe47c3b6d3d89a911e78fc228ce"
+dependencies = [
+ "ring",
+ "untrusted",
+]
+
+[[package]]
+name = "sct"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
 dependencies = [
  "ring",
  "untrusted",
@@ -5046,9 +5096,9 @@ checksum = "e25dfac463d778e353db5be2449d1cce89bd6fd23c9f1ea21310ce6e5a1b29c4"
 
 [[package]]
 name = "serde"
-version = "1.0.146"
+version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6df50b7a60a0ad48e1b42eb38373eac8ff785d619fb14db917b4e63d5439361f"
+checksum = "d193d69bae983fc11a79df82342761dfbf28a99fc8d203dca4c3c1b590948965"
 dependencies = [
  "serde_derive",
 ]
@@ -5073,9 +5123,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.146"
+version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a714fd32ba1d66047ce7d53dabd809e9922d538f9047de13cc4cffca47b36205"
+checksum = "4f1d362ca8fc9c3e3a7484440752472d68a6caa98f1ab81d99b5dfe517cec852"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5141,7 +5191,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with_macros 2.0.1",
- "time 0.3.15",
+ "time 0.3.16",
 ]
 
 [[package]]
@@ -5162,7 +5212,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ccadfacf6cf10faad22bbadf55986bdd0856edfb5d9210aa1dcf1f516e84e93"
 dependencies = [
- "darling 0.14.1",
+ "darling 0.14.2",
  "proc-macro2",
  "quote",
  "syn",
@@ -5303,7 +5353,7 @@ dependencies = [
  "rand 0.8.5",
  "sha3 0.10.6",
  "thiserror",
- "time 0.3.15",
+ "time 0.3.16",
 ]
 
 [[package]]
@@ -5424,7 +5474,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.4.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "ssi-caips",
  "ssi-core",
@@ -5445,7 +5495,7 @@ dependencies = [
 [[package]]
 name = "ssi-caips"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "bs58",
  "ssi-jwk",
@@ -5455,12 +5505,12 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.3"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 
 [[package]]
 name = "ssi-core"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "serde",
@@ -5470,7 +5520,7 @@ dependencies = [
 [[package]]
 name = "ssi-crypto"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "bs58",
  "digest 0.9.0",
@@ -5485,7 +5535,7 @@ dependencies = [
 [[package]]
 name = "ssi-dids"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "anyhow",
  "async-std",
@@ -5510,7 +5560,7 @@ dependencies = [
 [[package]]
 name = "ssi-json-ld"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-std",
  "chrono",
@@ -5530,7 +5580,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwk"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "base64 0.12.3",
  "blake2b_simd 0.5.11",
@@ -5554,7 +5604,7 @@ dependencies = [
 [[package]]
 name = "ssi-jws"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "base64 0.12.3",
  "blake2",
@@ -5575,7 +5625,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwt"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "chrono",
  "serde",
@@ -5588,12 +5638,13 @@ dependencies = [
 [[package]]
 name = "ssi-ldp"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "bs58",
  "chrono",
  "hex",
+ "k256",
  "lazy_static",
  "multibase 0.8.0",
  "serde",
@@ -5613,7 +5664,7 @@ dependencies = [
 [[package]]
 name = "ssi-ssh"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
@@ -5623,7 +5674,7 @@ dependencies = [
 [[package]]
 name = "ssi-tzkey"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "bs58",
  "ed25519-dalek",
@@ -5635,7 +5686,7 @@ dependencies = [
 [[package]]
 name = "ssi-ucan"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "base64 0.12.3",
  "chrono",
@@ -5655,7 +5706,7 @@ dependencies = [
 [[package]]
 name = "ssi-vc"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "base64 0.12.3",
@@ -5682,7 +5733,7 @@ dependencies = [
 [[package]]
 name = "ssi-zcap-ld"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#fce1a8b031d21ba8abbb559e791adf4c5f1b3a68"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-ipld-version#e5cf96b7efd899a080b8f2cc763fc39a434ce536"
 dependencies = [
  "async-trait",
  "serde",
@@ -5874,22 +5925,32 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.15"
+version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d634a985c4d4238ec39cacaed2e7ae552fbd3c476b552c1deac3021b7d7eaf0c"
+checksum = "0fab5c8b9980850e06d92ddbe3ab839c062c801f3927c0fb8abd6fc8e918fbca"
 dependencies = [
  "itoa",
  "libc",
  "num_threads",
  "serde",
+ "time-core",
  "time-macros",
 ]
 
 [[package]]
-name = "time-macros"
-version = "0.2.4"
+name = "time-core"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42657b1a6f4d817cda8e7a0ace261fe0cc946cf3a80314390b22cc61ae080792"
+checksum = "2e153e1f1acaef8acc537e68b44906d2db6436e2b35ac2c6b42640fff91f00fd"
+
+[[package]]
+name = "time-macros"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65bb801831d812c562ae7d2bfb531f26e66e4e1f6b17307ba4149c5064710e5b"
+dependencies = [
+ "time-core",
+]
 
 [[package]]
 name = "tiny-keccak"
@@ -5961,9 +6022,20 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc6844de72e57df1980054b38be3a9f4702aba4858be64dd700181a8a6d0e1b6"
 dependencies = [
- "rustls",
+ "rustls 0.19.1",
  "tokio",
- "webpki",
+ "webpki 0.21.4",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c43ee83903113e03984cb9e5cebe6c04a5116269e900e3ddba8f068a62adda59"
+dependencies = [
+ "rustls 0.20.7",
+ "tokio",
+ "webpki 0.22.0",
 ]
 
 [[package]]
@@ -6493,6 +6565,25 @@ checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
 dependencies = [
  "ring",
  "untrusted",
+]
+
+[[package]]
+name = "webpki"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f095d78192e208183081cc07bc5515ef55216397af48b873e5edcd72637fa1bd"
+dependencies = [
+ "ring",
+ "untrusted",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.22.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368bfe657969fb01238bb756d351dcade285e0f6fcbd36dcb23359a5169975be"
+dependencies = [
+ "webpki 0.22.0",
 ]
 
 [[package]]

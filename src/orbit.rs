@@ -59,7 +59,7 @@ pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
     identity: Ed25519Keypair,
     #[builder(setter(into))]
     manifest: Manifest,
-    #[builder(setter(into))]
+    #[builder(setter(into, strip_option), default)]
     relay: Option<(PeerId, Multiaddr)>,
     #[builder(setter(into))]
     blocks: B,
@@ -237,31 +237,34 @@ pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        config::{IndexStorage, LocalIndexStorage},
+        BlockConfig, FileSystemConfig,
+    };
     use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,
     };
     use std::convert::TryInto;
+    use tempfile::{tempdir, TempDir};
 
-    async fn op(_md: Manifest) -> anyhow::Result<Orbit<BlockStores>> {
-        // let dir = Tempfile::new(&md.id().get_cid().to_string())
-        //     .unwrap()
-        //     .path()
-        //     .to_path_buf();
-        // let config = config::Config {
-        //     storage: config::Storage {
-        //         blocks: config::BlockStorage::Local(config::LocalBlockStorage {
-        //             path: dir.clone(),
-        //         }),
-        //         indexes: config::IndexStorage::Local(config::LocalIndexStorage {
-        //             path: dir.clone(),
-        //         }),
-        //     },
-        //     ..Default::default()
-        // };
-        // Orbit::new(&config, Ed25519Keypair::generate(), md, None).await
-        todo!()
+    async fn op(md: Manifest) -> anyhow::Result<(Orbit<BlockStores>, TempDir)> {
+        let dir = tempdir()?;
+        Ok((
+            Orbit::create(
+                &OrbitPeerConfigBuilder::<BlockConfig, IndexStorage>::default()
+                    .identity(Ed25519Keypair::generate())
+                    .manifest(md)
+                    .blocks(BlockConfig::B(FileSystemConfig::new(dir.path())))
+                    .index(IndexStorage::Local(LocalIndexStorage {
+                        path: dir.path().into(),
+                    }))
+                    .build()?,
+            )
+            .await?,
+            dir,
+        ))
     }
 
     #[test]
@@ -281,6 +284,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let _orbit = op(md).await.unwrap();
+        let (orbit, dir) = op(md).await.unwrap();
     }
 }
