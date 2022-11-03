@@ -8,7 +8,7 @@ use aws_sdk_s3::{
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
 use futures::{
-    io::copy,
+    io::{copy, AllowStdIo, AsyncWriteExt},
     stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
 use kepler_lib::{
@@ -26,9 +26,7 @@ use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::io::Error as IoError;
-use tempfile::tempfile;
-use tokio::fs::File;
-use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tempfile::NamedTempFile;
 
 use crate::{
     orbit::ProviderUtils,
@@ -241,20 +239,24 @@ impl ImmutableStore for S3BlockStore {
         data: impl futures::io::AsyncRead + Send,
     ) -> Result<Multihash, Self::Error> {
         // TODO find a way to do this without filesystem access
-        let mut hb =
-            HashBuffer::<Blake3Hasher<32>, Compat<File>>::new(File::from(tempfile()?).compat());
+        let mut hb = HashBuffer::<Blake3Hasher<32>, AllowStdIo<NamedTempFile>>::new(
+            AllowStdIo::new(NamedTempFile::new()?),
+        );
 
         copy(data, &mut hb).await?;
+        hb.flush().await?;
 
         let (mut hasher, file) = hb.into_inner();
         let multihash = Code::Blake3_256.wrap(hasher.finalize())?;
+
+        let (_, path) = file.into_inner().into_parts();
 
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(self.key(&multihash))
             // TODO deprecated but also doesnt require a path
-            .body(ByteStream::from_file(file.into_inner()).await?)
+            .body(ByteStream::from_path(&path).await?)
             .send()
             .await
             .map_err(S3Error::from)?;

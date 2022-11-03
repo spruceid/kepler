@@ -2,7 +2,7 @@ use crate::{
     orbit::ProviderUtils,
     storage::{utils::HashBuffer, ImmutableStore, StorageConfig},
 };
-use futures::io::{copy, AllowStdIo};
+use futures::io::{copy, AllowStdIo, AsyncWriteExt};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -142,6 +142,7 @@ impl ImmutableStore for FileSystemStore {
         );
 
         copy(data, &mut hb).await?;
+        hb.flush().await?;
 
         let (mut hasher, file) = hb.into_inner();
 
