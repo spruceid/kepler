@@ -23,7 +23,7 @@ const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
 pub type OrbitSwarm<KS = MemoryStore> = Swarm<OrbitNodeBehaviour<KS>>;
 
-#[derive(Builder, Default, Debug)]
+#[derive(Builder, Default, Debug, Clone)]
 pub struct IdentifyConfig {
     #[builder(setter(into), default = "Duration::from_millis(500)")]
     initial_delay: Duration,
@@ -36,7 +36,7 @@ pub struct IdentifyConfig {
 }
 
 impl IdentifyConfig {
-    pub fn to_config(self, key: PublicKey) -> OIdentifyConfig {
+    fn to_config(self, key: PublicKey) -> OIdentifyConfig {
         OIdentifyConfig::new(PROTOCOL_VERSION.to_string(), key)
             .with_initial_delay(self.initial_delay)
             .with_interval(self.interval)
@@ -45,8 +45,18 @@ impl IdentifyConfig {
     }
 }
 
+impl From<OIdentifyConfig> for IdentifyConfig {
+    fn from(c: OIdentifyConfig) -> Self {
+        Self {
+            initial_delay: c.initial_delay,
+            interval: c.interval,
+            push_listen_addr_updates: c.push_listen_addr_updates,
+            cache_size: c.cache_size,
+        }
+    }
+}
+
 #[derive(Builder)]
-#[builder(pattern = "owned")]
 pub struct OrbitNodeConfig<KSC = MemoryStoreConfig>
 where
     KSC: Default,
