@@ -104,7 +104,9 @@ where
 
         let cid = Cid::new_v1(
             eb_block.cid().codec(),
-            self.blocks.write(eb_block.data()).await?,
+            self.blocks
+                .write(eb_block.data(), eb_block.cid().hash().code().try_into()?)
+                .await?,
         );
 
         // write element indexes
@@ -115,9 +117,13 @@ where
                 .await?;
             tracing::debug!("applied delegation {:?}", d.1.block.cid());
             // put delegation block (encoded ucan or cacao)
-            self.blocks.write(d.1.block.data()).await?;
+            self.blocks
+                .write(d.1.block.data(), d.1.block.cid().hash().code().try_into()?)
+                .await?;
             // put link block
-            self.blocks.write(d.0.block.data()).await?;
+            self.blocks
+                .write(d.0.block.data(), d.0.block.cid().hash().code().try_into()?)
+                .await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -132,9 +138,13 @@ where
                 .await?;
             tracing::debug!("applied revocation {:?}", r.1.block.cid());
             // put revocation block (encoded ucan revocation or cacao)
-            self.blocks.write(r.1.block.data()).await?;
+            self.blocks
+                .write(r.1.block.data(), r.1.block.cid().hash().code().try_into()?)
+                .await?;
             // put link block
-            self.blocks.write(r.0.block.data()).await?;
+            self.blocks
+                .write(r.0.block.data(), r.0.block.cid().hash().code().try_into()?)
+                .await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -206,7 +216,9 @@ where
         let eb_block = eb.to_block()?;
         let cid = Cid::new_v1(
             eb_block.cid().codec(),
-            self.blocks.write(eb_block.data()).await?,
+            self.blocks
+                .write(eb_block.data(), eb_block.cid().hash().code().try_into()?)
+                .await?,
         );
 
         for e in event.invoke.iter() {

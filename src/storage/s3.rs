@@ -8,15 +8,13 @@ use aws_sdk_s3::{
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
 use futures::{
-    io::{copy, AllowStdIo, AsyncWriteExt},
+    io::AllowStdIo,
     stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
-        multihash::{
-            Blake3Hasher, Code, Error as MultihashError, Hasher, Multihash, MultihashDigest,
-        },
+        multihash::{Code, Error as MultihashError, Multihash},
         Cid,
     },
     resource::OrbitId,
@@ -30,7 +28,7 @@ use tempfile::NamedTempFile;
 
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::HashBuffer, ImmutableStore, StorageConfig},
+    storage::{utils::copy_in, ImmutableStore, StorageConfig},
 };
 
 // TODO we could use the same struct for both the block store and the data
@@ -237,17 +235,11 @@ impl ImmutableStore for S3BlockStore {
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         // TODO find a way to do this without filesystem access
-        let mut hb = HashBuffer::<Blake3Hasher<32>, AllowStdIo<NamedTempFile>>::new(
-            AllowStdIo::new(NamedTempFile::new()?),
-        );
-
-        copy(data, &mut hb).await?;
-        hb.flush().await?;
-
-        let (mut hasher, file) = hb.into_inner();
-        let multihash = Code::Blake3_256.wrap(hasher.finalize())?;
+        let (multihash, file) =
+            copy_in(data, AllowStdIo::new(NamedTempFile::new()?), hash_type).await?;
 
         let (_, path) = file.into_inner().into_parts();
 

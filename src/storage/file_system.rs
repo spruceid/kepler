@@ -1,14 +1,12 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::HashBuffer, ImmutableStore, StorageConfig},
+    storage::{utils::copy_in, ImmutableStore, StorageConfig},
 };
-use futures::io::{copy, AllowStdIo, AsyncWriteExt};
+use futures::io::AllowStdIo;
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
-        multihash::{
-            Blake3Hasher, Code, Error as MultihashError, Hasher, Multihash, MultihashDigest,
-        },
+        multihash::{Code, Error as MultihashError, Multihash},
     },
     resource::OrbitId,
 };
@@ -147,17 +145,14 @@ impl ImmutableStore for FileSystemStore {
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
-        let mut hb = HashBuffer::<Blake3Hasher<32>, AllowStdIo<NamedTempFile>>::new(
+        let (multihash, file) = copy_in(
+            data,
             AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
-        );
-
-        copy(data, &mut hb).await?;
-        hb.flush().await?;
-
-        let (mut hasher, file) = hb.into_inner();
-
-        let multihash = Code::Blake3_256.wrap(hasher.finalize())?;
+            hash_type,
+        )
+        .await?;
 
         let file = file.into_inner();
         file.persist(self.get_path(&multihash))?;

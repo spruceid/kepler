@@ -1,5 +1,8 @@
 use anyhow::{Error, Result};
-use kepler_lib::libipld::cid::{multihash::Multihash, Cid};
+use kepler_lib::libipld::cid::{
+    multihash::{Code, Multihash},
+    Cid,
+};
 use kepler_lib::resource::OrbitId;
 use std::{collections::HashMap, error::Error as StdError};
 
@@ -37,6 +40,7 @@ pub trait ImmutableStore: Send + Sync {
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
     ) -> Result<Multihash, Self::Error>;
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
@@ -80,8 +84,9 @@ where
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
-        self.write(data).await
+        self.write(data, hash_type).await
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         self.remove(id).await

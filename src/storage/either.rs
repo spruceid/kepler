@@ -7,7 +7,10 @@ use futures::{
     io::{AsyncRead, Error},
     task::{Context, Poll},
 };
-use kepler_lib::{libipld::cid::multihash::Multihash, resource::OrbitId};
+use kepler_lib::{
+    libipld::cid::multihash::{Code, Multihash},
+    resource::OrbitId,
+};
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
 use pin_project::pin_project;
 
@@ -82,10 +85,11 @@ where
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         match self {
-            Self::A(l) => l.write(data).await.map_err(Self::Error::A),
-            Self::B(r) => r.write(data).await.map_err(Self::Error::B),
+            Self::A(l) => l.write(data, hash_type).await.map_err(Self::Error::A),
+            Self::B(r) => r.write(data, hash_type).await.map_err(Self::Error::B),
         }
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {

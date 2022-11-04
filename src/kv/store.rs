@@ -6,7 +6,7 @@ use futures::{
     io::AsyncRead,
     stream::{self, StreamExt, TryStreamExt},
 };
-use kepler_lib::libipld::{cid::Cid, multibase::Base, DagCbor};
+use kepler_lib::libipld::{cid::Cid, multibase::Base, multihash::Code, DagCbor};
 use rocket::futures::future::try_join_all;
 use std::{collections::BTreeMap, convert::TryFrom};
 use tracing::instrument;
@@ -208,10 +208,15 @@ where
         let indexes: Vec<(Vec<u8>, Cid)> = try_join_all(add.into_iter().map(|(o, r)| async {
             // tracing::debug!("adding {:#?}", &o.key);
             // store aaalllllll the content bytes under 1 CID
-            let cid = Cid::new_v1(0x55, self.blocks.write(r).await?);
+            let cid = Cid::new_v1(0x55, self.blocks.write(r, Code::Blake3_256).await?);
             let obj = o.add_content(cid);
             let block = obj.to_block()?;
-            let obj_cid = Cid::new_v1(block.cid().codec(), self.blocks.write(block.data()).await?);
+            let obj_cid = Cid::new_v1(
+                block.cid().codec(),
+                self.blocks
+                    .write(block.data(), block.cid().hash().code().try_into()?)
+                    .await?,
+            );
             Ok((obj.key, obj_cid)) as Result<(Vec<u8>, Cid)>
         }))
         .await?
@@ -322,7 +327,9 @@ where
         self.heads
             .new_heads([*block.cid()], delta.prev.clone())
             .await?;
-        self.blocks.write(block.data()).await?;
+        self.blocks
+            .write(block.data(), block.cid().hash().code().try_into()?)
+            .await?;
 
         Ok(())
     }
