@@ -28,7 +28,7 @@ use crate::{
     auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     authorization::{Capability, Delegation},
     kv::{ObjectBuilder, ReadResponse},
-    relay::RelayNode,
+    p2p::relay::RelayNode,
     storage::{Content, ImmutableStore},
     tracing::TracingSpan,
     BlockStores,
