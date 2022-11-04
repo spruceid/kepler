@@ -3570,6 +3570,7 @@ dependencies = [
  "futures-timer",
  "getrandom 0.2.8",
  "instant",
+ "libp2p-autonat",
  "libp2p-core",
  "libp2p-dcutr",
  "libp2p-dns",
@@ -3590,6 +3591,24 @@ dependencies = [
  "libp2p-yamux",
  "multiaddr",
  "pin-project",
+]
+
+[[package]]
+name = "libp2p-autonat"
+version = "0.10.1"
+source = "git+https://github.com/libp2p/rust-libp2p/?branch=master#8927abf176e59fceb02eab50f50cc4ec28c4075b"
+dependencies = [
+ "async-trait",
+ "futures",
+ "futures-timer",
+ "instant",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-request-response",
+ "libp2p-swarm",
+ "log",
+ "quick-protobuf",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -3884,6 +3903,21 @@ dependencies = [
  "static_assertions",
  "thiserror",
  "void",
+]
+
+[[package]]
+name = "libp2p-request-response"
+version = "0.24.0"
+source = "git+https://github.com/libp2p/rust-libp2p/?branch=master#8927abf176e59fceb02eab50f50cc4ec28c4075b"
+dependencies = [
+ "async-trait",
+ "futures",
+ "instant",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand 0.8.5",
+ "smallvec",
 ]
 
 [[package]]

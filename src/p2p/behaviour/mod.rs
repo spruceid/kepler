@@ -1,25 +1,17 @@
-use core::time::Duration;
-use derive_builder::Builder;
 use libp2p::{
-    core::{muxing::StreamMuxerBox, transport::Boxed, PeerId},
+    autonat::Behaviour as AutoNat,
     dcutr::behaviour::Behaviour as Dcutr,
-    gossipsub::{
-        Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
-    },
-    identify::{Behaviour as Identify, Config as OIdentifyConfig},
-    identity::{Keypair, PublicKey},
+    gossipsub::Gossipsub,
+    identify::Behaviour as Identify,
     kad::{
-        record::store::{MemoryStore, MemoryStoreConfig, RecordStore},
-        Kademlia, KademliaConfig,
+        record::store::{MemoryStore, RecordStore},
+        Kademlia,
     },
-    ping::{Behaviour as Ping, Config as PingConfig},
+    ping::Behaviour as Ping,
     relay::v2::client::Client,
     swarm::{behaviour::toggle::Toggle, Swarm},
     NetworkBehaviour,
 };
-use thiserror::Error;
-
-const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
 pub type OrbitSwarm<KS = MemoryStore> = Swarm<Behaviour<KS>>;
 mod builder;
@@ -37,4 +29,5 @@ where
     relay: Toggle<Client>,
     kademlia: Kademlia<KS>,
     dcutr: Dcutr,
+    autonat: AutoNat,
 }
