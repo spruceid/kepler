@@ -1,14 +1,14 @@
-use super::Behaviour;
-use core::time::Duration;
+use crate::p2p::{behaviour::Behaviour, IdentifyConfig};
 use derive_builder::Builder;
 use libp2p::{
+    autonat::{Behaviour as AutoNat, Config as AutoNatConfig},
     core::PeerId,
     dcutr::behaviour::Behaviour as Dcutr,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
     },
-    identify::{Behaviour as Identify, Config as OIdentifyConfig},
-    identity::{Keypair, PublicKey},
+    identify::Behaviour as Identify,
+    identity::Keypair,
     kad::{
         record::store::{MemoryStore, MemoryStoreConfig, RecordStore},
         Kademlia, KademliaConfig,
@@ -17,8 +17,6 @@ use libp2p::{
     relay::v2::client::Client,
 };
 use thiserror::Error;
-
-const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
 // we use derive_builder here to make a conveniant builder, but we do not export
 // the actual config struct
@@ -38,6 +36,8 @@ where
     _kademlia: KademliaConfig,
     #[builder(field(type = "KSC"), setter(name = "kademlia_store"))]
     _kademlia_store: KSC,
+    #[builder(field(type = "AutoNatConfig"), setter(name = "autonat"))]
+    _autonat: AutoNatConfig,
 }
 
 impl<KSC> BehaviourBuilder<KSC>
@@ -73,6 +73,7 @@ where
                 self._kademlia,
             ),
             dcutr: Dcutr::new(),
+            autonat: AutoNat::new(peer_id, self._autonat),
         })
     }
 }
@@ -93,38 +94,5 @@ where
 impl RecordStoreConfig<MemoryStore> for MemoryStoreConfig {
     fn init(self, id: PeerId) -> MemoryStore {
         MemoryStore::with_config(id, self)
-    }
-}
-
-#[derive(Builder, Default, Debug, Clone)]
-pub struct IdentifyConfig {
-    #[builder(setter(into), default = "Duration::from_millis(500)")]
-    initial_delay: Duration,
-    #[builder(setter(into), default = "Duration::from_secs(300)")]
-    interval: Duration,
-    #[builder(setter(into), default = "false")]
-    push_listen_addr_updates: bool,
-    #[builder(setter(into), default = "0")]
-    cache_size: usize,
-}
-
-impl IdentifyConfig {
-    fn to_config(self, key: PublicKey) -> OIdentifyConfig {
-        OIdentifyConfig::new(PROTOCOL_VERSION.to_string(), key)
-            .with_initial_delay(self.initial_delay)
-            .with_interval(self.interval)
-            .with_push_listen_addr_updates(self.push_listen_addr_updates)
-            .with_cache_size(self.cache_size)
-    }
-}
-
-impl From<OIdentifyConfig> for IdentifyConfig {
-    fn from(c: OIdentifyConfig) -> Self {
-        Self {
-            initial_delay: c.initial_delay,
-            interval: c.interval,
-            push_listen_addr_updates: c.push_listen_addr_updates,
-            cache_size: c.cache_size,
-        }
     }
 }
