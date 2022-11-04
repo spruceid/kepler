@@ -44,17 +44,15 @@ where
 }
 
 macro_rules! write_with_multihash {
-    ($data:ident, $buffer:ident, $hash:ident) => {{
-        let mut hb = HashBuffer::<$hash, B>::new($buffer);
-        copy($data, &mut hb).await?;
-        hb.flush().await?;
-        let (mut h, b) = hb.into_inner();
-        Ok((Code::$hash.wrap(h.finalize())?, b))
-    }};
-
     ($data:ident, $buffer:ident, $code:ident, $($hashes:ident),*) => {
         match $code {
-            $(Code::$hashes => write_with_multihash!($data, $buffer, $hashes),)*
+            $(Code::$hashes => {
+                let mut hb = HashBuffer::<$hashes, B>::new($buffer);
+                copy($data, &mut hb).await?;
+                hb.flush().await?;
+                let (mut h, b) = hb.into_inner();
+                Ok((Code::$hashes.wrap(h.finalize())?, b))
+            },)*
             c => Err(MultihashError::UnsupportedCode(c.into()))
         }
     };
