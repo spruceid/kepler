@@ -43,6 +43,23 @@ where
     }
 }
 
+macro_rules! write_with_multihash {
+    ($data:ident, $buffer:ident, $hash:ident) => {{
+        let mut hb = HashBuffer::<$hash, B>::new($buffer);
+        copy($data, &mut hb).await?;
+        hb.flush().await?;
+        let (mut h, b) = hb.into_inner();
+        Ok((Code::$hash.wrap(h.finalize())?, b))
+    }};
+
+    ($data:ident, $buffer:ident, $code:ident, $($hashes:ident),*) => {
+        match $code {
+            $(Code::$hashes => write_with_multihash!($data, $buffer, $hashes),)*
+            c => Err(MultihashError::UnsupportedCode(c.into()))
+        }
+    };
+}
+
 pub async fn copy_in<B>(
     data: impl AsyncRead,
     buffer: B,
@@ -51,114 +68,11 @@ pub async fn copy_in<B>(
 where
     B: AsyncWrite + Unpin,
 {
-    Ok(match hash_type {
-        Code::Sha2_256 => {
-            let mut hb = HashBuffer::<Sha2_256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Sha2_512 => {
-            let mut hb = HashBuffer::<Sha2_512, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Sha3_224 => {
-            let mut hb = HashBuffer::<Sha3_224, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Sha3_256 => {
-            let mut hb = HashBuffer::<Sha3_256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Sha3_384 => {
-            let mut hb = HashBuffer::<Sha3_384, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Sha3_512 => {
-            let mut hb = HashBuffer::<Sha3_512, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Keccak224 => {
-            let mut hb = HashBuffer::<Keccak224, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Keccak256 => {
-            let mut hb = HashBuffer::<Keccak256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Keccak384 => {
-            let mut hb = HashBuffer::<Keccak384, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Keccak512 => {
-            let mut hb = HashBuffer::<Keccak512, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Blake2b256 => {
-            let mut hb = HashBuffer::<Blake2b256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Blake2b512 => {
-            let mut hb = HashBuffer::<Blake2b512, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Blake2s128 => {
-            let mut hb = HashBuffer::<Blake2s128, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Blake2s256 => {
-            let mut hb = HashBuffer::<Blake2s256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        Code::Blake3_256 => {
-            let mut hb = HashBuffer::<Blake3_256, B>::new(buffer);
-            copy(data, &mut hb).await?;
-            hb.flush().await?;
-            let (mut h, b) = hb.into_inner();
-            (hash_type.wrap(h.finalize())?, b)
-        }
-        c => return Err(MultihashError::UnsupportedCode(c.into())),
-    })
+    write_with_multihash!(
+        data, buffer, hash_type, Sha2_256, Sha2_512, Sha3_224, Sha3_256, Sha3_384, Sha3_512,
+        Keccak224, Keccak256, Keccak384, Keccak512, Blake2b256, Blake2b512, Blake2s128, Blake2s256,
+        Blake3_256
+    )
 }
 
 impl<H, B> AsyncWrite for HashBuffer<H, B>
