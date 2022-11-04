@@ -2,7 +2,7 @@ use core::time::Duration;
 use derive_builder::Builder;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed, PeerId},
-    dcutr::behaviour::Behaviour as DcutrBehaviour,
+    dcutr::behaviour::Behaviour as Dcutr,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
     },
@@ -21,7 +21,98 @@ use thiserror::Error;
 
 const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
-pub type OrbitSwarm<KS = MemoryStore> = Swarm<OrbitNodeBehaviour<KS>>;
+pub type OrbitSwarm<KS = MemoryStore> = Swarm<Behaviour<KS>>;
+
+mod builder {
+    use super::*;
+    #[derive(Builder, Clone, Debug)]
+    #[builder(build_fn(skip), setter(into), name = "BehaviourBuilder", derive(Debug))]
+    pub struct BehaviourConfig<KSC = MemoryStoreConfig>
+    where
+        KSC: Default,
+    {
+        #[builder(field(type = "IdentifyConfig"))]
+        identify: IdentifyConfig,
+        #[builder(field(type = "PingConfig"))]
+        ping: PingConfig,
+        #[builder(field(type = "GossipsubConfig"))]
+        gossipsub: GossipsubConfig,
+        #[builder(field(type = "KademliaConfig"))]
+        kademlia: KademliaConfig,
+        #[builder(field(type = "KSC"))]
+        kademlia_store: KSC,
+    }
+
+    impl<KSC> BehaviourBuilder<KSC>
+    where
+        KSC: Default,
+    {
+        pub fn build<KS>(
+            self,
+            keypair: Keypair,
+            relay: Option<Client>,
+        ) -> Result<Behaviour<KS>, OrbitBehaviourBuildError>
+        where
+            KSC: Default + RecordStoreConfig<KS>,
+            KS: for<'a> RecordStore<'a> + Send,
+        {
+            let peer_id = keypair.public().to_peer_id();
+            Ok(Behaviour {
+                identify: Identify::new(self.identify.to_config(keypair.public())),
+                ping: Ping::new(self.ping),
+                gossipsub: Gossipsub::new(
+                    MessageAuthenticity::Signed(keypair),
+                    GossipsubConfigBuilder::from(self.gossipsub)
+                        // always ensure validation
+                        .validation_mode(ValidationMode::Strict)
+                        .build()
+                        .map_err(OrbitBehaviourBuildError::Gossipsub)?,
+                )
+                .map_err(OrbitBehaviourBuildError::Gossipsub)?,
+                relay: relay.into(),
+                kademlia: Kademlia::with_config(
+                    peer_id,
+                    self.kademlia_store.init(peer_id),
+                    self.kademlia,
+                ),
+                dcutr: Dcutr::new(),
+            })
+        }
+    }
+
+    #[derive(Error, Debug)]
+    pub enum OrbitBehaviourBuildError {
+        #[error("{0}")]
+        Gossipsub(&'static str),
+    }
+}
+pub use builder::{BehaviourBuilder, OrbitBehaviourBuildError};
+
+#[derive(NetworkBehaviour)]
+pub struct Behaviour<KS>
+where
+    KS: 'static + for<'a> RecordStore<'a> + Send,
+{
+    identify: Identify,
+    ping: Ping,
+    gossipsub: Gossipsub,
+    relay: Toggle<Client>,
+    kademlia: Kademlia<KS>,
+    dcutr: Dcutr,
+}
+
+pub trait RecordStoreConfig<S>
+where
+    S: for<'a> RecordStore<'a>,
+{
+    fn init(self, id: PeerId) -> S;
+}
+
+impl RecordStoreConfig<MemoryStore> for MemoryStoreConfig {
+    fn init(self, id: PeerId) -> MemoryStore {
+        MemoryStore::with_config(id, self)
+    }
+}
 
 #[derive(Builder, Default, Debug, Clone)]
 pub struct IdentifyConfig {
@@ -53,131 +144,5 @@ impl From<OIdentifyConfig> for IdentifyConfig {
             push_listen_addr_updates: c.push_listen_addr_updates,
             cache_size: c.cache_size,
         }
-    }
-}
-
-#[derive(Builder)]
-pub struct OrbitNodeConfig<KSC = MemoryStoreConfig>
-where
-    KSC: Default,
-{
-    #[builder(setter(into))]
-    identity: Keypair,
-    #[builder(setter(into), default)]
-    identify: IdentifyConfig,
-    #[builder(setter(into), default)]
-    ping: PingConfig,
-    #[builder(setter(into), default)]
-    gossipsub: GossipsubConfig,
-    #[builder(setter(into), default)]
-    kademlia: KademliaConfig,
-    #[builder(setter(into), default)]
-    kademlia_store: KSC,
-}
-
-impl<KSC> OrbitNodeConfig<KSC>
-where
-    KSC: Default,
-{
-    fn init_behaviour<KS>(self) -> Result<OrbitNodeBehaviour<KS>, OrbitNodeInitError>
-    where
-        KSC: RecordStoreConfig<KS> + Default,
-        KS: for<'a> RecordStore<'a> + Send,
-    {
-        OrbitNodeBehaviour::new(self)
-    }
-    fn init_behaviour_with_relay<KS>(
-        self,
-        relay: Client,
-    ) -> Result<OrbitNodeBehaviour<KS>, OrbitNodeInitError>
-    where
-        KSC: RecordStoreConfig<KS> + Default,
-        KS: for<'a> RecordStore<'a> + Send,
-    {
-        OrbitNodeBehaviour::new_with_relay(self, relay)
-    }
-    pub fn init<KS>(
-        self,
-        transport: Boxed<(PeerId, StreamMuxerBox)>,
-    ) -> Result<OrbitSwarm<KS>, OrbitNodeInitError>
-    where
-        KSC: RecordStoreConfig<KS> + Default,
-        KS: for<'a> RecordStore<'a> + Send,
-    {
-        let peer_id = self.identity.public().to_peer_id();
-        Ok(OrbitSwarm::new(transport, self.init_behaviour()?, peer_id))
-    }
-}
-
-#[derive(NetworkBehaviour)]
-pub struct OrbitNodeBehaviour<KS>
-where
-    KS: 'static + for<'a> RecordStore<'a> + Send,
-{
-    identify: Identify,
-    ping: Ping,
-    gossipsub: Gossipsub,
-    relay: Toggle<Client>,
-    kademlia: Kademlia<KS>,
-    dcutr: DcutrBehaviour,
-}
-
-#[derive(Error, Debug)]
-pub enum OrbitNodeInitError {
-    #[error("{0}")]
-    Gossipsub(&'static str),
-}
-
-impl<KS> OrbitNodeBehaviour<KS>
-where
-    KS: 'static + for<'a> RecordStore<'a> + Send,
-{
-    fn new<KSC>(c: OrbitNodeConfig<KSC>) -> Result<Self, OrbitNodeInitError>
-    where
-        KSC: RecordStoreConfig<KS> + Default,
-    {
-        let peer_id = c.identity.public().to_peer_id();
-        Ok(Self {
-            identify: Identify::new(c.identify.to_config(c.identity.public())),
-            ping: Ping::new(c.ping),
-            gossipsub: Gossipsub::new(
-                MessageAuthenticity::Signed(c.identity),
-                GossipsubConfigBuilder::from(c.gossipsub)
-                    // always ensure validation
-                    .validation_mode(ValidationMode::Strict)
-                    .build()
-                    .map_err(OrbitNodeInitError::Gossipsub)?,
-            )
-            .map_err(OrbitNodeInitError::Gossipsub)?,
-            relay: None.into(),
-            kademlia: Kademlia::with_config(peer_id, c.kademlia_store.init(peer_id), c.kademlia),
-            dcutr: DcutrBehaviour::new(),
-        })
-    }
-
-    fn new_with_relay<KSC>(
-        c: OrbitNodeConfig<KSC>,
-        relay_client: Client,
-    ) -> Result<Self, OrbitNodeInitError>
-    where
-        KSC: RecordStoreConfig<KS> + Default,
-    {
-        Ok(Self {
-            relay: Some(relay_client).into(),
-            ..Self::new(c)?
-        })
-    }
-}
-
-pub trait RecordStoreConfig<S>
-where
-    S: for<'a> RecordStore<'a>,
-{
-    fn init(self, id: PeerId) -> S;
-}
-
-impl RecordStoreConfig<MemoryStore> for MemoryStoreConfig {
-    fn init(self, id: PeerId) -> MemoryStore {
-        MemoryStore::with_config(id, self)
     }
 }
