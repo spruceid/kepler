@@ -1,7 +1,8 @@
+use super::Behaviour;
 use core::time::Duration;
 use derive_builder::Builder;
 use libp2p::{
-    core::{muxing::StreamMuxerBox, transport::Boxed, PeerId},
+    core::PeerId,
     dcutr::behaviour::Behaviour as Dcutr,
     gossipsub::{
         Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
@@ -14,29 +15,29 @@ use libp2p::{
     },
     ping::{Behaviour as Ping, Config as PingConfig},
     relay::v2::client::Client,
-    swarm::{behaviour::toggle::Toggle, Swarm},
-    NetworkBehaviour,
 };
 use thiserror::Error;
 
 const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
+// we use derive_builder here to make a conveniant builder, but we do not export
+// the actual config struct
 #[derive(Builder, Clone, Debug)]
 #[builder(build_fn(skip), setter(into), name = "BehaviourBuilder", derive(Debug))]
 pub struct BehaviourConfig<KSC = MemoryStoreConfig>
 where
     KSC: Default,
 {
-    #[builder(field(type = "IdentifyConfig"))]
-    identify: IdentifyConfig,
-    #[builder(field(type = "PingConfig"))]
-    ping: PingConfig,
-    #[builder(field(type = "GossipsubConfig"))]
-    gossipsub: GossipsubConfig,
-    #[builder(field(type = "KademliaConfig"))]
-    kademlia: KademliaConfig,
-    #[builder(field(type = "KSC"))]
-    kademlia_store: KSC,
+    #[builder(field(type = "IdentifyConfig"), setter(name = "identify"))]
+    _identify: IdentifyConfig,
+    #[builder(field(type = "PingConfig"), setter(name = "ping"))]
+    _ping: PingConfig,
+    #[builder(field(type = "GossipsubConfig"), setter(name = "gossipsub"))]
+    _gossipsub: GossipsubConfig,
+    #[builder(field(type = "KademliaConfig"), setter(name = "kademlia"))]
+    _kademlia: KademliaConfig,
+    #[builder(field(type = "KSC"), setter(name = "kademlia_store"))]
+    _kademlia_store: KSC,
 }
 
 impl<KSC> BehaviourBuilder<KSC>
@@ -54,11 +55,11 @@ where
     {
         let peer_id = keypair.public().to_peer_id();
         Ok(Behaviour {
-            identify: Identify::new(self.identify.to_config(keypair.public())),
-            ping: Ping::new(self.ping),
+            identify: Identify::new(self._identify.to_config(keypair.public())),
+            ping: Ping::new(self._ping),
             gossipsub: Gossipsub::new(
                 MessageAuthenticity::Signed(keypair),
-                GossipsubConfigBuilder::from(self.gossipsub)
+                GossipsubConfigBuilder::from(self._gossipsub)
                     // always ensure validation
                     .validation_mode(ValidationMode::Strict)
                     .build()
@@ -68,8 +69,8 @@ where
             relay: relay.into(),
             kademlia: Kademlia::with_config(
                 peer_id,
-                self.kademlia_store.init(peer_id),
-                self.kademlia,
+                self._kademlia_store.init(peer_id),
+                self._kademlia,
             ),
             dcutr: Dcutr::new(),
         })
