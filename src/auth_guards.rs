@@ -2,7 +2,7 @@ use crate::authorization::{Delegation, Invocation, Verifiable};
 use crate::capabilities::store::{InvokeError, ToBlock, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
-use crate::relay::RelayNode;
+use crate::p2p::relay::RelayNode;
 use crate::routes::Metadata;
 use crate::BlockStores;
 use anyhow::Result;

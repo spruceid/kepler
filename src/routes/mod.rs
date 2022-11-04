@@ -23,7 +23,7 @@ use tracing::{info_span, Instrument};
 use crate::{
     auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ReadResponse},
-    relay::RelayNode,
+    p2p::relay::RelayNode,
     storage::ImmutableStore,
     tracing::TracingSpan,
     BlockStores,

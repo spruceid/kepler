@@ -22,7 +22,6 @@ pub mod manifest;
 pub mod orbit;
 pub mod p2p;
 pub mod prometheus;
-pub mod relay;
 pub mod routes;
 pub mod storage;
 mod tracing;
@@ -34,7 +33,7 @@ use libp2p::{
     PeerId,
 };
 use orbit::ProviderUtils;
-use relay::RelayNode;
+use p2p::relay::RelayNode;
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{

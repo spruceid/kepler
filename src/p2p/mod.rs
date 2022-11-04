@@ -2,6 +2,7 @@ use core::time::Duration;
 use derive_builder::Builder;
 use libp2p::{identify::Config as OIdentifyConfig, identity::PublicKey};
 pub mod behaviour;
+pub mod relay;
 
 #[derive(Builder, Default, Debug, Clone)]
 pub struct IdentifyConfig {
