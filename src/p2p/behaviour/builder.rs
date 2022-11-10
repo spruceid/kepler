@@ -20,7 +20,7 @@ use thiserror::Error;
 
 // we use derive_builder here to make a conveniant builder, but we do not export
 // the actual config struct
-#[derive(Builder, Clone, Debug)]
+#[derive(Builder)]
 #[builder(build_fn(skip), setter(into), name = "BehaviourConfig", derive(Debug))]
 pub struct BehaviourConfigDummy<KSC = MemoryStoreConfig>
 where

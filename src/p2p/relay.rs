@@ -7,15 +7,12 @@ use futures::{
     channel::{mpsc, oneshot},
     future::{select, Either},
     io::{AsyncRead, AsyncWrite},
-    sink::{Sink, SinkExt},
-    stream::{iter, Stream, StreamExt},
+    sink::SinkExt,
+    stream::{iter, StreamExt},
 };
 use libp2p::{
     autonat::Behaviour as AutoNat,
-    core::{
-        identity::Keypair, multiaddr::multiaddr, transport::upgrade::Builder, upgrade, Multiaddr,
-        PeerId,
-    },
+    core::{identity::Keypair, upgrade, Multiaddr, PeerId},
     identify::Behaviour as Identify,
     mplex, noise,
     ping::Behaviour as Ping,
@@ -93,7 +90,7 @@ mod builder {
         ping::Config as PingConfig, relay::v2::relay::Config as RelayConfig,
     };
 
-    #[derive(Builder, Debug)]
+    #[derive(Builder)]
     #[builder(
         build_fn(skip),
         setter(into),

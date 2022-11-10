@@ -3,7 +3,7 @@ pub mod behaviour;
 pub mod relay;
 pub mod transport;
 
-const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
+pub const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
 
 pub use builder::IdentifyConfig;
 
@@ -11,7 +11,7 @@ mod builder {
     use core::time::Duration;
     use derive_builder::Builder;
     use libp2p::{identify::Config as OIdentifyConfig, identity::PublicKey};
-    #[derive(Builder, Default, Debug, Clone)]
+    #[derive(Builder)]
     #[builder(build_fn(skip), setter(into), name = "IdentifyConfig", derive(Debug))]
     pub struct IdentifyConfigDummy {
         #[builder(field(type = "String"), default = "PROTOCOL_VERSION.into()")]
