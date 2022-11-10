@@ -51,7 +51,7 @@ where
     ) -> Result<Behaviour<KS>, OrbitBehaviourBuildError>
     where
         KSC: Default + RecordStoreConfig<KS>,
-        KS: for<'a> RecordStore<'a> + Send,
+        KS: RecordStore + Send,
     {
         let peer_id = keypair.public().to_peer_id();
         Ok(Behaviour {
@@ -72,7 +72,7 @@ where
                 self._kademlia_store.init(peer_id),
                 self._kademlia,
             ),
-            dcutr: Dcutr::new(),
+            dcutr: Dcutr::new(peer_id),
             autonat: AutoNat::new(peer_id, self._autonat),
         })
     }
@@ -86,7 +86,7 @@ pub enum OrbitBehaviourBuildError {
 
 pub trait RecordStoreConfig<S>
 where
-    S: for<'a> RecordStore<'a>,
+    S: RecordStore,
 {
     fn init(self, id: PeerId) -> S;
 }

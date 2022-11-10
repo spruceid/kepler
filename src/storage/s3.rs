@@ -16,7 +16,7 @@ use kepler_lib::{
     },
     resource::OrbitId,
 };
-use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, DecodingError};
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};

@@ -9,7 +9,7 @@ use kepler_lib::{
     },
     resource::OrbitId,
 };
-use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, DecodingError};
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Error as IoError, ErrorKind},

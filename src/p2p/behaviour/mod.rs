@@ -9,8 +9,7 @@ use libp2p::{
     },
     ping::Behaviour as Ping,
     relay::v2::client::Client,
-    swarm::{behaviour::toggle::Toggle, Swarm},
-    NetworkBehaviour,
+    swarm::{behaviour::toggle::Toggle, NetworkBehaviour, Swarm},
 };
 
 pub type OrbitSwarm<KS = MemoryStore> = Swarm<Behaviour<KS>>;
@@ -21,7 +20,7 @@ pub use builder::{BehaviourBuilder, OrbitBehaviourBuildError};
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<KS>
 where
-    KS: 'static + for<'a> RecordStore<'a> + Send,
+    KS: RecordStore + Send,
 {
     identify: Identify,
     ping: Ping,

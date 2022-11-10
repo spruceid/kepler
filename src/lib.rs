@@ -33,7 +33,7 @@ use libp2p::{
     PeerId,
 };
 use orbit::ProviderUtils;
-use p2p::relay::RelayNode;
+use p2p::relay::{Config as RelayConfig, RelayNode};
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{

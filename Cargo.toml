@@ -27,7 +27,7 @@ hyper = "0.14" # Prometheus server
 iri-string = "0.5"
 lazy_static = "1.4.0"
 libipld = { version = "0.14", default-features = false, features = ["dag-cbor", "dag-json", "derive", "serde-codec"]}
-libp2p = { default-features = false, features = ["autonat", "gossipsub", "identify", "kad", "tcp", "mplex", "noise", "ping", "yamux", "dns", "tokio", "relay", "dcutr"], version = "0.51.0", git = "https://github.com/libp2p/rust-libp2p/", branch = "master" }
+libp2p = { default-features = false, features = ["autonat", "gossipsub", "identify", "kad", "tcp", "mplex", "noise", "ping", "yamux", "dns", "tokio", "relay", "dcutr", "macros"], version = "0.51.1" }
 opentelemetry = { version = "0.17.0", features = ["rt-tokio"] }
 opentelemetry-jaeger = { version = "0.16.0", features = ["rt-tokio", "reqwest_collector_client"] }
 pin-project = "1"

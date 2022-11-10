@@ -95,7 +95,7 @@ pub mod util_routes {
 pub fn relay_addr(relay: &State<RelayNode>) -> String {
     relay
         .external()
-        .with(Protocol::P2p(relay.id.into()))
+        .with(Protocol::P2p(relay.id().clone().into()))
         .to_string()
 }
 
