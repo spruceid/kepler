@@ -2,62 +2,17 @@ use crate::{
     orbit::ProviderUtils,
     storage::{ImmutableStore, StorageConfig},
 };
-use core::pin::Pin;
-use futures::{
-    io::{AsyncRead, Error},
-    task::{Context, Poll},
-};
+use futures::future::Either as AsyncReadEither;
 use kepler_lib::{
     libipld::cid::multihash::{Code, Multihash},
     resource::OrbitId,
 };
 use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
-use pin_project::pin_project;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Either<A, B> {
     A(A),
     B(B),
-}
-
-#[pin_project(project = AsyncReadEitherProjection)]
-#[derive(Debug, Clone)]
-pub enum AsyncReadEither<A, B>
-where
-    A: ImmutableStore,
-    B: ImmutableStore,
-{
-    A(#[pin] A::Readable),
-    B(#[pin] B::Readable),
-}
-
-impl<A, B> AsyncRead for AsyncReadEither<A, B>
-where
-    A: ImmutableStore,
-    B: ImmutableStore,
-{
-    #[inline]
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, Error>> {
-        match self.project() {
-            AsyncReadEitherProjection::A(a) => a.poll_read(cx, buf),
-            AsyncReadEitherProjection::B(b) => b.poll_read(cx, buf),
-        }
-    }
-    #[inline]
-    fn poll_read_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &mut [std::io::IoSliceMut<'_>],
-    ) -> Poll<Result<usize, Error>> {
-        match self.project() {
-            AsyncReadEitherProjection::A(a) => a.poll_read_vectored(cx, bufs),
-            AsyncReadEitherProjection::B(b) => b.poll_read_vectored(cx, bufs),
-        }
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -74,7 +29,7 @@ where
     A: ImmutableStore,
     B: ImmutableStore,
 {
-    type Readable = AsyncReadEither<A, B>;
+    type Readable = AsyncReadEither<A::Readable, B::Readable>;
     type Error = EitherError<A::Error, B::Error>;
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
         match self {
@@ -103,12 +58,12 @@ where
             Self::A(l) => l
                 .read(id)
                 .await
-                .map(|o| o.map(Self::Readable::A))
+                .map(|o| o.map(Self::Readable::Left))
                 .map_err(Self::Error::A),
             Self::B(r) => r
                 .read(id)
                 .await
-                .map(|o| o.map(Self::Readable::B))
+                .map(|o| o.map(Self::Readable::Right))
                 .map_err(Self::Error::B),
         }
     }
