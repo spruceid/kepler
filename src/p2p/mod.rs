@@ -25,29 +25,32 @@ mod builder {
         #[builder(field(type = "usize"), default = "0")]
         cache_size: usize,
     }
-    pub fn convert(config: IdentifyConfig, key: PublicKey) -> OIdentifyConfig {
+    pub fn to_config(config: IdentifyConfig, key: PublicKey) -> OIdentifyConfig {
         OIdentifyConfig::new(config.protocol_version, key)
             .with_initial_delay(config.initial_delay)
             .with_interval(config.interval)
             .with_push_listen_addr_updates(config.push_listen_addr_updates)
             .with_cache_size(config.cache_size)
     }
-}
-
-impl IdentifyConfig {
-    fn to_config(self, key: PublicKey) -> OIdentifyConfig {
-        builder::convert(self, key)
-    }
-}
-
-impl From<OIdentifyConfig> for IdentifyConfig {
-    fn from(c: OIdentifyConfig) -> Self {
-        Self {
+    pub fn convert(c: OIdentifyConfig) -> IdentifyConfig {
+        IdentifyConfig {
             protocol_version: c.protocol_version,
             initial_delay: c.initial_delay,
             interval: c.interval,
             push_listen_addr_updates: c.push_listen_addr_updates,
             cache_size: c.cache_size,
         }
+    }
+}
+
+impl IdentifyConfig {
+    fn to_config(self, key: PublicKey) -> OIdentifyConfig {
+        builder::to_config(self, key)
+    }
+}
+
+impl From<OIdentifyConfig> for IdentifyConfig {
+    fn from(c: OIdentifyConfig) -> Self {
+        builder::convert(c)
     }
 }

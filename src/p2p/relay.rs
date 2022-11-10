@@ -1,4 +1,7 @@
-use crate::{orbit::AbortOnDrop, p2p::IdentifyConfig};
+use crate::{
+    orbit::AbortOnDrop,
+    p2p::{transport::IntoTransport, IdentifyConfig},
+};
 use anyhow::Result;
 use futures::{
     channel::{mpsc, oneshot},
@@ -33,7 +36,7 @@ pub struct RelayNode {
 }
 
 #[derive(NetworkBehaviour)]
-struct Behaviour {
+pub struct Behaviour {
     identify: Identify,
     ping: Ping,
     relay: Relay,
@@ -137,7 +140,7 @@ mod builder {
             let local_public_key = keypair.public();
             let id = local_public_key.to_peer_id();
             let b = self.build(local_public_key);
-            let (sender, reciever) = mpsc::channel(100);
+            let (sender, mut reciever) = mpsc::channel(100);
             let r = RelayNode { id, sender, port };
 
             let mut swarm = SwarmBuilder::with_tokio_executor(
