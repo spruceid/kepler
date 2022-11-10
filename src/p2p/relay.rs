@@ -123,19 +123,15 @@ mod builder {
             }
         }
 
-        pub fn launch<T>(
-            self,
-            keypair: Keypair,
-            transport: Builder<T>,
-            port: u16,
-        ) -> Result<RelayNode>
+        pub fn launch<T>(self, keypair: Keypair, transport: T, port: u16) -> Result<RelayNode>
         where
-            T: Transport + Send,
-            T::Output: AsyncRead + AsyncWrite + Unpin + Send,
-            T::Error: Send + Sync,
-            T: Unpin,
-            T::Dial: Send,
-            T::ListenerUpgrade: Send,
+            T: IntoTransport,
+            T::T: 'static + Send + Unpin,
+            T::Error: 'static + std::error::Error + Send + Sync,
+            <T::T as Transport>::Output: 'static + AsyncRead + AsyncWrite + Unpin + Send,
+            <T::T as Transport>::Error: 'static + Send + Sync,
+            <T::T as Transport>::Dial: Send,
+            <T::T as Transport>::ListenerUpgrade: Send,
         {
             let local_public_key = keypair.public();
             let id = local_public_key.to_peer_id();
@@ -145,6 +141,8 @@ mod builder {
 
             let mut swarm = SwarmBuilder::with_tokio_executor(
                 transport
+                    .into_transport()?
+                    .upgrade(upgrade::Version::V1)
                     .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
                     .multiplex(upgrade::SelectUpgrade::new(
                         yamux::YamuxConfig::default(),

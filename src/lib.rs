@@ -33,7 +33,10 @@ use libp2p::{
     PeerId,
 };
 use orbit::ProviderUtils;
-use p2p::relay::{Config as RelayConfig, RelayNode};
+use p2p::{
+    relay::{Config as RelayConfig, RelayNode},
+    transport::{Both, DnsConfig, MemoryConfig, TcpConfig, WsConfig},
+};
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
@@ -78,7 +81,11 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
     let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
+    let relay_node = RelayConfig::default().launch(
+        Keypair::Ed25519(kp),
+        Both::<MemoryConfig, WsConfig<DnsConfig<TcpConfig>>>::default(),
+        kepler_config.relay.port,
+    )?;
 
     let routes = routes![
         healthcheck,
