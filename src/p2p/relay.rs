@@ -29,7 +29,6 @@ pub type RelaySwarm = Swarm<Behaviour>;
 pub struct RelayNode {
     id: PeerId,
     sender: mpsc::Sender<Message>,
-    port: u16,
 }
 
 #[derive(NetworkBehaviour)]
@@ -43,42 +42,25 @@ pub struct Behaviour {
 #[derive(Debug)]
 pub enum Message {
     GetAddresses(oneshot::Sender<Vec<Multiaddr>>),
-    ListenOn(Multiaddr),
+    ListenOn(Vec<Multiaddr>, oneshot::Sender<Result<()>>),
 }
 
 impl RelayNode {
     pub fn id(&self) -> &PeerId {
         &self.id
     }
-    async fn get_addresses(&mut self) -> Result<Vec<Multiaddr>> {
+    pub async fn get_addresses(&mut self) -> Result<Vec<Multiaddr>> {
         let (s, r) = oneshot::channel();
         self.sender.send(Message::GetAddresses(s)).await?;
         Ok(r.await?)
     }
 
-    async fn listen_on(&mut self, addr: impl IntoIterator<Item = &Multiaddr>) -> Result<()> {
-        Ok(self
-            .sender
-            .send_all(&mut iter(
-                addr.into_iter().map(|a| Ok(Message::ListenOn(a.clone()))),
-            ))
-            .await?)
-    }
-
-    fn _internal(port: u16) -> Multiaddr {
-        multiaddr!(Memory(port))
-    }
-
-    pub fn internal(&self) -> Multiaddr {
-        Self::_internal(self.port)
-    }
-
-    fn _external(port: u16) -> Multiaddr {
-        multiaddr!(Ip4([127, 0, 0, 1]), Tcp(port))
-    }
-
-    pub fn external(&self) -> Multiaddr {
-        Self::_external(self.port)
+    pub async fn listen_on(&mut self, addr: impl IntoIterator<Item = Multiaddr>) -> Result<()> {
+        let (s, r) = oneshot::channel();
+        self.sender
+            .send(Message::ListenOn(addr.into_iter().collect(), s))
+            .await?;
+        r.await?
     }
 }
 
@@ -120,7 +102,7 @@ mod builder {
             }
         }
 
-        pub fn launch<T>(self, keypair: Keypair, transport: T, port: u16) -> Result<RelayNode>
+        pub fn launch<T>(self, keypair: Keypair, transport: T) -> Result<RelayNode>
         where
             T: IntoTransport,
             T::T: 'static + Send + Unpin,
@@ -134,7 +116,7 @@ mod builder {
             let id = local_public_key.to_peer_id();
             let b = self.build(local_public_key);
             let (sender, mut reciever) = mpsc::channel(100);
-            let r = RelayNode { id, sender, port };
+            let r = RelayNode { id, sender };
 
             let mut swarm = SwarmBuilder::with_tokio_executor(
                 transport
@@ -152,9 +134,6 @@ mod builder {
             )
             .build();
 
-            swarm.listen_on(r.external())?;
-            swarm.listen_on(r.internal())?;
-
             tokio::spawn(async move {
                 loop {
                     match select(reciever.next(), swarm.next()).await {
@@ -164,7 +143,26 @@ mod builder {
                         }
                         // process command
                         Either::Left((Some(e), _)) => match e {
-                            Message::ListenOn(a) => swarm.listen_on(a).map(|_| ())?,
+                            Message::ListenOn(a, s) => {
+                                match a.into_iter().try_fold(Vec::new(), |mut listeners, addr| {
+                                    match swarm.listen_on(addr) {
+                                        Ok(l) => {
+                                            listeners.push(l);
+                                            Ok(listeners)
+                                        }
+                                        Err(e) => Err((e, listeners)),
+                                    }
+                                }) {
+                                    Ok(_) => s.send(Ok(())),
+                                    Err((e, listeners)) => {
+                                        for l in listeners {
+                                            swarm.remove_listener(l);
+                                        }
+                                        s.send(Err(e.into()))
+                                    }
+                                }
+                                .map_err(|_| anyhow!("failed to return listening result"))?
+                            }
                             Message::GetAddresses(s) => {
                                 s.send(swarm.listeners().map(|a| a.clone()).collect())
                                     .map_err(|_| anyhow!("failed to return listeners"))?;

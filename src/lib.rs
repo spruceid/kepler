@@ -29,12 +29,13 @@ pub mod transport;
 
 use config::{BlockStorage, Config};
 use libp2p::{
+    core::multiaddr::multiaddr,
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
     PeerId,
 };
 use orbit::ProviderUtils;
 use p2p::{
-    relay::{Config as RelayConfig, RelayNode},
+    relay::Config as RelayConfig,
     transport::{Both, DnsConfig, MemoryConfig, TcpConfig, WsConfig},
 };
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
@@ -81,11 +82,17 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
     let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
-    let relay_node = RelayConfig::default().launch(
+    let mut relay_node = RelayConfig::default().launch(
         Keypair::Ed25519(kp),
         Both::<MemoryConfig, WsConfig<DnsConfig<TcpConfig>>>::default(),
-        kepler_config.relay.port,
     )?;
+
+    relay_node
+        .listen_on([
+            multiaddr!(Memory(kepler_config.relay.port)),
+            multiaddr!(Ip4([127, 0, 0, 1]), Tcp(kepler_config.relay.port)),
+        ])
+        .await?;
 
     let routes = routes![
         healthcheck,
