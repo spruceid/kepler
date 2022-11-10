@@ -16,7 +16,7 @@ use libp2p::{
 pub type OrbitSwarm<KS = MemoryStore> = Swarm<Behaviour<KS>>;
 mod builder;
 
-pub use builder::{BehaviourBuilder, OrbitBehaviourBuildError};
+pub use builder::{BehaviourConfig, OrbitBehaviourBuildError};
 
 #[derive(NetworkBehaviour)]
 pub struct Behaviour<KS>

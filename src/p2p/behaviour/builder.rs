@@ -21,26 +21,26 @@ use thiserror::Error;
 // we use derive_builder here to make a conveniant builder, but we do not export
 // the actual config struct
 #[derive(Builder, Clone, Debug)]
-#[builder(build_fn(skip), setter(into), name = "BehaviourBuilder", derive(Debug))]
-pub struct BehaviourConfig<KSC = MemoryStoreConfig>
+#[builder(build_fn(skip), setter(into), name = "BehaviourConfig", derive(Debug))]
+pub struct BehaviourConfigDummy<KSC = MemoryStoreConfig>
 where
     KSC: Default,
 {
-    #[builder(field(type = "IdentifyConfig"), setter(name = "identify"))]
-    _identify: IdentifyConfig,
-    #[builder(field(type = "PingConfig"), setter(name = "ping"))]
-    _ping: PingConfig,
-    #[builder(field(type = "GossipsubConfig"), setter(name = "gossipsub"))]
-    _gossipsub: GossipsubConfig,
-    #[builder(field(type = "KademliaConfig"), setter(name = "kademlia"))]
-    _kademlia: KademliaConfig,
-    #[builder(field(type = "KSC"), setter(name = "kademlia_store"))]
-    _kademlia_store: KSC,
-    #[builder(field(type = "AutoNatConfig"), setter(name = "autonat"))]
-    _autonat: AutoNatConfig,
+    #[builder(field(type = "IdentifyConfig"))]
+    identify: IdentifyConfig,
+    #[builder(field(type = "PingConfig"))]
+    ping: PingConfig,
+    #[builder(field(type = "GossipsubConfig"))]
+    gossipsub: GossipsubConfig,
+    #[builder(field(type = "KademliaConfig"))]
+    kademlia: KademliaConfig,
+    #[builder(field(type = "KSC"))]
+    kademlia_store: KSC,
+    #[builder(field(type = "AutoNatConfig"))]
+    autonat: AutoNatConfig,
 }
 
-impl<KSC> BehaviourBuilder<KSC>
+impl<KSC> BehaviourConfig<KSC>
 where
     KSC: Default,
 {
@@ -55,11 +55,11 @@ where
     {
         let peer_id = keypair.public().to_peer_id();
         Ok(Behaviour {
-            identify: Identify::new(self._identify.to_config(keypair.public())),
-            ping: Ping::new(self._ping),
+            identify: Identify::new(self.identify.to_config(keypair.public())),
+            ping: Ping::new(self.ping),
             gossipsub: Gossipsub::new(
                 MessageAuthenticity::Signed(keypair),
-                GossipsubConfigBuilder::from(self._gossipsub)
+                GossipsubConfigBuilder::from(self.gossipsub)
                     // always ensure validation
                     .validation_mode(ValidationMode::Strict)
                     .build()
@@ -69,11 +69,11 @@ where
             relay: relay.into(),
             kademlia: Kademlia::with_config(
                 peer_id,
-                self._kademlia_store.init(peer_id),
-                self._kademlia,
+                self.kademlia_store.init(peer_id),
+                self.kademlia,
             ),
             dcutr: Dcutr::new(),
-            autonat: AutoNat::new(peer_id, self._autonat),
+            autonat: AutoNat::new(peer_id, self.autonat),
         })
     }
 }
