@@ -4,7 +4,7 @@ use kepler_lib::libipld::Cid;
 use libp2p::{
     core::PeerId,
     identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
-    multiaddr::Protocol,
+    multiaddr::multiaddr,
 };
 use rocket::{
     data::{Data, ToByteUnit},
@@ -22,6 +22,7 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    config::Config,
     kv::{ObjectBuilder, ReadResponse},
     p2p::relay::RelayNode,
     storage::ImmutableStore,
@@ -87,11 +88,13 @@ pub mod util_routes {
 }
 
 #[get("/peer/relay")]
-pub fn relay_addr(relay: &State<RelayNode>) -> String {
-    relay
-        .external()
-        .with(Protocol::P2p(relay.id().clone().into()))
-        .to_string()
+pub fn relay_addr(relay: &State<RelayNode>, config: &State<Config>) -> String {
+    multiaddr!(
+        Ip4([127, 0, 0, 1]),
+        Tcp(config.relay.port),
+        P2p(relay.id().clone())
+    )
+    .to_string()
 }
 
 #[get("/peer/generate")]

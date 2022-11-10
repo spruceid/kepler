@@ -11,7 +11,7 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
 };
 use libp2p::{
-    core::{Multiaddr, PeerId},
+    core::{multiaddr::multiaddr, Multiaddr, PeerId},
     identity::ed25519::Keypair as Ed25519Keypair,
 };
 use rocket::{
@@ -74,14 +74,17 @@ pub fn check_orbit_and_service(
 }
 
 fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))> {
+    let config = req
+        .rocket()
+        .state::<config::Config>()
+        .cloned()
+        .ok_or_else(|| anyhow!("Could not retrieve config"))?;
+    let port = config.relay.port;
     Ok((
-        req.rocket()
-            .state::<config::Config>()
-            .cloned()
-            .ok_or_else(|| anyhow!("Could not retrieve config"))?,
+        config,
         req.rocket()
             .state::<RelayNode>()
-            .map(|r| (r.id().clone(), r.internal()))
+            .map(|r| (r.id().clone(), multiaddr!(Memory(port))))
             .ok_or_else(|| anyhow!("Could not retrieve relay node information"))?,
     ))
 }
