@@ -1,103 +1,68 @@
-use crate::p2p::IdentifyConfig;
+use crate::{orbit::AbortOnDrop, p2p::IdentifyConfig};
 use anyhow::Result;
-use derive_builder::Builder;
-use libp2p::{
-    autonat::{Behaviour as AutoNat, Config as AutoNatConfig},
-    core::{identity::Keypair, multiaddr::multiaddr, Multiaddr, PeerId},
-    identify::Behaviour as Identify,
-    identity::PublicKey,
-    ping::{Behaviour as Ping, Config as PingConfig},
-    relay::v2::relay::{Config as RelayConfig, Relay},
-    swarm::Swarm,
-    NetworkBehaviour,
+use futures::{
+    channel::{mpsc, oneshot},
+    future::{select, Either},
+    io::{AsyncRead, AsyncWrite},
+    sink::{Sink, SinkExt},
+    stream::{iter, Stream, StreamExt},
 };
+use libp2p::{
+    autonat::Behaviour as AutoNat,
+    core::{
+        identity::Keypair, multiaddr::multiaddr, transport::upgrade::Builder, upgrade, Multiaddr,
+        PeerId,
+    },
+    identify::Behaviour as Identify,
+    mplex, noise,
+    ping::Behaviour as Ping,
+    relay::v2::relay::Relay,
+    swarm::{Swarm, SwarmBuilder},
+    yamux, NetworkBehaviour,
+};
+
+pub use builder::Config;
 
 pub type RelaySwarm = Swarm<Behaviour>;
 
+#[derive(Clone, Debug)]
 pub struct RelayNode {
-    pub port: u16,
-    pub id: PeerId,
+    id: PeerId,
+    sender: mpsc::Sender<Message>,
+    port: u16,
 }
 
 #[derive(NetworkBehaviour)]
-pub struct Behaviour {
+struct Behaviour {
     identify: Identify,
     ping: Ping,
     relay: Relay,
     autonat: AutoNat,
 }
 
-#[derive(Builder, Debug)]
-#[builder(
-    build_fn(skip),
-    setter(into),
-    name = "BehaviourBuilder",
-    derive(Debug),
-    pattern = "owned"
-)]
-pub struct BehaviourConfig {
-    #[builder(field(type = "IdentifyConfig"), setter(name = "identify"))]
-    _identify: IdentifyConfig,
-    #[builder(field(type = "PingConfig"), setter(name = "ping"))]
-    _ping: PingConfig,
-    #[builder(field(type = "RelayConfig"), setter(name = "relay"))]
-    _relay: RelayConfig,
-    #[builder(field(type = "AutoNatConfig"), setter(name = "autonat"))]
-    _autonat: AutoNatConfig,
-}
-
-impl BehaviourBuilder {
-    pub fn build(self, pubkey: PublicKey) -> Behaviour {
-        let peer_id = pubkey.to_peer_id();
-        Behaviour {
-            identify: Identify::new(self._identify.to_config(pubkey)),
-            ping: Ping::new(self._ping),
-            relay: Relay::new(peer_id, self._relay),
-            autonat: AutoNat::new(peer_id, self._autonat),
-        }
-    }
+#[derive(Debug)]
+pub enum Message {
+    GetAddresses(oneshot::Sender<Vec<Multiaddr>>),
+    ListenOn(Multiaddr),
 }
 
 impl RelayNode {
-    pub async fn new(port: u16, keypair: Keypair) -> Result<Self> {
-        let local_public_key = keypair.public();
-        let id = local_public_key.to_peer_id();
-        // let relay_tcp_addr = Self::_external(port);
-        // let relay_mem_addr = Self::_internal(port);
+    pub fn id(&self) -> &PeerId {
+        &self.id
+    }
+    async fn get_addresses(&mut self) -> Result<Vec<Multiaddr>> {
+        let (s, r) = oneshot::channel();
+        self.sender.send(Message::GetAddresses(s)).await?;
+        Ok(r.await?)
+    }
 
-        // let (transport_builder, relay_behaviour) = TransportBuilder::new(keypair.clone())?
-        //     .or(MemoryTransport::default())
-        //     .relay();
-
-        // let ipfs_opts = IpfsOptions {
-        //     ipfs_path: std::env::temp_dir(),
-        //     keypair,
-        //     bootstrap: vec![],
-        //     mdns: false,
-        //     kad_protocol: "/kepler/relay".to_string().into(),
-        //     listening_addrs: vec![relay_tcp_addr, relay_mem_addr],
-        //     span: None,
-        // };
-
-        // // TestTypes designates an in-memory Ipfs instance, but this peer won't store data anyway.
-        // let (_ipfs, ipfs_task) =
-        //     UninitializedIpfs::new(ipfs_opts, transport_builder.build(), Some(relay_behaviour))
-        //         .start()
-        //         .await?;
-
-        // tracing::debug!(
-        //     "opened relay: {} at {}, {}",
-        //     id,
-        //     Self::_internal(port),
-        //     Self::_external(port),
-        // );
-
-        // let task = spawn(ipfs_task);
-        Ok(Self {
-            port,
-            // _task: AbortOnDrop::new(task),
-            id,
-        })
+    async fn listen_on(&mut self, addr: impl IntoIterator<Item = &Multiaddr>) -> Result<()> {
+        Ok(self
+            .sender
+            .send_all(&mut iter(
+                addr.into_iter().map(|a| Ok(Message::ListenOn(a.clone()))),
+            ))
+            .await?)
     }
 
     fn _internal(port: u16) -> Multiaddr {
@@ -114,6 +79,108 @@ impl RelayNode {
 
     pub fn external(&self) -> Multiaddr {
         Self::_external(self.port)
+    }
+}
+
+mod builder {
+    use super::*;
+    use derive_builder::Builder;
+    use libp2p::{
+        autonat::Config as AutoNatConfig, core::Transport, identity::PublicKey,
+        ping::Config as PingConfig, relay::v2::relay::Config as RelayConfig,
+    };
+
+    #[derive(Builder, Debug)]
+    #[builder(
+        build_fn(skip),
+        setter(into),
+        name = "Config",
+        derive(Debug),
+        pattern = "owned"
+    )]
+    pub struct BehaviourConfigDummy {
+        #[builder(field(type = "IdentifyConfig"))]
+        identify: IdentifyConfig,
+        #[builder(field(type = "PingConfig"))]
+        ping: PingConfig,
+        #[builder(field(type = "RelayConfig"))]
+        relay: RelayConfig,
+        #[builder(field(type = "AutoNatConfig"))]
+        autonat: AutoNatConfig,
+    }
+
+    impl Config {
+        fn build(self, pubkey: PublicKey) -> Behaviour {
+            let peer_id = pubkey.to_peer_id();
+            Behaviour {
+                identify: Identify::new(self.identify.to_config(pubkey)),
+                ping: Ping::new(self.ping),
+                relay: Relay::new(peer_id, self.relay),
+                autonat: AutoNat::new(peer_id, self.autonat),
+            }
+        }
+
+        pub fn launch<T>(
+            self,
+            keypair: Keypair,
+            transport: Builder<T>,
+            port: u16,
+        ) -> Result<RelayNode>
+        where
+            T: Transport + Send,
+            T::Output: AsyncRead + AsyncWrite + Unpin + Send,
+            T::Error: Send + Sync,
+            T: Unpin,
+            T::Dial: Send,
+            T::ListenerUpgrade: Send,
+        {
+            let local_public_key = keypair.public();
+            let id = local_public_key.to_peer_id();
+            let b = self.build(local_public_key);
+            let (sender, reciever) = mpsc::channel(100);
+            let r = RelayNode { id, sender, port };
+
+            let mut swarm = SwarmBuilder::new(
+                transport
+                    .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
+                    .multiplex(upgrade::SelectUpgrade::new(
+                        yamux::YamuxConfig::default(),
+                        mplex::MplexConfig::default(),
+                    ))
+                    .timeout(std::time::Duration::from_secs(20))
+                    .boxed(),
+                b,
+                id,
+            )
+            .build();
+
+            swarm.listen_on(r.external())?;
+            swarm.listen_on(r.internal())?;
+
+            tokio::spawn(async move {
+                loop {
+                    match select(reciever.next(), swarm.next()).await {
+                        // if the swarm or the channel are closed, close the relay
+                        Either::Right((None, _)) | Either::Left((None, _)) => {
+                            break;
+                        }
+                        // process command
+                        Either::Left((Some(e), _)) => match e {
+                            Message::ListenOn(a) => swarm.listen_on(a).map(|_| ())?,
+                            Message::GetAddresses(s) => {
+                                s.send(swarm.listeners().map(|a| a.clone()).collect())
+                                    .map_err(|_| anyhow!("failed to return listeners"))?;
+                            }
+                        },
+                        Either::Right((Some(e), _)) => {
+                            // process swarm event
+                        }
+                    }
+                }
+                Result::<(), anyhow::Error>::Ok(())
+            });
+            Ok(r)
+        }
     }
 }
 
