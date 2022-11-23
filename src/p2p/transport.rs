@@ -1,5 +1,4 @@
 use crate::storage::either::EitherError;
-use derive_builder::Builder;
 use futures::io::{AsyncRead, AsyncWrite};
 use libp2p::{
     core::transport::{dummy::DummyTransport, MemoryTransport, OrTransport, Transport},
@@ -22,10 +21,8 @@ pub trait IntoTransport {
     }
 }
 
-pub use dns::{CustomDnsResolver, DnsConfig};
 pub use libp2p::tcp::GenTcpConfig as TcpConfig;
 pub use libp2p::wasm_ext::ffi::Transport as ExtConfig;
-pub use ws::{WsConfig, WS_MAX_DATA_SIZE};
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct MemoryConfig;
@@ -63,54 +60,37 @@ impl Default for DnsResolver {
     }
 }
 
-mod dns {
-    use super::*;
-    #[derive(Builder)]
-    #[builder(
-        build_fn(skip),
-        setter(into),
-        derive(Debug),
-        name = "CustomDnsResolver"
-    )]
-    pub struct CustomDnsResolverDummy {
-        #[builder(field(type = "ResolverConfig"))]
-        conf: ResolverConfig,
-        #[builder(field(type = "ResolverOpts"))]
-        opts: ResolverOpts,
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CustomDnsResolver {
+    conf: ResolverConfig,
+    opts: ResolverOpts,
+}
 
-    #[derive(Builder)]
-    #[builder(build_fn(skip), setter(into), derive(Debug), name = "DnsConfig")]
-    pub struct DnsConfigDummy<B>
-    where
-        B: Default,
-    {
-        #[builder(field(type = "DnsResolver"))]
-        resolver: DnsResolver,
-        #[builder(field(type = "B"))]
-        base: B,
+impl CustomDnsResolver {
+    pub fn config(&mut self, i: impl Into<ResolverConfig>) -> &mut Self {
+        self.conf = i.into();
+        self
     }
+    pub fn options(&mut self, i: impl Into<ResolverOpts>) -> &mut Self {
+        self.opts = i.into();
+        self
+    }
+}
 
-    pub fn convert<B>(c: DnsConfig<B>) -> Result<DnsTransport<B::T>, EitherError<IoError, B::Error>>
-    where
-        B: Default + IntoTransport,
-        B::T: 'static + Send + Unpin,
-        <B::T as Transport>::Output: 'static + AsyncRead + AsyncWrite + Send + Unpin,
-        <B::T as Transport>::Dial: Send,
-        <B::T as Transport>::Error: Send,
-    {
-        match c.resolver {
-            DnsResolver::System => {
-                DnsTransport::system(c.base.into_transport().map_err(EitherError::B)?)
-                    .map_err(EitherError::A)
-            }
-            DnsResolver::Custom(custom) => DnsTransport::custom(
-                c.base.into_transport().map_err(EitherError::B)?,
-                custom.conf,
-                custom.opts,
-            )
-            .map_err(EitherError::A),
-        }
+#[derive(Debug, Clone, Default)]
+pub struct DnsConfig<B> {
+    resolver: DnsResolver,
+    base: B,
+}
+
+impl<B> DnsConfig<B> {
+    pub fn resolver(&mut self, i: impl Into<DnsResolver>) -> &mut Self {
+        self.resolver = i.into();
+        self
+    }
+    pub fn base(&mut self, i: impl Into<B>) -> &mut Self {
+        self.base = i.into();
+        self
     }
 }
 
@@ -125,52 +105,70 @@ where
     type T = DnsTransport<B::T>;
     type Error = EitherError<IoError, B::Error>;
     fn into_transport(self) -> Result<Self::T, Self::Error> {
-        dns::convert(self)
+        match self.resolver {
+            DnsResolver::System => {
+                DnsTransport::system(self.base.into_transport().map_err(EitherError::B)?)
+                    .map_err(EitherError::A)
+            }
+            DnsResolver::Custom(custom) => DnsTransport::custom(
+                self.base.into_transport().map_err(EitherError::B)?,
+                custom.conf,
+                custom.opts,
+            )
+            .map_err(EitherError::A),
+        }
     }
 }
 
-mod ws {
-    use super::*;
-    pub const WS_MAX_DATA_SIZE: usize = 256 * 1024 * 1024;
+pub const WS_MAX_DATA_SIZE: usize = 256 * 1024 * 1024;
 
-    fn client() -> WsTlsConfig {
-        WsTlsConfig::client()
+#[derive(Debug, Clone)]
+pub struct WsConfig<T> {
+    base: T,
+    max_redirects: u8,
+    max_data_size: usize,
+    deflate: bool,
+    tls: WsTlsConfig,
+}
+
+impl<T> WsConfig<T> {
+    pub fn from_base(b: impl Into<T>) -> Self {
+        Self {
+            base: b.into(),
+            max_redirects: 0,
+            max_data_size: WS_MAX_DATA_SIZE,
+            deflate: false,
+            tls: WsTlsConfig::client(),
+        }
     }
-
-    #[derive(Builder)]
-    #[builder(build_fn(skip), setter(into), derive(Debug), name = "WsConfig")]
-    pub struct WsConfigDummy<T>
-    where
-        T: Default,
-    {
-        #[builder(field(type = "T"))]
-        base: T,
-        #[builder(field(type = "u8"), default = "0")]
-        max_redirects: u8,
-        #[builder(field(type = "usize"), default = "WS_MAX_DATA_SIZE")]
-        max_data_size: usize,
-        #[builder(field(type = "bool"), default = "false")]
-        deflate: bool,
-        // TODO this is cause some kind of error cos it has no Default
-        // #[builder(field(type = "WsTlsConfig"), default = "client()")]
-        // tls: WsTlsConfig,
+    pub fn base(&mut self, i: impl Into<T>) -> &mut Self {
+        self.base = i.into();
+        self
     }
+    pub fn max_redirects(&mut self, i: impl Into<u8>) -> &mut Self {
+        self.max_redirects = i.into();
+        self
+    }
+    pub fn max_data_size(&mut self, i: impl Into<usize>) -> &mut Self {
+        self.max_data_size = i.into();
+        self
+    }
+    pub fn deflate(&mut self, i: impl Into<bool>) -> &mut Self {
+        self.deflate = i.into();
+        self
+    }
+    pub fn tls(&mut self, i: impl Into<WsTlsConfig>) -> &mut Self {
+        self.tls = i.into();
+        self
+    }
+}
 
-    pub fn convert<B>(c: WsConfig<B>) -> Result<WsTransport<B::T>, B::Error>
-    where
-        B: Default + IntoTransport,
-        B::T: 'static + Send + Unpin,
-        <B::T as Transport>::Output: 'static + AsyncRead + AsyncWrite + Send + Unpin,
-        <B::T as Transport>::Dial: Send,
-        <B::T as Transport>::Error: Send,
-        <B::T as Transport>::ListenerUpgrade: Send,
-    {
-        let mut ws = WsTransport::new(c.base.into_transport()?);
-        ws.set_max_redirects(c.max_redirects)
-            .set_max_data_size(c.max_data_size)
-            // .set_tls_config(c.tls)
-            .use_deflate(c.deflate);
-        Ok(ws)
+impl<T> Default for WsConfig<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self::from_base(T::default())
     }
 }
 
@@ -186,7 +184,12 @@ where
     type T = WsTransport<B::T>;
     type Error = B::Error;
     fn into_transport(self) -> Result<Self::T, Self::Error> {
-        ws::convert(self)
+        let mut ws = WsTransport::new(self.base.into_transport()?);
+        ws.set_max_redirects(self.max_redirects)
+            .set_max_data_size(self.max_data_size)
+            .set_tls_config(self.tls)
+            .use_deflate(self.deflate);
+        Ok(ws)
     }
 }
 
