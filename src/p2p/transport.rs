@@ -14,6 +14,12 @@ pub trait IntoTransport {
     type T: Transport;
     type Error;
     fn into_transport(self) -> Result<Self::T, Self::Error>;
+    fn and<O: IntoTransport>(self, other: O) -> Both<Self, O>
+    where
+        Self: Sized,
+    {
+        Both(self, other)
+    }
 }
 
 pub use dns::{CustomDnsResolver, DnsConfig};

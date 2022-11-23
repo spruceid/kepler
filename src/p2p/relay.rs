@@ -102,7 +102,7 @@ mod builder {
             }
         }
 
-        pub fn launch<T>(self, keypair: Keypair, transport: T) -> Result<RelayNode>
+        pub fn launch<T>(self, keypair: Keypair, transport: T) -> Result<RelayNode, T::Error>
         where
             T: IntoTransport,
             T::T: 'static + Send + Unpin,
@@ -144,6 +144,7 @@ mod builder {
                         // process command
                         Either::Left((Some(e), _)) => match e {
                             Message::ListenOn(a, s) => {
+                                // try listen on each given address
                                 match a.into_iter().try_fold(Vec::new(), |mut listeners, addr| {
                                     match swarm.listen_on(addr) {
                                         Ok(l) => {
@@ -154,6 +155,7 @@ mod builder {
                                     }
                                 }) {
                                     Ok(_) => s.send(Ok(())),
+                                    // if one fails, roll back all of them
                                     Err((e, listeners)) => {
                                         for l in listeners {
                                             swarm.remove_listener(l);
@@ -161,7 +163,7 @@ mod builder {
                                         s.send(Err(e.into()))
                                     }
                                 }
-                                .map_err(|_| anyhow!("failed to return listening result"))?
+                                .map_err(|_| anyhow!("failed to return listening result"))?;
                             }
                             Message::GetAddresses(s) => {
                                 s.send(swarm.listeners().map(|a| a.clone()).collect())
