@@ -84,7 +84,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     let mut relay_node = RelayConfig::default().launch(
         Keypair::Ed25519(kp),
-        Both::<MemoryConfig, WsConfig<DnsConfig<TcpConfig>>>::default(),
+        // transport for memory, dns + tcp and websocket over dns + tcp
+        Both::<MemoryConfig, Both<DnsConfig<TcpConfig>, WsConfig<DnsConfig<TcpConfig>>>>::default(),
     )?;
 
     relay_node
