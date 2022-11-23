@@ -1,14 +1,11 @@
-use crate::{
-    orbit::AbortOnDrop,
-    p2p::{transport::IntoTransport, IdentifyConfig},
-};
+use crate::p2p::{transport::IntoTransport, IdentifyConfig};
 use anyhow::Result;
 use futures::{
     channel::{mpsc, oneshot},
     future::{select, Either},
     io::{AsyncRead, AsyncWrite},
     sink::SinkExt,
-    stream::{iter, StreamExt},
+    stream::StreamExt,
 };
 use libp2p::{
     autonat::{Behaviour as AutoNat, Config as AutoNatConfig},
@@ -167,7 +164,7 @@ impl Config {
                                 .map_err(|_| anyhow!("failed to return listeners"))?;
                         }
                     },
-                    Either::Right((Some(e), _)) => {
+                    Either::Right((Some(_), _)) => {
                         // process swarm event
                     }
                 }

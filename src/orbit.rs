@@ -284,6 +284,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let (orbit, dir) = op(md).await.unwrap();
+        let (_, _) = op(md).await.unwrap();
     }
 }

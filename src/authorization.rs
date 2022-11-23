@@ -514,7 +514,7 @@ mod test {
         },
     };
 
-    async fn gen(
+    async fn _gen(
         iss: &JWK,
         aud: String,
         caps: Vec<Capability>,
@@ -530,10 +530,10 @@ mod test {
                 .await
                 .1
                 .unwrap(),
-            gen_ucan((iss, did), aud, caps, exp, prf).await,
+            _gen_ucan((iss, did), aud, caps, exp, prf).await,
         )
     }
-    async fn gen_ucan(
+    async fn _gen_ucan(
         iss: (&JWK, String),
         audience: String,
         attenuation: Vec<Capability>,
