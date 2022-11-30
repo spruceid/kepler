@@ -57,11 +57,11 @@ percent-encoding = "2.1"
 path = "lib/"
 
 [workspace]
-
 members = [
     "lib",
     "sdk-wasm",
-    "sdk"
+    "sdk",
+    "exchange-protocol"
 ]
 
 exclude = [
