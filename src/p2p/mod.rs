@@ -1,6 +1,7 @@
 use core::time::Duration;
 use libp2p::{identify::Config as OIdentifyConfig, identity::PublicKey};
 
+pub mod behaviour;
 pub mod relay;
 pub mod transport;
 

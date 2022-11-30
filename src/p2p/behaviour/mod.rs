@@ -25,6 +25,7 @@ use std::io::Error as IoError;
 
 pub type OrbitSwarm<KS = MemoryStore> = Swarm<Behaviour<KS>>;
 mod builder;
+pub mod swap;
 
 pub use builder::{BehaviourConfig, OrbitBehaviourBuildError};
 
