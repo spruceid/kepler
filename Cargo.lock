@@ -3170,6 +3170,7 @@ dependencies = [
  "bs58",
  "cached 0.40.0",
  "derive_builder 0.11.2",
+ "exchange-protocol",
  "futures",
  "hex",
  "hyper",

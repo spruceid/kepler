@@ -65,12 +65,14 @@ pub use codec::{ProtocolName, RequestResponseCodec};
 pub use handler::ProtocolSupport;
 
 use futures::channel::oneshot;
+use futures::io::AsyncRead;
 use handler::{RequestProtocol, RequestResponseHandler, RequestResponseHandlerEvent};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
 use libp2p::swarm::{
     behaviour::{AddressChange, ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
     dial_opts::DialOpts,
-    IntoConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters,
+    IntoConnectionHandler, NegotiatedSubstream, NetworkBehaviour, NetworkBehaviourAction,
+    NotifyHandler, PollParameters,
 };
 use smallvec::SmallVec;
 use std::{
@@ -296,9 +298,10 @@ impl RequestResponseConfig {
 }
 
 /// A request/response protocol for some message codec.
-pub struct RequestResponse<TCodec>
+pub struct RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
+    R: AsyncRead + 'static,
 {
     /// The supported inbound protocols.
     inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -315,8 +318,12 @@ where
     /// Pending events to return from `poll`.
     pending_events: VecDeque<
         NetworkBehaviourAction<
-            RequestResponseEvent<TCodec::Request, TCodec::Response>,
-            RequestResponseHandler<TCodec>,
+            RequestResponseEvent<
+                TCodec::Request,
+                TCodec::Response<NegotiatedSubstream>,
+                TCodec::Response<R>,
+            >,
+            RequestResponseHandler<TCodec, R>,
         >,
     >,
     /// The currently connected peers, their pending outbound and inbound responses and their known,
@@ -329,9 +336,10 @@ where
     pending_outbound_requests: HashMap<PeerId, SmallVec<[RequestProtocol<TCodec>; 10]>>,
 }
 
-impl<TCodec> RequestResponse<TCodec>
+impl<TCodec, R> RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
+    R: AsyncRead + 'static,
 {
     /// Creates a new `RequestResponse` behaviour for the given
     /// protocols, codec and configuration.
@@ -412,9 +420,9 @@ where
     /// [`RequestResponseMessage::Request`].
     pub fn send_response(
         &mut self,
-        ch: ResponseChannel<TCodec::Response>,
-        rs: TCodec::Response,
-    ) -> Result<(), TCodec::Response> {
+        ch: ResponseChannel<TCodec::Response<R>>,
+        rs: TCodec::Response<R>,
+    ) -> Result<(), TCodec::Response<R>> {
         ch.sender.send(rs)
     }
 
@@ -691,12 +699,17 @@ where
     }
 }
 
-impl<TCodec> NetworkBehaviour for RequestResponse<TCodec>
+impl<TCodec, R> NetworkBehaviour for RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
+    R: AsyncRead + 'static,
 {
-    type ConnectionHandler = RequestResponseHandler<TCodec>;
-    type OutEvent = RequestResponseEvent<TCodec::Request, TCodec::Response>;
+    type ConnectionHandler = RequestResponseHandler<TCodec, R>;
+    type OutEvent = RequestResponseEvent<
+        TCodec::Request,
+        TCodec::Response<NegotiatedSubstream>,
+        TCodec::Response<R>,
+    >;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         RequestResponseHandler::new(
