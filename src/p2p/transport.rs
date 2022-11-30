@@ -84,6 +84,12 @@ pub struct DnsConfig<B> {
 }
 
 impl<B> DnsConfig<B> {
+    pub fn new(i: impl Into<B>) -> Self {
+        Self {
+            base: i.into(),
+            resolver: Default::default(),
+        }
+    }
     pub fn resolver(&mut self, i: impl Into<DnsResolver>) -> &mut Self {
         self.resolver = i.into();
         self
@@ -96,7 +102,7 @@ impl<B> DnsConfig<B> {
 
 impl<B> IntoTransport for DnsConfig<B>
 where
-    B: Default + IntoTransport,
+    B: IntoTransport,
     B::T: 'static + Send + Unpin,
     <B::T as Transport>::Output: 'static + AsyncRead + AsyncWrite + Send + Unpin,
     <B::T as Transport>::Dial: Send,
@@ -132,7 +138,7 @@ pub struct WsConfig<T> {
 }
 
 impl<T> WsConfig<T> {
-    pub fn from_base(b: impl Into<T>) -> Self {
+    pub fn new(b: impl Into<T>) -> Self {
         Self {
             base: b.into(),
             max_redirects: 0,
@@ -168,13 +174,13 @@ where
     T: Default,
 {
     fn default() -> Self {
-        Self::from_base(T::default())
+        Self::new(T::default())
     }
 }
 
 impl<B> IntoTransport for WsConfig<B>
 where
-    B: Default + IntoTransport,
+    B: IntoTransport,
     B::T: 'static + Send + Unpin,
     <B::T as Transport>::Output: 'static + AsyncRead + AsyncWrite + Send + Unpin,
     <B::T as Transport>::Dial: Send,

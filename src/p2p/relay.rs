@@ -15,11 +15,9 @@ use libp2p::{
     mplex, noise,
     ping::{Behaviour as Ping, Config as PingConfig},
     relay::v2::relay::{Config as RelayConfig, Relay},
-    swarm::{Swarm, SwarmBuilder, NetworkBehaviour},
+    swarm::{SwarmBuilder, NetworkBehaviour},
     yamux,
 };
-
-pub type RelaySwarm = Swarm<Behaviour>;
 
 #[derive(Clone, Debug)]
 pub struct RelayNode {
