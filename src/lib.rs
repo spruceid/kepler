@@ -14,7 +14,6 @@ pub mod allow_list;
 pub mod auth_guards;
 pub mod authorization;
 pub mod capabilities;
-pub mod cas;
 pub mod config;
 pub mod indexes;
 pub mod kv;
