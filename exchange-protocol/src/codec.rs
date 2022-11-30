@@ -34,14 +34,16 @@ pub trait RequestResponseCodec {
     /// The type of inbound and outbound requests.
     type Request: Send;
     /// The type of inbound and outbound responses.
-    type Response: Send;
+    type Response<T>: Send
+    where
+        T: AsyncRead + Send;
 
     /// Reads a request from the given I/O stream according to the
     /// negotiated protocol.
     async fn read_request<T>(
         &mut self,
         protocol: &Self::Protocol,
-        io: &mut T,
+        io: T,
     ) -> io::Result<Self::Request>
     where
         T: AsyncRead + Unpin + Send;
@@ -51,8 +53,8 @@ pub trait RequestResponseCodec {
     async fn read_response<T>(
         &mut self,
         protocol: &Self::Protocol,
-        io: &mut T,
-    ) -> io::Result<Self::Response>
+        io: T,
+    ) -> io::Result<Self::Response<T>>
     where
         T: AsyncRead + Unpin + Send;
 
@@ -61,7 +63,7 @@ pub trait RequestResponseCodec {
     async fn write_request<T>(
         &mut self,
         protocol: &Self::Protocol,
-        io: &mut T,
+        io: T,
         req: Self::Request,
     ) -> io::Result<()>
     where
@@ -69,12 +71,13 @@ pub trait RequestResponseCodec {
 
     /// Writes a response to the given I/O stream according to the
     /// negotiated protocol.
-    async fn write_response<T>(
+    async fn write_response<T, R>(
         &mut self,
         protocol: &Self::Protocol,
-        io: &mut T,
-        res: Self::Response,
+        io: T,
+        res: Self::Response<R>,
     ) -> io::Result<()>
     where
-        T: AsyncWrite + Unpin + Send;
+        T: AsyncWrite + Unpin + Send,
+        R: AsyncRead;
 }

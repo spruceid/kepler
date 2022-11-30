@@ -65,20 +65,22 @@ impl ProtocolSupport {
 ///
 /// Receives a request and sends a response.
 #[derive(Debug)]
-pub struct ResponseProtocol<TCodec>
+pub struct ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec,
+    R: AsyncRead,
 {
     pub(crate) codec: TCodec,
     pub(crate) protocols: SmallVec<[TCodec::Protocol; 2]>,
     pub(crate) request_sender: oneshot::Sender<(RequestId, TCodec::Request)>,
-    pub(crate) response_receiver: oneshot::Receiver<TCodec::Response>,
+    pub(crate) response_receiver: oneshot::Receiver<TCodec::Response<R>>,
     pub(crate) request_id: RequestId,
 }
 
-impl<TCodec> UpgradeInfo for ResponseProtocol<TCodec>
+impl<TCodec, R> UpgradeInfo for ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec,
+    R: AsyncRead,
 {
     type Info = TCodec::Protocol;
     type InfoIter = smallvec::IntoIter<[Self::Info; 2]>;
@@ -88,21 +90,19 @@ where
     }
 }
 
-impl<TCodec> InboundUpgrade<NegotiatedSubstream> for ResponseProtocol<TCodec>
+impl<TCodec, R> InboundUpgrade<NegotiatedSubstream> for ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + 'static,
+    R: AsyncRead + 'static,
 {
     type Output = bool;
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
-    fn upgrade_inbound(
-        mut self,
-        mut io: NegotiatedSubstream,
-        protocol: Self::Info,
-    ) -> Self::Future {
+    fn upgrade_inbound(mut self, io: NegotiatedSubstream, protocol: Self::Info) -> Self::Future {
+        let (reader, mut writer) = io.split();
         async move {
-            let read = self.codec.read_request(&protocol, &mut io);
+            let read = self.codec.read_request(&protocol, reader);
             let request = read.await?;
             match self.request_sender.send((self.request_id, request)) {
                 Ok(()) => {},
@@ -112,14 +112,14 @@ where
             }
 
             if let Ok(response) = self.response_receiver.await {
-                let write = self.codec.write_response(&protocol, &mut io, response);
+                let write = self.codec.write_response(&protocol, &mut writer, response);
                 write.await?;
 
-                io.close().await?;
+                writer.close().await?;
                 // Response was sent. Indicate to handler to emit a `ResponseSent` event.
                 Ok(true)
             } else {
-                io.close().await?;
+                writer.close().await?;
                 // No response was sent. Indicate to handler to emit a `ResponseOmission` event.
                 Ok(false)
             }
@@ -167,7 +167,7 @@ impl<TCodec> OutboundUpgrade<NegotiatedSubstream> for RequestProtocol<TCodec>
 where
     TCodec: RequestResponseCodec + Send + 'static,
 {
-    type Output = TCodec::Response;
+    type Output = TCodec::Response<NegotiatedSubstream>;
     type Error = io::Error;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -180,7 +180,7 @@ where
             let write = self.codec.write_request(&protocol, &mut io, self.request);
             write.await?;
             io.close().await?;
-            let read = self.codec.read_response(&protocol, &mut io);
+            let read = self.codec.read_response(&protocol, io);
             let response = read.await?;
             Ok(response)
         }

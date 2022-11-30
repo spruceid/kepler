@@ -34,7 +34,7 @@ use instant::Instant;
 use libp2p::core::upgrade::{NegotiationError, UpgradeError};
 use libp2p::swarm::{
     handler::{ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive},
-    SubstreamProtocol,
+    NegotiatedSubstream, SubstreamProtocol,
 };
 use smallvec::SmallVec;
 use std::{
@@ -50,9 +50,10 @@ use std::{
 
 /// A connection handler of a `RequestResponse` protocol.
 #[doc(hidden)]
-pub struct RequestResponseHandler<TCodec>
+pub struct RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec,
+    R: AsyncRead,
 {
     /// The supported inbound protocols.
     inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -69,7 +70,7 @@ where
     /// A pending fatal error that results in the connection being closed.
     pending_error: Option<ConnectionHandlerUpgrErr<io::Error>>,
     /// Queue of events to emit in `poll()`.
-    pending_events: VecDeque<RequestResponseHandlerEvent<TCodec>>,
+    pending_events: VecDeque<RequestResponseHandlerEvent<TCodec, R>>,
     /// Outbound upgrades waiting to be emitted as an `OutboundSubstreamRequest`.
     outbound: VecDeque<RequestProtocol<TCodec>>,
     /// Inbound upgrades waiting for the incoming request.
@@ -79,7 +80,7 @@ where
             Result<
                 (
                     (RequestId, TCodec::Request),
-                    oneshot::Sender<TCodec::Response>,
+                    oneshot::Sender<TCodec::Response<R>>,
                 ),
                 oneshot::Canceled,
             >,
@@ -88,9 +89,10 @@ where
     inbound_request_id: Arc<AtomicU64>,
 }
 
-impl<TCodec> RequestResponseHandler<TCodec>
+impl<TCodec, R> RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
+    R: AsyncRead + 'static,
 {
     pub(super) fn new(
         inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -193,20 +195,21 @@ where
 
 /// The events emitted by the [`RequestResponseHandler`].
 #[doc(hidden)]
-pub enum RequestResponseHandlerEvent<TCodec>
+pub enum RequestResponseHandlerEvent<TCodec, R>
 where
     TCodec: RequestResponseCodec,
+    R: AsyncRead,
 {
     /// A request has been received.
     Request {
         request_id: RequestId,
         request: TCodec::Request,
-        sender: oneshot::Sender<TCodec::Response>,
+        sender: oneshot::Sender<TCodec::Response<R>>,
     },
     /// A response has been received.
     Response {
         request_id: RequestId,
-        response: TCodec::Response,
+        response: TCodec::Response<NegotiatedSubstream>,
     },
     /// A response to an inbound request has been sent.
     ResponseSent(RequestId),
@@ -225,7 +228,9 @@ where
     InboundUnsupportedProtocols(RequestId),
 }
 
-impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TCodec> {
+impl<TCodec: RequestResponseCodec, R: AsyncRead> fmt::Debug
+    for RequestResponseHandlerEvent<TCodec, R>
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RequestResponseHandlerEvent::Request {
@@ -271,14 +276,15 @@ impl<TCodec: RequestResponseCodec> fmt::Debug for RequestResponseHandlerEvent<TC
     }
 }
 
-impl<TCodec> ConnectionHandler for RequestResponseHandler<TCodec>
+impl<TCodec, R> ConnectionHandler for RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
+    R: AsyncRead + 'static,
 {
     type InEvent = RequestProtocol<TCodec>;
-    type OutEvent = RequestResponseHandlerEvent<TCodec>;
+    type OutEvent = RequestResponseHandlerEvent<TCodec, R>;
     type Error = ConnectionHandlerUpgrErr<io::Error>;
-    type InboundProtocol = ResponseProtocol<TCodec>;
+    type InboundProtocol = ResponseProtocol<TCodec, R>;
     type OutboundProtocol = RequestProtocol<TCodec>;
     type OutboundOpenInfo = RequestId;
     type InboundOpenInfo = RequestId;
