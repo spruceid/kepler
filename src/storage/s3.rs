@@ -28,7 +28,7 @@ use tempfile::NamedTempFile;
 
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::copy_in, ImmutableStore, StorageConfig},
+    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
 };
 
 // TODO we could use the same struct for both the block store and the data
@@ -247,12 +247,42 @@ impl ImmutableStore for S3BlockStore {
             .put_object()
             .bucket(&self.bucket)
             .key(self.key(&multihash))
-            // TODO deprecated but also doesnt require a path
             .body(ByteStream::from_path(&path).await?)
             .send()
             .await
             .map_err(S3Error::from)?;
         Ok(multihash)
+    }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        let hash_type = hash
+            .code()
+            .try_into()
+            .map_err(KeyedWriteError::InvalidCode)?;
+        let (multihash, file) = copy_in(
+            data,
+            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
+            hash_type,
+        )
+        .await?;
+
+        if multihash != hash {
+            return Err(KeyedWriteError::IncorrectHash);
+        };
+
+        let (_, path) = file.into_inner().into_parts();
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(self.key(&multihash))
+            .body(ByteStream::from_path(&path).await?)
+            .send()
+            .await
+            .map_err(S3Error::from)?;
+        Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match self
