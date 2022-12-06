@@ -53,7 +53,7 @@ use std::{
 pub struct RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec,
-    R: AsyncRead,
+    R: AsyncRead + Send,
 {
     /// The supported inbound protocols.
     inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -92,7 +92,7 @@ where
 impl<TCodec, R> RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     pub(super) fn new(
         inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -198,7 +198,7 @@ where
 pub enum RequestResponseHandlerEvent<TCodec, R>
 where
     TCodec: RequestResponseCodec,
-    R: AsyncRead,
+    R: AsyncRead + Send,
 {
     /// A request has been received.
     Request {
@@ -230,6 +230,8 @@ where
 
 impl<TCodec: RequestResponseCodec, R: AsyncRead> fmt::Debug
     for RequestResponseHandlerEvent<TCodec, R>
+where
+    R: Send,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -279,7 +281,7 @@ impl<TCodec: RequestResponseCodec, R: AsyncRead> fmt::Debug
 impl<TCodec, R> ConnectionHandler for RequestResponseHandler<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     type InEvent = RequestProtocol<TCodec>;
     type OutEvent = RequestResponseHandlerEvent<TCodec, R>;

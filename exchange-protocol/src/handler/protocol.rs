@@ -68,7 +68,7 @@ impl ProtocolSupport {
 pub struct ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec,
-    R: AsyncRead,
+    R: AsyncRead + Send,
 {
     pub(crate) codec: TCodec,
     pub(crate) protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -80,7 +80,7 @@ where
 impl<TCodec, R> UpgradeInfo for ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec,
-    R: AsyncRead,
+    R: AsyncRead + Send,
 {
     type Info = TCodec::Protocol;
     type InfoIter = smallvec::IntoIter<[Self::Info; 2]>;
@@ -93,7 +93,7 @@ where
 impl<TCodec, R> InboundUpgrade<NegotiatedSubstream> for ResponseProtocol<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     type Output = bool;
     type Error = io::Error;

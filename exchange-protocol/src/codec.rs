@@ -79,5 +79,5 @@ pub trait RequestResponseCodec {
     ) -> io::Result<()>
     where
         T: AsyncWrite + Unpin + Send,
-        R: AsyncRead;
+        R: AsyncRead + Send;
 }
