@@ -301,7 +301,7 @@ impl RequestResponseConfig {
 pub struct RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     /// The supported inbound protocols.
     inbound_protocols: SmallVec<[TCodec::Protocol; 2]>,
@@ -339,7 +339,7 @@ where
 impl<TCodec, R> RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Clone + Send + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     /// Creates a new `RequestResponse` behaviour for the given
     /// protocols, codec and configuration.
@@ -702,7 +702,7 @@ where
 impl<TCodec, R> NetworkBehaviour for RequestResponse<TCodec, R>
 where
     TCodec: RequestResponseCodec + Send + Clone + 'static,
-    R: AsyncRead + 'static,
+    R: AsyncRead + Send + 'static,
 {
     type ConnectionHandler = RequestResponseHandler<TCodec, R>;
     type OutEvent = RequestResponseEvent<
