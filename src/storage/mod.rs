@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use kepler_lib::libipld::cid::{
-    multihash::{Code, Multihash},
+    multihash::{Code, Error as MultihashError, Multihash},
     Cid,
 };
 use kepler_lib::resource::OrbitId;
@@ -29,6 +29,16 @@ pub enum VecReadError<E> {
     Read(futures::io::Error),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum KeyedWriteError<E> {
+    #[error("Hash Mismatch")]
+    IncorrectHash,
+    #[error(transparent)]
+    InvalidCode(MultihashError),
+    #[error(transparent)]
+    Store(#[from] E),
+}
+
 /// A Store implementing content-addressed storage
 /// Content is address by [Multihash][libipld::cid::multihash::Multihash] and represented as an
 /// [AsyncRead][futures::io::AsyncRead]-implementing type.
@@ -42,6 +52,11 @@ pub trait ImmutableStore: Send + Sync {
         data: impl futures::io::AsyncRead + Send,
         hash_type: Code,
     ) -> Result<Multihash, Self::Error>;
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>>;
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
     async fn read_to_vec(
@@ -88,11 +103,27 @@ where
     ) -> Result<Multihash, Self::Error> {
         self.write(data, hash_type).await
     }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        self.write_keyed(data, hash).await
+    }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         self.remove(id).await
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
         self.read(id).await
+    }
+    async fn read_to_vec(
+        &self,
+        id: &Multihash,
+    ) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>>
+    where
+        Self::Readable: Send,
+    {
+        self.read_to_vec(id).await
     }
 }
 

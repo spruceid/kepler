@@ -1,8 +1,7 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::copy_in, ImmutableStore, StorageConfig},
+    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
 };
-use futures::io::AllowStdIo;
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -16,8 +15,9 @@ use std::{
     io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
 };
-use tempfile::{NamedTempFile, PersistError};
+use tempfile::{NamedTempFile, PathPersistError};
 use tokio::fs::{create_dir_all, read, remove_file, write, File};
+
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
@@ -132,7 +132,7 @@ pub enum FileSystemStoreError {
     #[error(transparent)]
     Multihash(#[from] MultihashError),
     #[error(transparent)]
-    Persist(#[from] PersistError),
+    Persist(#[from] PathPersistError),
 }
 
 #[async_trait]
@@ -147,16 +147,40 @@ impl ImmutableStore for FileSystemStore {
         data: impl futures::io::AsyncRead + Send,
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
-        let (multihash, file) = copy_in(
-            data,
-            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
-            hash_type,
-        )
-        .await?;
+        let (file, path) = NamedTempFile::new()?.into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
 
-        let file = file.into_inner();
-        file.persist(self.get_path(&multihash))?;
+        if !self.contains(&multihash).await? {
+            path.persist(self.get_path(&multihash))?;
+        }
         Ok(multihash)
+    }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        if self.contains(&hash).await? {
+            return Ok(());
+        }
+        let hash_type = hash
+            .code()
+            .try_into()
+            .map_err(KeyedWriteError::InvalidCode)?;
+        let (file, path) = NamedTempFile::new()
+            .map_err(FileSystemStoreError::Io)?
+            .into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+            .await
+            .map_err(FileSystemStoreError::from)?;
+
+        if &multihash != hash {
+            return Err(KeyedWriteError::IncorrectHash);
+        };
+
+        path.persist(self.get_path(&multihash))
+            .map_err(FileSystemStoreError::from)?;
+        Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match remove_file(self.get_path(id)).await {

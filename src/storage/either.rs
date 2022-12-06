@@ -1,6 +1,6 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{ImmutableStore, StorageConfig},
+    storage::{ImmutableStore, KeyedWriteError, StorageConfig},
 };
 use futures::future::Either as AsyncReadEither;
 use kepler_lib::{
@@ -45,6 +45,24 @@ where
         match self {
             Self::A(l) => l.write(data, hash_type).await.map_err(Self::Error::A),
             Self::B(r) => r.write(data, hash_type).await.map_err(Self::Error::B),
+        }
+    }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        match self {
+            Self::A(l) => l.write_keyed(data, hash).await.map_err(|e| match e {
+                KeyedWriteError::Store(e) => KeyedWriteError::Store(EitherError::A(e)),
+                KeyedWriteError::IncorrectHash => KeyedWriteError::IncorrectHash,
+                KeyedWriteError::InvalidCode(c) => KeyedWriteError::InvalidCode(c),
+            }),
+            Self::B(r) => r.write_keyed(data, hash).await.map_err(|e| match e {
+                KeyedWriteError::Store(e) => KeyedWriteError::Store(EitherError::B(e)),
+                KeyedWriteError::IncorrectHash => KeyedWriteError::IncorrectHash,
+                KeyedWriteError::InvalidCode(c) => KeyedWriteError::InvalidCode(c),
+            }),
         }
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {

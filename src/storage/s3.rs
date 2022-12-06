@@ -7,10 +7,7 @@ use aws_sdk_s3::{
     Error as S3Error,
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
-use futures::{
-    io::AllowStdIo,
-    stream::{IntoAsyncRead, MapErr, TryStreamExt},
-};
+use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -25,10 +22,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::io::Error as IoError;
 use tempfile::NamedTempFile;
+use tokio::fs::File;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::copy_in, ImmutableStore, StorageConfig},
+    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
 };
 
 // TODO we could use the same struct for both the block store and the data
@@ -238,21 +237,57 @@ impl ImmutableStore for S3BlockStore {
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         // TODO find a way to do this without filesystem access
-        let (multihash, file) =
-            copy_in(data, AllowStdIo::new(NamedTempFile::new()?), hash_type).await?;
+        let (file, path) = NamedTempFile::new()?.into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
 
-        let (_, path) = file.into_inner().into_parts();
+        if !self.contains(&multihash).await? {
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(&multihash))
+                .body(ByteStream::from_path(&path).await?)
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+        }
+        Ok(multihash)
+    }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        if self.contains(&hash).await? {
+            return Ok(());
+        }
+        let hash_type = hash
+            .code()
+            .try_into()
+            .map_err(KeyedWriteError::InvalidCode)?;
+        let (file, path) = NamedTempFile::new()
+            .map_err(S3StoreError::from)?
+            .into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+            .await
+            .map_err(S3StoreError::from)?;
+
+        if &multihash != hash {
+            return Err(KeyedWriteError::IncorrectHash);
+        };
 
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(self.key(&multihash))
-            // TODO deprecated but also doesnt require a path
-            .body(ByteStream::from_path(&path).await?)
+            .body(
+                ByteStream::from_path(&path)
+                    .await
+                    .map_err(S3StoreError::from)?,
+            )
             .send()
             .await
-            .map_err(S3Error::from)?;
-        Ok(multihash)
+            .map_err(|e| KeyedWriteError::Store(S3StoreError::from(S3Error::from(e))))?;
+        Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         match self
