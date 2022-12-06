@@ -15,7 +15,7 @@ use libp2p::{
     mplex, noise,
     ping::{Behaviour as Ping, Config as PingConfig},
     relay::v2::relay::{Config as RelayConfig, Relay},
-    swarm::{SwarmBuilder, NetworkBehaviour},
+    swarm::{NetworkBehaviour, SwarmBuilder},
     yamux,
 };
 

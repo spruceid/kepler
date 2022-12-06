@@ -23,6 +23,7 @@ use libp2p::{
 };
 use std::io::Error as IoError;
 
+#[derive(Clone, Debug)]
 pub struct KeplerSwap;
 
 pub struct SwapRequest {
