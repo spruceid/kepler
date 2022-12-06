@@ -7,10 +7,7 @@ use aws_sdk_s3::{
     Error as S3Error,
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
-use futures::{
-    io::AllowStdIo,
-    stream::{IntoAsyncRead, MapErr, TryStreamExt},
-};
+use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -25,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::io::Error as IoError;
 use tempfile::NamedTempFile;
+use tokio::fs::File;
 
 use crate::{
     orbit::ProviderUtils,
@@ -238,10 +236,8 @@ impl ImmutableStore for S3BlockStore {
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         // TODO find a way to do this without filesystem access
-        let (multihash, file) =
-            copy_in(data, AllowStdIo::new(NamedTempFile::new()?), hash_type).await?;
-
-        let (_, path) = file.into_inner().into_parts();
+        let (file, path) = NamedTempFile::new()?.into_inner();
+        let (multihash, file) = copy_in(data, File::from_std(file), hash_type).await?;
 
         self.client
             .put_object()
@@ -262,18 +258,13 @@ impl ImmutableStore for S3BlockStore {
             .code()
             .try_into()
             .map_err(KeyedWriteError::InvalidCode)?;
-        let (multihash, file) = copy_in(
-            data,
-            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
-            hash_type,
-        )
-        .await?;
+        let (file, path) = NamedTempFile::new()?.into_inner();
+        let (multihash, file) = copy_in(data, File::from_std(file), hash_type).await?;
 
         if multihash != hash {
             return Err(KeyedWriteError::IncorrectHash);
         };
 
-        let (_, path) = file.into_inner().into_parts();
         self.client
             .put_object()
             .bucket(&self.bucket)

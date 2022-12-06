@@ -2,7 +2,6 @@ use crate::{
     orbit::ProviderUtils,
     storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
 };
-use futures::io::AllowStdIo;
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -147,12 +146,8 @@ impl ImmutableStore for FileSystemStore {
         data: impl futures::io::AsyncRead + Send,
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
-        let (multihash, file) = copy_in(
-            data,
-            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
-            hash_type,
-        )
-        .await?;
+        let (file, path) = NamedTempFile::new()?.into_inner();
+        let (multihash, file) = copy_in(data, File::from_std(file), hash_type).await?;
 
         let file = file.into_inner();
         file.persist(self.get_path(&multihash))?;
@@ -167,12 +162,8 @@ impl ImmutableStore for FileSystemStore {
             .code()
             .try_into()
             .map_err(KeyedWriteError::InvalidCode)?;
-        let (multihash, file) = copy_in(
-            data,
-            AllowStdIo::new(NamedTempFile::new_in(&self.path)?),
-            hash_type,
-        )
-        .await?;
+        let (file, path) = NamedTempFile::new()?.into_inner();
+        let (multihash, file) = copy_in(data, File::from_std(file), hash_type).await?;
 
         if multihash != hash {
             return Err(KeyedWriteError::IncorrectHash);

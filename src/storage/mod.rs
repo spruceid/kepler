@@ -103,11 +103,27 @@ where
     ) -> Result<Multihash, Self::Error> {
         self.write(data, hash_type).await
     }
+    async fn write_keyed(
+        &self,
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        self.write_keyed(data, hash).await
+    }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         self.remove(id).await
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
         self.read(id).await
+    }
+    async fn read_to_vec(
+        &self,
+        id: &Multihash,
+    ) -> Result<Option<Vec<u8>>, VecReadError<Self::Error>>
+    where
+        Self::Readable: Send,
+    {
+        self.read_to_vec(id).await
     }
 }
 
