@@ -186,7 +186,7 @@ impl S3BlockStore {
     }
 
     fn key(&self, id: &Multihash) -> String {
-        format!("{}/{}", self.orbit, encode(Base::Base64Url, &id.to_bytes()))
+        format!("{}/{}", self.orbit, encode(Base::Base64Url, id.to_bytes()))
     }
 }
 
@@ -257,7 +257,7 @@ impl ImmutableStore for S3BlockStore {
         data: impl futures::io::AsyncRead + Send,
         hash: &Multihash,
     ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if self.contains(&hash).await? {
+        if self.contains(hash).await? {
             return Ok(());
         }
         let hash_type = hash

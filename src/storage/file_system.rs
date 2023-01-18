@@ -160,7 +160,7 @@ impl ImmutableStore for FileSystemStore {
         data: impl futures::io::AsyncRead + Send,
         hash: &Multihash,
     ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if self.contains(&hash).await? {
+        if self.contains(hash).await? {
             return Ok(());
         }
         let hash_type = hash

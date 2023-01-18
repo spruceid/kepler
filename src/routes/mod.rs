@@ -191,16 +191,10 @@ where
                     .filter_map(|r| {
                         // filter out non-utf8 keys and those not matching the prefix
                         r.map(|v| {
-                            match std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()) {
-                                None => None,
-                                Some(key) => {
-                                    if key.starts_with(&prefix) {
-                                        Some(key)
-                                    } else {
-                                        None
-                                    }
-                                }
-                            }
+                            std::str::from_utf8(v.as_ref())
+                                .ok()
+                                .map(|s| s.to_string())
+                                .filter(|key| key.starts_with(&prefix))
                         })
                         .transpose()
                     })

@@ -11,42 +11,39 @@ use ssi::did::DIDMethods;
 use std::env::VarError;
 
 lazy_static::lazy_static! {
-    static ref DIDTZ: DIDTz = DIDTz::default();
-    static ref DIDONION: DIDOnion = {
-        let mut onion = DIDOnion::default();
-        if let Some(url) = match std::env::var("DID_ONION_PROXY_URL") {
-            Ok(url) => Some(url),
-            Err(VarError::NotPresent) => None,
-            Err(VarError::NotUnicode(err)) => {
-                eprintln!("Unable to parse DID_ONION_PROXY_URL: {:?}", err);
-                None
-            }
-        } {
-            onion.proxy_url = url;
-        }
-        onion
-    };
-    static ref ION: DIDION = DIDION::new(
-        match std::env::var("DID_ION_API_URL") {
-            Ok(string) => Some(string),
-            Err(VarError::NotPresent) => None,
-            Err(VarError::NotUnicode(err)) => {
-                eprintln!("Unable to parse DID_ION_API_URL: {:?}", err);
-                None
-            }
-        }
-    );
     pub static ref DID_METHODS: DIDMethods<'static> = {
         let mut methods = DIDMethods::default();
-        methods.insert(&DIDKey);
-        methods.insert(&*DIDTZ);
-        methods.insert(&DIDEthr);
-        // methods.insert(&DIDSol);
-        methods.insert(&DIDWeb);
-        methods.insert(&DIDWebKey);
-        methods.insert(&DIDPKH);
-        methods.insert(&*DIDONION);
-        methods.insert(&*ION);
+        methods.insert(Box::new(DIDKey));
+        methods.insert(Box::<DIDTz>::default());
+        methods.insert(Box::new(DIDEthr));
+        // methods.insert(Box::new(DIDSol));
+        methods.insert(Box::new(DIDWeb));
+        methods.insert(Box::new(DIDWebKey));
+        methods.insert(Box::new(DIDPKH));
+        methods.insert(Box::new({
+            let mut onion = DIDOnion::default();
+            if let Some(url) = match std::env::var("DID_ONION_PROXY_URL") {
+                Ok(url) => Some(url),
+                Err(VarError::NotPresent) => None,
+                Err(VarError::NotUnicode(err)) => {
+                    eprintln!("Unable to parse DID_ONION_PROXY_URL: {:?}", err);
+                    None
+                }
+            } {
+                onion.proxy_url = url;
+            }
+            onion
+        }));
+        methods.insert(Box::new(DIDION::new(
+            match std::env::var("DID_ION_API_URL") {
+                Ok(string) => Some(string),
+                Err(VarError::NotPresent) => None,
+                Err(VarError::NotUnicode(err)) => {
+                    eprintln!("Unable to parse DID_ION_API_URL: {:?}", err);
+                    None
+                }
+            }
+        )));
         methods
     };
 }
