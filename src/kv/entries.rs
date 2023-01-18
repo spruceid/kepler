@@ -57,36 +57,4 @@ impl ObjectBuilder {
 }
 
 #[cfg(test)]
-mod test {
-
-    // use super::*;
-    // use crate::{config, kv::DagCborCodec, tracing::tracing_try_init};
-
-    // #[tokio::test(flavor = "multi_thread")]
-    // async fn write() -> Result<(), anyhow::Error> {
-    //     tracing_try_init(&config::Logging::default());
-    //     let tmp = tempfile::TempDir::new("test_streams")?;
-    //     let data = vec![3u8; 1000000000 * 3];
-
-    //     let mut config = IpfsOptions::inmemory_with_generated_keys();
-    //     config.ipfs_path = tmp.path().into();
-
-    //     let (ipfs, task) = config.create_uninitialised_ipfs()?.start().await?;
-    //     let _join_handle = tokio::spawn(task);
-
-    //     let o = write_to_store(&ipfs, Cursor::new(data.clone())).await?;
-
-    //     let content = ipfs
-    //         .get_block(&o)
-    //         .await?
-    //         .decode::<DagCborCodec, Vec<(Cid, u32)>>()?;
-
-    //     let mut read = read_from_store(ipfs, content);
-
-    //     let mut out = Vec::new();
-    //     tokio::io::copy(&mut read, &mut out).await?;
-
-    //     assert_eq!(out.len(), data.len());
-    //     Ok(())
-    // }
-}
+mod test {}

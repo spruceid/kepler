@@ -197,7 +197,6 @@ where
                     .collect::<Result<Vec<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>>>()?,
             })
             .await?;
-        // self.broadcast_heads().await?;
         Ok(cid)
     }
     pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
@@ -490,92 +489,4 @@ pub(crate) struct Invocations {
 }
 
 #[cfg(test)]
-mod test {
-    // use super::*;
-    // use crate::ipfs::create_ipfs;
-    // use ipfs::Keypair;
-    // async fn get_store(id: &OrbitId) -> Store {
-    //     let tmp = tempfile::TempDir::new("test_streams").unwrap();
-    //     let kp = Keypair::generate_ed25519();
-    //     let (ipfs, ipfs_task, receiver) = create_ipfs(id.to_string(), &tmp.path(), kp, [])
-    //         .await
-    //         .unwrap();
-    //     let db = sled::open(tmp.path().join("db.sled")).unwrap();
-    //     tokio::spawn(ipfs_task);
-    //     Store::new(id, ipfs, &db).unwrap()
-    // }
-    // fn orbit() -> OrbitId {
-    //     "kepler:did:example:123://orbit0".parse().unwrap()
-    // }
-    // fn invoke(id: &[u8], target: ResourceId, parent: &[u8], invoker: &[u8]) -> Invocation {
-    //     Invocation {
-    //         id: id.into(),
-    //         parent: parent.into(),
-    //         target,
-    //         invoker: invoker.into(),
-    //         message: vec![],
-    //     }
-    // }
-    // #[test]
-    // async fn simple_invoke() {
-    //     let oid = orbit();
-    //     let caps = get_store(&oid).await;
-    //     let inv = invoke(
-    //         "inv0".as_bytes(),
-    //         oid.clone()
-    //             .to_resource(Some("kv".into()), Some("images".into()), None),
-    //         oid.to_string().as_bytes(),
-    //         "invoker1".as_bytes(),
-    //     );
-    //     let res = caps.invoke(vec![inv]).await.unwrap();
-    //     assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
-    // }
-
-    // #[test]
-    // async fn delegate() {
-    //     let caps = get_store().await;
-
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).await.unwrap();
-    //     assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
-
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-    // }
-
-    // #[test]
-    // async fn revoke() {
-    //     let caps = get_store();
-
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
-
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-
-    //     let rev = Revocation;
-    //     let rev_res = caps.transact(rev.into()).unwrap();
-    //     assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
-
-    //     let inv2 = Invocation;
-    //     let inv_res2 = caps.invoke(vec![inv2]);
-
-    //     assert!(inv_res2.is_err());
-    //     assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
-    // }
-
-    // #[test]
-    // async fn get_caps() {
-    //     let caps = get_store();
-
-    //     let dels = vec![Delegation, Delegation, Delegation];
-    //     let del_res = caps.transact(dels.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
-
-    //     let delegated = caps.capabilities_for("").unwrap().unwrap();
-    //     assert_eq!(dels, delegated);
-    // }
-}
+mod test {}
