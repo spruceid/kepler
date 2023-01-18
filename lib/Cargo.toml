@@ -15,14 +15,14 @@ base64 = "0.13"
 cacaos = "0.5"
 capgrok = "=0.3.0"
 lazy_static = "1.4"
-did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-pkh = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
-did-ion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "feat/ucan-ipld-version" }
+did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-tz = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-pkh = { git = "https://github.com/spruceid/ssi" }
+did-web = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-onion = { default-features = false, git = "https://github.com/spruceid/ssi" }
+did-ion = { default-features = false, git = "https://github.com/spruceid/ssi" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["v4", "js"] }
@@ -32,7 +32,6 @@ uuid = { version = "1", features = ["v4"] }
 
 [dependencies.ssi]
 git = "https://github.com/spruceid/ssi"
-branch = "feat/ucan-ipld-version"
 default-features = false
 features = ["ed25519", "rsa", "secp256k1"]
 
