@@ -2,8 +2,6 @@ use did_ethr::DIDEthr;
 use did_method_key::DIDKey;
 use did_onion::DIDOnion;
 use did_pkh::DIDPKH;
-// use did_sol::DIDSol;
-use did_ion::DIDION;
 use did_tz::DIDTz;
 use did_web::DIDWeb;
 use did_webkey::DIDWebKey;
@@ -34,16 +32,6 @@ lazy_static::lazy_static! {
             }
             onion
         }));
-        methods.insert(Box::new(DIDION::new(
-            match std::env::var("DID_ION_API_URL") {
-                Ok(string) => Some(string),
-                Err(VarError::NotPresent) => None,
-                Err(VarError::NotUnicode(err)) => {
-                    eprintln!("Unable to parse DID_ION_API_URL: {:?}", err);
-                    None
-                }
-            }
-        )));
         methods
     };
 }
