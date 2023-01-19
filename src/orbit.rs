@@ -1,14 +1,13 @@
 use crate::{
     capabilities::{store::Store as CapStore, Service as CapService},
-    cas::ContentAddressedStorage,
-    codec::SupportedCodecs,
     config,
-    ipfs::create_ipfs,
-    kv::{behaviour::BehaviourProcess, Service as KVService, Store},
+    kv::{Service as KVService, Store},
     manifest::Manifest,
+    storage::{ImmutableStore, StorageConfig},
+    BlockConfig, BlockStores,
 };
 use anyhow::{anyhow, Result};
-use ipfs::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
+use derive_builder::Builder;
 use kepler_lib::libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid,
@@ -16,16 +15,13 @@ use kepler_lib::libipld::cid::{
 use kepler_lib::resource::OrbitId;
 use libp2p::{
     core::Multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
+    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
     PeerId,
 };
-use rocket::{futures::TryStreamExt, tokio::task::JoinHandle};
+use rocket::tokio::task::JoinHandle;
 
 use cached::proc_macro::cached;
-use std::{convert::TryFrom, ops::Deref, sync::Arc};
-use tokio::spawn;
-
-use super::storage::StorageUtils;
+use std::{convert::TryFrom, error::Error as StdError, ops::Deref};
 
 #[derive(Debug)]
 pub struct AbortOnDrop<T>(JoinHandle<T>);
@@ -50,137 +46,151 @@ impl<T> Deref for AbortOnDrop<T> {
     }
 }
 
-#[derive(Clone, Debug)]
-struct OrbitTasks {
-    _ipfs: Arc<AbortOnDrop<()>>,
-    _behaviour_process: BehaviourProcess,
-}
-
-impl OrbitTasks {
-    fn new(ipfs_future: JoinHandle<()>, behaviour_process: BehaviourProcess) -> Self {
-        let ipfs = Arc::new(AbortOnDrop::new(ipfs_future));
-        Self {
-            _ipfs: ipfs,
-            _behaviour_process: behaviour_process,
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct Orbit {
-    pub service: KVService,
-    _tasks: OrbitTasks,
+pub struct Orbit<B> {
+    pub service: KVService<B>,
     pub manifest: Manifest,
-    pub capabilities: CapService,
+    pub capabilities: CapService<B>,
 }
 
-impl Orbit {
-    async fn new(
-        config: &config::Config,
-        kp: Ed25519Keypair,
-        manifest: Manifest,
-        relay: Option<(PeerId, Multiaddr)>,
-    ) -> anyhow::Result<Self> {
-        let id = manifest.id().get_cid();
-        let local_peer_id = PeerId::from_public_key(&ipfs::PublicKey::Ed25519(kp.public()));
-        let (ipfs, ipfs_future, receiver) = create_ipfs(
-            id,
-            config,
-            Keypair::Ed25519(kp),
-            manifest
-                .bootstrap_peers()
-                .peers
-                .iter()
-                .map(|p| p.id)
-                .collect::<Vec<PeerId>>(),
-        )
-        .await?;
+#[derive(Clone, Debug, Builder)]
+pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
+    #[builder(setter(into))]
+    identity: Ed25519Keypair,
+    #[builder(setter(into))]
+    manifest: Manifest,
+    #[builder(setter(into, strip_option), default)]
+    relay: Option<(PeerId, Multiaddr)>,
+    #[builder(setter(into))]
+    blocks: B,
+    #[builder(setter(into))]
+    index: I,
+}
 
-        let ipfs_task = spawn(ipfs_future);
-        if let Some(r) = relay {
-            ipfs.connect(MultiaddrWithoutPeerId::try_from(r.1)?.with(r.0))
-                .await?;
+impl<B> Orbit<B>
+where
+    B: ImmutableStore + Clone,
+{
+    async fn open<C>(config: &OrbitPeerConfig<C>) -> anyhow::Result<Option<Self>>
+    where
+        C: StorageConfig<B>,
+        C::Error: 'static + Sync + Send,
+        B::Error: 'static,
+    {
+        let id = config.manifest.id().get_cid();
+        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _relay = &config.relay;
+
+        let blocks = match config.blocks.open(config.manifest.id()).await? {
+            Some(b) => b,
+            None => return Ok(None),
         };
-
-        let service_store = Store::new(id, ipfs.clone(), config.storage.indexes.clone()).await?;
+        let service_store = Store::new(id, blocks.clone(), config.index.clone()).await?;
         let service = KVService::start(service_store).await?;
 
         let cap_store =
-            CapStore::new(manifest.id(), ipfs.clone(), config.storage.indexes.clone()).await?;
+            CapStore::new(config.manifest.id(), blocks.clone(), config.index.clone()).await?;
         let capabilities = CapService::start(cap_store).await?;
 
-        let behaviour_process = BehaviourProcess::new(service.store.clone(), receiver);
+        Ok(Some(Orbit {
+            service,
+            manifest: config.manifest.clone(),
+            capabilities,
+        }))
+    }
 
-        let tasks = OrbitTasks::new(ipfs_task, behaviour_process);
+    async fn create<C>(config: &OrbitPeerConfig<C>) -> anyhow::Result<Self>
+    where
+        C: StorageConfig<B>,
+        C::Error: 'static + Sync + Send,
+        B::Error: 'static,
+    {
+        let id = config.manifest.id().get_cid();
+        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _relay = &config.relay;
 
-        tokio_stream::iter(
-            manifest
-                .bootstrap_peers()
-                .peers
-                .iter()
-                .filter(|p| p.id != local_peer_id)
-                .flat_map(|peer| {
-                    peer.addrs
-                        .clone()
-                        .into_iter()
-                        .zip(std::iter::repeat(peer.id))
-                })
-                .map(|(addr, peer_id)| Ok(MultiaddrWithoutPeerId::try_from(addr)?.with(peer_id))),
-        )
-        .try_for_each(|multiaddr| ipfs.connect(multiaddr))
-        .await?;
+        let blocks = config.blocks.create(config.manifest.id()).await?;
+        let service_store = Store::new(id, blocks.clone(), config.index.clone()).await?;
+        let service = KVService::start(service_store).await?;
+
+        let cap_store =
+            CapStore::new(config.manifest.id(), blocks.clone(), config.index.clone()).await?;
+        let capabilities = CapService::start(cap_store).await?;
 
         Ok(Orbit {
             service,
-            manifest,
-            _tasks: tasks,
+            manifest: config.manifest.clone(),
             capabilities,
         })
     }
+}
 
-    pub async fn connect(&self, node: MultiaddrWithPeerId) -> anyhow::Result<()> {
-        self.service.store.ipfs.connect(node).await
-    }
+#[async_trait]
+pub trait ProviderUtils {
+    type Error: StdError;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error>;
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error>;
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error>;
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error>;
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
 pub async fn create_orbit(
     id: &OrbitId,
-    config: &config::Config,
-    auth: &[u8],
+    store_config: &BlockConfig,
+    index_config: &config::IndexStorage,
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
-) -> Result<Option<Orbit>> {
-    let md = match Manifest::resolve_dyn(id, None).await? {
-        Some(m) => m,
+) -> Result<Option<Orbit<BlockStores>>> {
+    match Manifest::resolve_dyn(id, None).await? {
+        Some(_) => {}
         _ => return Ok(None),
     };
 
     // fails if DIR exists, this is Create, not Open
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    if storage_utils.exists(id.get_cid()).await? {
+    if store_config.exists(id).await? {
         return Ok(None);
     }
 
-    storage_utils.setup_orbit(id.clone(), kp, auth).await?;
+    store_config.setup_orbit(id, &kp).await?;
+
+    Orbit::create(
+        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+            .manifest(
+                Manifest::resolve_dyn(id, None)
+                    .await?
+                    .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
+            )
+            .identity(
+                store_config
+                    .key_pair(id)
+                    .await?
+                    .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
+            )
+            .blocks(store_config.clone())
+            .index(index_config.clone())
+            .relay(relay.clone())
+            .build()?,
+    )
+    .await?;
 
     Ok(Some(
-        load_orbit(md.id().get_cid(), config, relay)
+        load_orbit(id.clone(), store_config, index_config, relay)
             .await
             .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
     ))
 }
 
 pub async fn load_orbit(
-    id_cid: Cid,
-    config: &config::Config,
+    orbit: OrbitId,
+    store_config: &BlockConfig,
+    index_config: &config::IndexStorage,
     relay: (PeerId, Multiaddr),
-) -> Result<Option<Orbit>> {
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    if !storage_utils.exists(id_cid).await? {
+) -> Result<Option<Orbit<BlockStores>>> {
+    if !store_config.exists(&orbit).await? {
         return Ok(None);
     }
-    load_orbit_inner(id_cid, config.clone(), relay)
+    load_orbit_inner(orbit, store_config.clone(), index_config.clone(), relay)
         .await
         .map(Some)
 }
@@ -189,27 +199,32 @@ pub async fn load_orbit(
 // 100 orbits => 600 FDs
 #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_inner(
-    orbit: Cid,
-    config: config::Config,
+    orbit: OrbitId,
+    store_config: BlockConfig,
+    index_config: config::IndexStorage,
     relay: (PeerId, Multiaddr),
-) -> Result<Orbit> {
-    let storage_utils = StorageUtils::new(config.storage.blocks.clone());
-    let id = storage_utils
-        .orbit_id(orbit)
-        .await?
-        .ok_or_else(|| anyhow!("Orbit `{}` doesn't have its orbit URL stored.", orbit))?;
-
-    let md = Manifest::resolve_dyn(&id, None)
-        .await?
-        .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?;
-
-    // let kp = Ed25519Keypair::decode(&mut fs::read(dir.join("kp")).await?)?;
-    let kp = storage_utils.key_pair(orbit).await?.unwrap();
-
-    debug!("loading orbit {}", &id);
-
-    let orbit = Orbit::new(&config, kp, md, Some(relay)).await?;
-    Ok(orbit)
+) -> Result<Orbit<BlockStores>> {
+    debug!("loading orbit {}", &orbit);
+    Orbit::open(
+        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+            .manifest(
+                Manifest::resolve_dyn(&orbit, None)
+                    .await?
+                    .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
+            )
+            .identity(
+                store_config
+                    .key_pair(&orbit)
+                    .await?
+                    .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
+            )
+            .blocks(store_config)
+            .index(index_config)
+            .relay(relay)
+            .build()?,
+    )
+    .await?
+    .ok_or_else(|| anyhow!("Orbit could not be opened: not found"))
 }
 
 pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
@@ -219,65 +234,37 @@ pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
     ))
 }
 
-#[rocket::async_trait]
-impl ContentAddressedStorage for Orbit {
-    type Error = anyhow::Error;
-    async fn put(
-        &self,
-        content: &[u8],
-        codec: SupportedCodecs,
-    ) -> Result<Cid, <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.put(content, codec).await
-    }
-    async fn get(
-        &self,
-        address: &Cid,
-    ) -> Result<Option<Vec<u8>>, <Self as ContentAddressedStorage>::Error> {
-        ContentAddressedStorage::get(&self.service.ipfs, address).await
-    }
-    async fn delete(&self, address: &Cid) -> Result<(), <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.delete(address).await
-    }
-    async fn list(&self) -> Result<Vec<Cid>, <Self as ContentAddressedStorage>::Error> {
-        self.service.ipfs.list().await
-    }
-}
-
-impl Deref for Orbit {
-    type Target = Manifest;
-    fn deref(&self) -> &Self::Target {
-        &self.manifest
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        config::{IndexStorage, LocalIndexStorage},
+        BlockConfig, FileSystemConfig,
+    };
     use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
         jwk::JWK,
     };
     use std::convert::TryInto;
-    use tempdir::TempDir;
+    use tempfile::{tempdir, TempDir};
 
-    async fn op(md: Manifest) -> anyhow::Result<Orbit> {
-        let dir = TempDir::new(&md.id().get_cid().to_string())
-            .unwrap()
-            .path()
-            .to_path_buf();
-        let config = config::Config {
-            storage: config::Storage {
-                blocks: config::BlockStorage::Local(config::LocalBlockStorage {
-                    path: dir.clone(),
-                }),
-                indexes: config::IndexStorage::Local(config::LocalIndexStorage {
-                    path: dir.clone(),
-                }),
-            },
-            ..Default::default()
-        };
-        Orbit::new(&config, Ed25519Keypair::generate(), md, None).await
+    async fn op(md: Manifest) -> anyhow::Result<(Orbit<BlockStores>, TempDir)> {
+        let dir = tempdir()?;
+        Ok((
+            Orbit::create(
+                &OrbitPeerConfigBuilder::<BlockConfig, IndexStorage>::default()
+                    .identity(Ed25519Keypair::generate())
+                    .manifest(md)
+                    .blocks(BlockConfig::B(FileSystemConfig::new(dir.path())))
+                    .index(IndexStorage::Local(LocalIndexStorage {
+                        path: dir.path().into(),
+                    }))
+                    .build()?,
+            )
+            .await?,
+            dir,
+        ))
     }
 
     #[test]
@@ -297,6 +284,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let _orbit = op(md).await.unwrap();
+        let (orbit, dir) = op(md).await.unwrap();
     }
 }

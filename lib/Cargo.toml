@@ -5,24 +5,23 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
-iri-string = "0.5"
-libipld = "0.13"
+iri-string = "0.6"
+libipld = { version = "0.14", default-features = false, features = ["dag-cbor", "dag-json", "derive", "serde-codec"]}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
-cacaos = { git = "https://github.com/spruceid/cacao-rs" }
-capgrok = "0.2"
+cacaos = "0.5"
+capgrok = "=0.3.0"
 lazy_static = "1.4"
-did-method-key = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-tz = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-ethr = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-pkh = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-web = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-webkey = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-onion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
-did-ion = { default-features = false, git = "https://github.com/spruceid/ssi", branch = "main" }
+did-method-key = { default-features = false, version = "0.2" }
+did-tz = { default-features = false, version = "0.2" }
+did-ethr = { default-features = false, version = "0.2" }
+did-pkh = { version = "0.2" }
+did-web = { default-features = false, version = "0.2" }
+did-webkey = { default-features = false, version = "0.2" }
+did-onion = { default-features = false, version = "0.2" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["v4", "js"] }
@@ -31,10 +30,9 @@ uuid = { version = "1", features = ["v4", "js"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dependencies.ssi]
-git = "https://github.com/spruceid/ssi"
-branch = "main"
+version = "0.5"
 default-features = false
-features = ["ed25519", "rsa"]
+features = ["ed25519", "rsa", "secp256k1"]
 
 [dev-dependencies.tokio]
 version = "1"

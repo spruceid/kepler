@@ -1,7 +1,11 @@
 use anyhow::Result;
-use ipfs::{PeerId, Protocol};
+use futures::io::AsyncRead;
 use kepler_lib::libipld::Cid;
-use libp2p::identity::ed25519::Keypair as Ed25519Keypair;
+use libp2p::{
+    core::PeerId,
+    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
+    multiaddr::Protocol,
+};
 use rocket::{
     data::{Data, ToByteUnit},
     http::{Header, Status},
@@ -18,10 +22,13 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
-    kv::{ObjectBuilder, ObjectReader},
+    kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
+    storage::ImmutableStore,
     tracing::TracingSpan,
+    BlockStores,
 };
+use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
 pub struct Metadata(pub BTreeMap<String, String>);
 
@@ -50,19 +57,22 @@ impl<'r> Responder<'r, 'static> for Metadata {
     }
 }
 
-pub struct KVResponse(ObjectReader, pub Metadata);
+pub struct KVResponse<R>(R, pub Metadata);
 
-impl KVResponse {
-    pub fn new(md: Metadata, reader: ObjectReader) -> Self {
+impl<R> KVResponse<R> {
+    pub fn new(md: Metadata, reader: R) -> Self {
         Self(reader, md)
     }
 }
 
-impl<'r> Responder<'r, 'static> for KVResponse {
+impl<'r, R> Responder<'r, 'static> for KVResponse<R>
+where
+    R: 'static + AsyncRead + Send,
+{
     fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
         Ok(Response::build_from(self.1.respond_to(r)?)
             // must ensure that Metadata::respond_to does not set the body of the response
-            .streamed_body(self.0)
+            .streamed_body(self.0.compat())
             .finalize())
     }
 }
@@ -89,7 +99,7 @@ pub fn open_host_key(
     s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
     let keypair = Ed25519Keypair::generate();
-    let id = ipfs::PublicKey::Ed25519(keypair.public()).to_peer_id();
+    let id = PublicKey::Ed25519(keypair.public()).to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);
@@ -114,10 +124,10 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
 
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
-    i: InvokeAuthWrapper,
+    i: InvokeAuthWrapper<BlockStores>,
     req_span: TracingSpan,
     data: Data<'_>,
-) -> Result<InvocationResponse, (Status, String)> {
+) -> Result<InvocationResponse<<BlockStores as ImmutableStore>::Readable>, (Status, String)> {
     let action_label = i.prometheus_label().to_string();
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
     // Instrumenting async block to handle yielding properly
@@ -138,10 +148,13 @@ pub async fn invoke(
     .await
 }
 
-pub async fn handle_kv_action(
-    action: KVAction,
+pub async fn handle_kv_action<B>(
+    action: KVAction<B>,
     data: Data<'_>,
-) -> Result<InvocationResponse, (Status, String)> {
+) -> Result<InvocationResponse<B::Readable>, (Status, String)>
+where
+    B: 'static + ImmutableStore,
+{
     match action {
         KVAction::Delete {
             orbit,
@@ -162,7 +175,7 @@ pub async fn handle_kv_action(
             Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::Get { orbit, key } => match orbit.service.read(key).await {
-            Ok(Some((md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
+            Ok(Some(ReadResponse(md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
                 Metadata(md),
                 r,
             ))),
@@ -178,16 +191,10 @@ pub async fn handle_kv_action(
                     .filter_map(|r| {
                         // filter out non-utf8 keys and those not matching the prefix
                         r.map(|v| {
-                            match std::str::from_utf8(v.as_ref()).ok().map(|s| s.to_string()) {
-                                None => None,
-                                Some(key) => {
-                                    if key.starts_with(&prefix) {
-                                        Some(key)
-                                    } else {
-                                        None
-                                    }
-                                }
-                            }
+                            std::str::from_utf8(v.as_ref())
+                                .ok()
+                                .map(|s| s.to_string())
+                                .filter(|key| key.starts_with(&prefix))
                         })
                         .transpose()
                     })
@@ -213,7 +220,7 @@ pub async fn handle_kv_action(
                 .write(
                     [(
                         ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        data.open(1u8.gigabytes()),
+                        data.open(1u8.gigabytes()).compat(),
                     )],
                     rm,
                 )
@@ -224,16 +231,19 @@ pub async fn handle_kv_action(
     }
 }
 
-pub enum InvocationResponse {
+pub enum InvocationResponse<R> {
     NotFound,
     EmptySuccess,
-    KVResponse(KVResponse),
+    KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
     Revoked,
 }
 
-impl<'r> Responder<'r, 'static> for InvocationResponse {
+impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
+where
+    R: 'static + AsyncRead + Send,
+{
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         match self {
             InvocationResponse::NotFound => Option::<()>::None.respond_to(request),

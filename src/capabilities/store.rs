@@ -1,13 +1,12 @@
 use crate::{
     authorization::{CapStore, Delegation, Invocation, Revocation, Verifiable},
     indexes::{AddRemoveSetStore, HeadStore},
-    ipfs::{Block, Ipfs},
     kv::to_block_raw,
+    storage::ImmutableStore,
+    Block,
 };
 use anyhow::Result;
-use async_recursion::async_recursion;
-use futures::stream::{self, TryStreamExt};
-use kepler_lib::libipld::{cbor::DagCborCodec, multibase::Base, multihash::Code, Cid, DagCbor};
+use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe_cacao::SiweCacao,
@@ -29,17 +28,21 @@ pub enum InvokeError {
 const SERVICE_NAME: &str = "capabilities";
 
 #[derive(Clone)]
-pub struct Store {
+pub struct Store<B> {
     pub id: ResourceId,
-    pub ipfs: Ipfs,
     pub(crate) root: String,
+    blocks: B,
     index: AddRemoveSetStore,
     delegation_heads: HeadStore,
     invocation_heads: HeadStore,
 }
 
-impl Store {
-    pub async fn new(oid: &OrbitId, ipfs: Ipfs, config: config::IndexStorage) -> Result<Self> {
+impl<B> Store<B>
+where
+    B: ImmutableStore,
+    B::Error: 'static,
+{
+    pub async fn new(oid: &OrbitId, blocks: B, config: config::IndexStorage) -> Result<Self> {
         let id = oid
             .clone()
             .to_resource(Some(SERVICE_NAME.to_string()), None, None);
@@ -70,7 +73,7 @@ impl Store {
         .await?;
         Ok(Self {
             id,
-            ipfs,
+            blocks,
             index,
             delegation_heads,
             invocation_heads,
@@ -84,7 +87,6 @@ impl Store {
     pub async fn transact(&self, updates: Updates) -> Result<()> {
         let event = self.make_event(updates).await?;
         self.apply(event).await?;
-        self.broadcast_heads().await?;
         Ok(())
     }
 
@@ -98,20 +100,30 @@ impl Store {
             delegate: event.delegate.iter().map(|d| *d.0.block.cid()).collect(),
             revoke: event.revoke.iter().map(|r| *r.0.block.cid()).collect(),
         };
+        let eb_block = eb.to_block()?;
 
-        let cid = self.ipfs.put_block(eb.to_block()?).await?;
+        let cid = Cid::new_v1(
+            eb_block.cid().codec(),
+            self.blocks
+                .write(eb_block.data(), eb_block.cid().hash().code().try_into()?)
+                .await?,
+        );
 
         // write element indexes
-        try_join_all(event.delegate.into_iter().map(|d| async {
+        try_join_all(event.delegate.into_iter().map(|d| async move {
             // add backlink in index
             self.index
                 .set_element(&d.1.block.cid().to_bytes(), &d.0.block.cid().to_bytes())
                 .await?;
             tracing::debug!("applied delegation {:?}", d.1.block.cid());
             // put delegation block (encoded ucan or cacao)
-            self.ipfs.put_block(d.1.block).await?;
+            self.blocks
+                .write(d.1.block.data(), d.1.block.cid().hash().code().try_into()?)
+                .await?;
             // put link block
-            self.ipfs.put_block(d.0.block).await?;
+            self.blocks
+                .write(d.0.block.data(), d.0.block.cid().hash().code().try_into()?)
+                .await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -126,9 +138,13 @@ impl Store {
                 .await?;
             tracing::debug!("applied revocation {:?}", r.1.block.cid());
             // put revocation block (encoded ucan revocation or cacao)
-            self.ipfs.put_block(r.1.block).await?;
+            self.blocks
+                .write(r.1.block.data(), r.1.block.cid().hash().code().try_into()?)
+                .await?;
             // put link block
-            self.ipfs.put_block(r.0.block).await?;
+            self.blocks
+                .write(r.0.block.data(), r.0.block.cid().hash().code().try_into()?)
+                .await?;
             Result::<()>::Ok(())
         }))
         .await?;
@@ -181,24 +197,8 @@ impl Store {
                     .collect::<Result<Vec<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>>>()?,
             })
             .await?;
-        self.broadcast_heads().await?;
         Ok(cid)
     }
-
-    async fn get_invocation(&self, i: &Cid) -> Result<Invocations> {
-        let update: InvocationsBlock = self.get_obj(i).await?.base;
-
-        Ok(Invocations {
-            prev: update.prev,
-            invoke: try_join_all(update.invoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let inv: WithBlock<Invocation> = self.get_obj(&link.base.update).await?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>::Ok((link, inv))
-            }))
-            .await?,
-        })
-    }
-
     pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
         try_join_all(
             event
@@ -212,7 +212,13 @@ impl Store {
             prev: event.prev,
             invoke: event.invoke.iter().map(|i| *i.0.block.cid()).collect(),
         };
-        let cid = self.ipfs.put_block(eb.to_block()?).await?;
+        let eb_block = eb.to_block()?;
+        let cid = Cid::new_v1(
+            eb_block.cid().codec(),
+            self.blocks
+                .write(eb_block.data(), eb_block.cid().hash().code().try_into()?)
+                .await?,
+        );
 
         for e in event.invoke.iter() {
             self.index
@@ -260,155 +266,27 @@ impl Store {
         })
     }
 
-    async fn get_event(&self, e: &Cid) -> Result<Event> {
-        let update: EventBlock = self.get_obj(e).await?.base;
-
-        Ok(Event {
-            prev: update.prev,
-            delegate: try_join_all(update.delegate.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let del: WithBlock<Delegation> = self.get_obj(&link.base.update).await?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Delegation>)>::Ok((link, del))
-            }))
-            .await?,
-            revoke: try_join_all(update.revoke.iter().map(|c| async {
-                let link: WithBlock<LinkedUpdate> = self.get_obj(c).await?;
-                let rev: WithBlock<Revocation> = self.get_obj(&link.base.update).await?;
-                Result::<(WithBlock<LinkedUpdate>, WithBlock<Revocation>)>::Ok((link, rev))
-            }))
-            .await?,
-        })
-    }
-
-    async fn get_obj<T>(&self, c: &Cid) -> Result<WithBlock<T>>
+    async fn get_obj<T>(&self, c: &Cid) -> Result<Option<WithBlock<T>>>
     where
         T: FromBlock,
     {
-        WithBlock::<T>::try_from(self.ipfs.get_block(c).await?)
-    }
-
-    pub(crate) async fn broadcast_heads(&self) -> Result<()> {
-        let updates = self.delegation_heads.get_heads().await?.0;
-        let invocations = self.invocation_heads.get_heads().await?.0;
-        if !updates.is_empty() || !invocations.is_empty() {
-            debug!(
-                "broadcasting {} update heads and {} invocation heads on {}",
-                updates.len(),
-                invocations.len(),
-                self.id,
-            );
-            self.ipfs
-                .pubsub_publish(
-                    self.id
-                        .clone()
-                        .get_cid()
-                        .to_string_of_base(Base::Base58Btc)?,
-                    CapsMessage::Heads {
-                        updates,
-                        invocations,
-                    }
-                    .to_block()?
-                    .into_inner()
-                    .1,
-                )
-                .await?;
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn request_heads(&self) -> Result<()> {
-        self.ipfs
-            .pubsub_publish(
-                self.id
-                    .clone()
-                    .get_cid()
-                    .to_string_of_base(Base::Base58Btc)?,
-                CapsMessage::StateReq.to_block()?.into_inner().1,
-            )
-            .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn try_merge_heads(
-        &self,
-        updates: impl Iterator<Item = Cid> + Send,
-        invocations: impl Iterator<Item = Cid> + Send,
-    ) -> Result<()> {
-        self.try_merge_updates(updates).await?;
-        self.try_merge_invocations(invocations).await?;
-        Ok(())
-    }
-
-    #[async_recursion]
-    async fn try_merge_updates(
-        &self,
-        updates: impl Iterator<Item = Cid> + Send + 'async_recursion,
-    ) -> Result<()> {
-        try_join_all(updates.map(|head| async move {
-            if self.delegation_heads.get_height(&head).await?.is_some() {
-                return Ok(());
-            };
-            let update = self.get_event(&head).await?;
-
-            self.try_merge_updates(
-                stream::iter(update.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
-                    .try_filter_map(|d| async move {
-                        self.delegation_heads.get_height(d).await.map(|o| match o {
-                            Some(_) => None,
-                            None => Some(*d),
-                        })
-                    })
-                    .try_collect::<Vec<Cid>>()
-                    .await?
-                    .into_iter(),
-            )
-            .await?;
-
-            self.apply(update).await
-        }))
-        .await?;
-        Ok(())
-    }
-
-    #[async_recursion]
-    pub(crate) async fn try_merge_invocations(
-        &self,
-        invocations: impl Iterator<Item = Cid> + Send + 'async_recursion,
-    ) -> Result<()> {
-        try_join_all(invocations.map(|head| async move {
-            if self.invocation_heads.get_height(&head).await?.is_some() {
-                return Result::<()>::Ok(());
-            };
-
-            let invs: Invocations = self.get_invocation(&head).await?;
-
-            self.try_merge_invocations(
-                stream::iter(invs.prev.iter().map(Ok).collect::<Vec<Result<_>>>())
-                    .try_filter_map(|i| async move {
-                        self.invocation_heads.get_height(i).await.map(|o| match o {
-                            Some(_) => None,
-                            None => Some(*i),
-                        })
-                    })
-                    .try_collect::<Vec<Cid>>()
-                    .await?
-                    .into_iter(),
-            )
-            .await?;
-
-            self.apply_invocations(invs).await?;
-            Ok(())
-        }))
-        .await?;
-        Ok(())
+        self.blocks
+            .read_to_vec(c.hash())
+            .await?
+            .map(|v| Block::new(*c, v).and_then(WithBlock::try_from))
+            .transpose()
     }
 }
 
 #[rocket::async_trait]
-impl CapStore for Store {
+impl<B> CapStore for Store<B>
+where
+    B: ImmutableStore,
+    B::Error: 'static,
+{
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here
-        Ok(self.get_obj(c).await.ok().map(|d| d.base))
+        self.get_obj(c).await.map(|o| o.map(|d| d.base))
     }
 }
 
@@ -611,92 +489,4 @@ pub(crate) struct Invocations {
 }
 
 #[cfg(test)]
-mod test {
-    // use super::*;
-    // use crate::ipfs::create_ipfs;
-    // use ipfs::Keypair;
-    // async fn get_store(id: &OrbitId) -> Store {
-    //     let tmp = tempdir::TempDir::new("test_streams").unwrap();
-    //     let kp = Keypair::generate_ed25519();
-    //     let (ipfs, ipfs_task, receiver) = create_ipfs(id.to_string(), &tmp.path(), kp, [])
-    //         .await
-    //         .unwrap();
-    //     let db = sled::open(tmp.path().join("db.sled")).unwrap();
-    //     tokio::spawn(ipfs_task);
-    //     Store::new(id, ipfs, &db).unwrap()
-    // }
-    // fn orbit() -> OrbitId {
-    //     "kepler:did:example:123://orbit0".parse().unwrap()
-    // }
-    // fn invoke(id: &[u8], target: ResourceId, parent: &[u8], invoker: &[u8]) -> Invocation {
-    //     Invocation {
-    //         id: id.into(),
-    //         parent: parent.into(),
-    //         target,
-    //         invoker: invoker.into(),
-    //         message: vec![],
-    //     }
-    // }
-    // #[test]
-    // async fn simple_invoke() {
-    //     let oid = orbit();
-    //     let caps = get_store(&oid).await;
-    //     let inv = invoke(
-    //         "inv0".as_bytes(),
-    //         oid.clone()
-    //             .to_resource(Some("kv".into()), Some("images".into()), None),
-    //         oid.to_string().as_bytes(),
-    //         "invoker1".as_bytes(),
-    //     );
-    //     let res = caps.invoke(vec![inv]).await.unwrap();
-    //     assert_eq!(caps.get_invocation(&inv.id()).await.unwrap().unwrap(), inv);
-    // }
-
-    // #[test]
-    // async fn delegate() {
-    //     let caps = get_store().await;
-
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).await.unwrap();
-    //     assert_eq!(caps.get_delegation(&del.id()).await.unwrap().unwrap(), del);
-
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-    // }
-
-    // #[test]
-    // async fn revoke() {
-    //     let caps = get_store();
-
-    //     let del = Delegation;
-    //     let del_res = caps.transact(del.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
-
-    //     let inv = Invocation;
-    //     let inv_res = caps.invoke(vec![inv]).unwrap();
-    //     assert_eq!(caps.get_invocation(inv.id()).unwrap().unwrap(), inv);
-
-    //     let rev = Revocation;
-    //     let rev_res = caps.transact(rev.into()).unwrap();
-    //     assert_eq!(caps.get_revocation(rev.id()).unwrap().unwrap(), rev);
-
-    //     let inv2 = Invocation;
-    //     let inv_res2 = caps.invoke(vec![inv2]);
-
-    //     assert!(inv_res2.is_err());
-    //     assert_eq!(caps.get_invocation(inv2.id()).unwrap(), None);
-    // }
-
-    // #[test]
-    // async fn get_caps() {
-    //     let caps = get_store();
-
-    //     let dels = vec![Delegation, Delegation, Delegation];
-    //     let del_res = caps.transact(dels.into()).unwrap();
-    //     assert_eq!(caps.get_delegation(del.id()).unwrap().unwrap(), del);
-
-    //     let delegated = caps.capabilities_for("").unwrap().unwrap();
-    //     assert_eq!(dels, delegated);
-    // }
-}
+mod test {}

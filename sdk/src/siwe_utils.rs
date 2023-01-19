@@ -1,7 +1,7 @@
 use http::uri::Authority;
 use kepler_lib::authorization::KeplerDelegation;
 use kepler_lib::cacaos::{
-    siwe::{nonce::generate_nonce, Message, TimeStamp, Version},
+    siwe::{generate_nonce, Message, TimeStamp, Version},
     siwe_cacao::{SIWESignature, SiweCacao},
 };
 use kepler_lib::capgrok::Builder;

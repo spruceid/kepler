@@ -1,84 +1,107 @@
-use anyhow::{Context, Error};
 use aws_sdk_s3::{
-    error::{GetObjectError, GetObjectErrorKind},
+    error::{
+        GetObjectError, GetObjectErrorKind, HeadObjectError, HeadObjectErrorKind, PutObjectError,
+    },
     types::{ByteStream, SdkError},
     Client, // Config,
+    Error as S3Error,
 };
-use aws_smithy_http::{body::SdkBody, endpoint::Endpoint};
-// use aws_types::{credentials::Credentials, region::Region};
-use futures::stream::{StreamExt, TryStreamExt};
-use ipfs::{
-    repo::{
-        BlockPut, BlockRm, BlockRmError, BlockStore, Column, DataStore, PinKind, PinMode, PinStore,
+use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
+use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
+use kepler_lib::{
+    libipld::cid::{
+        multibase::{encode, Base},
+        multihash::{Code, Error as MultihashError, Multihash},
+        Cid,
     },
-    Block,
+    resource::OrbitId,
 };
-use kepler_lib::libipld::cid::{multibase::Base, Cid};
-use regex::Regex;
+use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
 use rocket::{async_trait, http::hyper::Uri};
-use std::{path::PathBuf, str::FromStr};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
+use std::io::Error as IoError;
+use tempfile::NamedTempFile;
+use tokio::fs::File;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
-use super::dynamodb::{DynamoPinStore, References};
-use crate::config;
-
-#[derive(Debug)]
-pub struct S3DataStore {
-    // TODO Remove is unused (orbit::delete is never called).
-    // When that changes we will need to use a mutex, either local or in Dynamo
-    pub client: Client,
-    pub bucket: String,
-    pub dynamodb: DynamoPinStore,
-    pub orbit: Cid,
-}
+use crate::{
+    orbit::ProviderUtils,
+    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
+};
 
 // TODO we could use the same struct for both the block store and the data
 // (pin) store, but we need to remember that for now it will be two different
 // objects in rust-ipfs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct S3BlockStore {
     // TODO Remove is unused (orbit::delete is never called).
     // When that changes we will need to use a mutex, either local or in Dynamo
     pub client: Client,
     pub bucket: String,
-    pub dynamodb: DynamoPinStore,
-    pub orbit: Cid,
+    pub orbit: String,
 }
 
-pub fn new_client(config: config::S3BlockStorage) -> Client {
-    let general_config = super::utils::aws_config();
-    let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
-    let sdk_config = match config.endpoint {
-        Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e)),
-        None => sdk_config,
-    };
-    let sdk_config = sdk_config.build();
-    Client::from_conf(sdk_config)
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct S3BlockConfig {
+    pub bucket: String,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[serde(default)]
+    pub endpoint: Option<Uri>,
 }
 
-impl S3DataStore {
-    pub fn new_(config: config::S3BlockStorage, orbit: Cid) -> Self {
-        S3DataStore {
-            client: new_client(config.clone()),
-            bucket: config.bucket,
-            dynamodb: DynamoPinStore::new(config.dynamodb, orbit),
-            orbit,
-        }
+#[async_trait]
+impl StorageConfig<S3BlockStore> for S3BlockConfig {
+    type Error = std::convert::Infallible;
+    async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
+        Ok(Some(S3BlockStore::new_(self, orbit.get_cid())))
     }
+    async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
+        Ok(S3BlockStore::new_(self, orbit.get_cid()))
+    }
+}
 
-    pub async fn get_(&self, key: String) -> Result<Option<Vec<u8>>, Error> {
-        let res = self
-            .client
+#[derive(thiserror::Error, Debug)]
+pub enum ProviderError {
+    #[error(transparent)]
+    S3(#[from] S3Error),
+    #[error(transparent)]
+    KeypairDecode(#[from] DecodingError),
+    #[error(transparent)]
+    ByteStream(#[from] ByteStreamError),
+}
+
+impl From<SdkError<GetObjectError>> for ProviderError {
+    fn from(e: SdkError<GetObjectError>) -> Self {
+        Self::S3(e.into())
+    }
+}
+
+impl From<SdkError<PutObjectError>> for ProviderError {
+    fn from(e: SdkError<PutObjectError>) -> Self {
+        Self::S3(e.into())
+    }
+}
+
+#[async_trait]
+impl ProviderUtils for S3BlockConfig {
+    type Error = ProviderError;
+    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
+        self.key_pair(orbit).await.map(|o| o.is_some())
+    }
+    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
+        let client = new_client(self);
+        match client
             .get_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                key
-            ))
+            .bucket(&self.bucket)
+            .key("kp")
             .send()
-            .await;
-        match res {
-            Ok(o) => Ok(Some(o.body.collect().await?.into_bytes().to_vec())),
+            .await
+        {
+            Ok(o) => Ok(Ed25519Keypair::decode(
+                &mut o.body.collect().await?.into_bytes().to_vec(),
+            )?),
             Err(SdkError::ServiceError {
                 err:
                     GetObjectError {
@@ -86,108 +109,30 @@ impl S3DataStore {
                         ..
                     },
                 ..
-            }) => Ok(None),
+            }) => {
+                let kp = Ed25519Keypair::generate();
+                client
+                    .put_object()
+                    .bucket(&self.bucket)
+                    .key("kp")
+                    .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
+                    .send()
+                    .await?;
+                Ok(kp)
+            }
             Err(e) => Err(e.into()),
         }
     }
-
-    pub async fn put_(&self, key: String, body: Vec<u8>) -> Result<(), Error> {
-        self.client
-            .put_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                key
-            ))
-            .body(ByteStream::new(SdkBody::from(body)))
-            .send()
-            .await?;
-        Ok(())
-    }
-}
-impl S3BlockStore {
-    pub fn new_(config: config::S3BlockStorage, orbit: Cid) -> Self {
-        S3BlockStore {
-            client: new_client(config.clone()),
-            bucket: config.bucket,
-            dynamodb: DynamoPinStore::new(config.dynamodb, orbit),
-            orbit,
-        }
-    }
-}
-
-fn path_to_config(path: PathBuf) -> (config::S3BlockStorage, Cid) {
-    let re =
-            Regex::new(r"^/s3bucket/(?P<bucket>.*)/s3endpoint/(?P<s3endpoint>.*)/dynamotable/(?P<table>.*)/dynamoendpoint/(?P<dynamoendpoint>.*)/orbitcid/(?P<orbit>.*)/(blockstore|datastore)$")
-                .unwrap();
-    let fields = re.captures(path.to_str().unwrap()).unwrap();
-    let s3_bucket = fields.name("bucket").unwrap().as_str().to_string();
-    let s3_endpoint = Some(fields.name("s3endpoint").unwrap().as_str())
-        .filter(|s| !s.is_empty())
-        .map(|e| Uri::from_str(e).unwrap());
-    let dynamo_table = fields.name("table").unwrap().as_str().to_string();
-    let dynamo_endpoint = Some(fields.name("dynamoendpoint").unwrap().as_str())
-        .filter(|s| !s.is_empty())
-        .map(|e| Uri::from_str(e).unwrap());
-    let orbit = Cid::from_str(fields.name("orbit").unwrap().as_str()).unwrap();
-
-    let config = config::S3BlockStorage {
-        bucket: s3_bucket,
-        endpoint: s3_endpoint,
-        dynamodb: config::DynamoStorage {
-            table: dynamo_table,
-            endpoint: dynamo_endpoint,
-        },
-    };
-    (config, orbit)
-}
-
-#[async_trait]
-impl BlockStore for S3BlockStore {
-    fn new(path: PathBuf) -> Self {
-        let (config, orbit) = path_to_config(path);
-        S3BlockStore::new_(config, orbit)
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        self.dynamodb
-            .healthcheck()
-            .await
-            .context("Failed healthcheck for DynamoDB")?;
-        self.client
-            .head_bucket()
-            .bucket(self.bucket.clone())
-            .send()
-            .await
-            .context("Failed healthcheck for S3")?;
-        Ok(())
-    }
-
-    async fn open(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    async fn contains(&self, cid: &Cid) -> Result<bool, Error> {
-        self.dynamodb.is_pinned(cid).await
-    }
-
-    async fn get(&self, cid: &Cid) -> Result<Option<Block>, Error> {
-        let res = self
-            .client
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
+        match new_client(self)
             .get_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                cid
-            ))
+            .bucket(&self.bucket)
+            .key(format!("{}/keypair", orbit.get_cid()))
             .send()
-            .await;
-        match res {
-            Ok(o) => Ok(Some(Block::new(
-                *cid,
-                o.body.collect().await?.into_bytes().to_vec(),
+            .await
+        {
+            Ok(o) => Ok(Some(Ed25519Keypair::decode(
+                &mut o.body.collect().await?.into_bytes().to_vec(),
             )?)),
             Err(SdkError::ServiceError {
                 err:
@@ -200,156 +145,187 @@ impl BlockStore for S3BlockStore {
             Err(e) => Err(e.into()),
         }
     }
-
-    async fn put(&self, block: Block) -> Result<(Cid, BlockPut), Error> {
-        let res = self
-            .client
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
+        let client = new_client(self);
+        client
             .put_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                block.cid()
-            ))
-            .body(ByteStream::new(SdkBody::from(block.data())))
+            .bucket(&self.bucket)
+            .key(format!("{}/keypair", orbit.get_cid()))
+            .body(ByteStream::new(SdkBody::from(key.encode().to_vec())))
             .send()
-            .await;
-
-        match res {
-            // can't tell if the object already existed
-            Ok(_) => Ok((*block.cid(), BlockPut::NewBlock)),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    async fn remove(&self, cid: &Cid) -> Result<Result<BlockRm, BlockRmError>, Error> {
-        // TODO when is that called, should the pin store call this?
-        let res = self
-            .client
-            .delete_object()
-            .bucket(self.bucket.clone())
-            .key(format!(
-                "{}/{}",
-                self.orbit.to_string_of_base(Base::Base58Btc)?,
-                cid
-            ))
-            .send()
-            .await;
-
-        match res {
-            // Cannot tell if the object existed in the first place.
-            Ok(_) => Ok(Ok(BlockRm::Removed(*cid))),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    async fn list(&self) -> Result<Vec<Cid>, Error> {
-        self.dynamodb
-            .list(None)
-            .await
-            .map(|r| r.map(|rr| rr.0))
-            .try_collect()
-            .await
-    }
-
-    async fn wipe(&self) {
-        unimplemented!("wipe")
-    }
-}
-
-#[async_trait]
-impl DataStore for S3DataStore {
-    fn new(path: PathBuf) -> S3DataStore {
-        let (config, orbit) = path_to_config(path);
-        S3DataStore::new_(config, orbit)
-    }
-
-    async fn init(&self) -> Result<(), Error> {
-        self.dynamodb.healthcheck().await?;
-        self.client
-            .head_bucket()
-            .bucket(self.bucket.clone())
+            .await?;
+        client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(format!("{}/orbit_url", orbit.get_cid()))
+            .body(ByteStream::new(SdkBody::from(orbit.to_string())))
             .send()
             .await?;
         Ok(())
     }
+}
 
-    async fn open(&self) -> Result<(), Error> {
-        Ok(())
+pub fn new_client(config: &S3BlockConfig) -> Client {
+    let general_config = super::utils::aws_config();
+    let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
+    let sdk_config = match &config.endpoint {
+        Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e.clone())),
+        None => sdk_config,
+    };
+    let sdk_config = sdk_config.build();
+    Client::from_conf(sdk_config)
+}
+
+impl S3BlockStore {
+    pub fn new_(config: &S3BlockConfig, orbit: Cid) -> Self {
+        S3BlockStore {
+            client: new_client(config),
+            bucket: config.bucket.clone(),
+            orbit: orbit.to_string(),
+        }
     }
 
-    // None of those methods are implemented for Sled of Fs data stores 🤡
-
-    async fn contains(&self, _col: Column, _key: &[u8]) -> Result<bool, Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn get(&self, _col: Column, _key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn put(&self, _col: Column, _key: &[u8], _value: &[u8]) -> Result<(), Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn remove(&self, _col: Column, _key: &[u8]) -> Result<(), Error> {
-        Err(anyhow::anyhow!("not implemented"))
-    }
-
-    async fn wipe(&self) {
-        todo!()
+    fn key(&self, id: &Multihash) -> String {
+        format!("{}/{}", self.orbit, encode(Base::Base64Url, id.to_bytes()))
     }
 }
 
+pub fn convert(e: ByteStreamError) -> IoError {
+    e.into()
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum S3StoreError {
+    #[error(transparent)]
+    S3(#[from] S3Error),
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    Bytestream(#[from] ByteStreamError),
+    #[error(transparent)]
+    Multihash(#[from] MultihashError),
+}
+
 #[async_trait]
-impl PinStore for S3DataStore {
-    async fn is_pinned(&self, _cid: &Cid) -> Result<bool, Error> {
-        // self.dynamodb.is_pinned(cid).await
-        unimplemented!("Unused (so untested)");
+impl ImmutableStore for S3BlockStore {
+    type Error = S3StoreError;
+    type Readable = IntoAsyncRead<MapErr<ByteStream, fn(ByteStreamError) -> IoError>>;
+    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
+        match self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(SdkError::ServiceError {
+                err:
+                    HeadObjectError {
+                        kind: HeadObjectErrorKind::NotFound(_),
+                        ..
+                    },
+                ..
+            }) => Ok(false),
+            Err(e) => Err(S3Error::from(e).into()),
+        }
     }
-
-    async fn insert_direct_pin(&self, _target: &Cid) -> Result<(), Error> {
-        // self.dynamodb.insert_direct_pin(target).await
-        unimplemented!("Unused (so untested)");
-    }
-
-    async fn insert_recursive_pin(
+    async fn write(
         &self,
-        _target: &Cid,
-        _referenced: References<'_>,
-    ) -> Result<(), Error> {
-        // self.dynamodb.insert_recursive_pin(target, referenced).await
-        unimplemented!("Unused (so untested)");
-    }
+        data: impl futures::io::AsyncRead + Send,
+        hash_type: Code,
+    ) -> Result<Multihash, Self::Error> {
+        // TODO find a way to do this without filesystem access
+        let (file, path) = NamedTempFile::new()?.into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
 
-    async fn remove_direct_pin(&self, _target: &Cid) -> Result<(), Error> {
-        // self.dynamodb.remove_direct_pin(target).await
-        unimplemented!("Unused (so untested)");
+        if !self.contains(&multihash).await? {
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(&multihash))
+                .body(ByteStream::from_path(&path).await?)
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+        }
+        Ok(multihash)
     }
-
-    async fn remove_recursive_pin(
+    async fn write_keyed(
         &self,
-        _target: &Cid,
-        _referenced: References<'_>,
-    ) -> Result<(), Error> {
-        // self.dynamodb.remove_recursive_pin(target, referenced).await
-        unimplemented!("Unused (so untested)");
-    }
+        data: impl futures::io::AsyncRead + Send,
+        hash: &Multihash,
+    ) -> Result<(), KeyedWriteError<Self::Error>> {
+        if self.contains(hash).await? {
+            return Ok(());
+        }
+        let hash_type = hash
+            .code()
+            .try_into()
+            .map_err(KeyedWriteError::InvalidCode)?;
+        let (file, path) = NamedTempFile::new()
+            .map_err(S3StoreError::from)?
+            .into_parts();
+        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+            .await
+            .map_err(S3StoreError::from)?;
 
-    async fn list(
-        &self,
-        _requirement: Option<PinMode>,
-    ) -> futures::stream::BoxStream<'static, Result<(Cid, PinMode), Error>> {
-        // self.dynamodb.list(requirement).await
-        unimplemented!("Unused (so untested)");
-    }
+        if &multihash != hash {
+            return Err(KeyedWriteError::IncorrectHash);
+        };
 
-    async fn query(
-        &self,
-        _ids: Vec<Cid>,
-        _requirement: Option<PinMode>,
-    ) -> Result<Vec<(Cid, PinKind<Cid>)>, Error> {
-        // self.dynamodb.query(ids, requirement).await
-        unimplemented!("Unused (so untested)");
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(self.key(&multihash))
+            .body(
+                ByteStream::from_path(&path)
+                    .await
+                    .map_err(S3StoreError::from)?,
+            )
+            .send()
+            .await
+            .map_err(|e| KeyedWriteError::Store(S3StoreError::from(S3Error::from(e))))?;
+        Ok(())
+    }
+    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(Some(())),
+            // TODO does this distinguish between object missing and object present?
+            Err(e) => Err(S3Error::from(e).into()),
+        }
+    }
+    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+        let res = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await;
+        match res {
+            Ok(o) => Ok(Some(
+                o.body
+                    .map_err(convert as fn(ByteStreamError) -> IoError)
+                    .into_async_read(),
+            )),
+            Err(SdkError::ServiceError {
+                err:
+                    GetObjectError {
+                        kind: GetObjectErrorKind::NoSuchKey(_),
+                        ..
+                    },
+                ..
+            }) => Ok(None),
+            Err(e) => Err(S3Error::from(e).into()),
+        }
     }
 }

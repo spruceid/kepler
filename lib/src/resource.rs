@@ -18,14 +18,6 @@ use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug)]
-pub enum SupportedCodecs {
-    Raw = 0x55,
-    Json = 0x0200,
-    MsgPack = 0x0201,
-    Cbor = 0x51,
-}
-
 #[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
 pub struct OrbitId {
     suffix: String,
@@ -51,7 +43,7 @@ impl OrbitId {
 
     pub fn get_cid(&self) -> Cid {
         Cid::new_v1(
-            SupportedCodecs::Raw as u64,
+            0x55, // raw codec
             Code::Blake2b256.digest(self.to_string().as_bytes()),
         )
     }
@@ -131,7 +123,7 @@ impl ResourceId {
 
     pub fn get_cid(&self) -> Cid {
         Cid::new_v1(
-            SupportedCodecs::Raw as u64,
+            0x55, // raw codec
             Code::Blake2b256.digest(self.to_string().as_bytes()),
         )
     }

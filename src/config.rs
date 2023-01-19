@@ -1,7 +1,11 @@
-use crate::allow_list::OrbitAllowListService;
+use crate::{
+    allow_list::OrbitAllowListService,
+    storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
+    BlockConfig,
+};
 use rocket::http::hyper::Uri;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{serde_as, DisplayFromStr, FromInto};
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
@@ -37,32 +41,19 @@ pub struct OrbitsConfig {
     pub allowlist: Option<OrbitAllowListService>,
 }
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Storage {
-    pub blocks: BlockStorage,
+    #[serde_as(as = "FromInto<BlockStorage>")]
+    pub blocks: BlockConfig,
     pub indexes: IndexStorage,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 #[serde(tag = "type")]
 pub enum BlockStorage {
-    Local(LocalBlockStorage),
-    S3(S3BlockStorage),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct LocalBlockStorage {
-    pub path: PathBuf,
-}
-
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct S3BlockStorage {
-    pub bucket: String,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[serde(default)]
-    pub endpoint: Option<Uri>,
-    pub dynamodb: DynamoStorage,
+    Local(FileSystemConfig),
+    S3(S3BlockConfig),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -114,15 +105,7 @@ impl Default for LoggingFormat {
 
 impl Default for BlockStorage {
     fn default() -> BlockStorage {
-        BlockStorage::Local(LocalBlockStorage::default())
-    }
-}
-
-impl Default for LocalBlockStorage {
-    fn default() -> LocalBlockStorage {
-        LocalBlockStorage {
-            path: PathBuf::from(r"/tmp/kepler/blocks"),
-        }
+        BlockStorage::Local(FileSystemConfig::default())
     }
 }
 
