@@ -1,7 +1,7 @@
 use crate::authorization::DelegationHeaders;
 use http::uri::Authority;
 use kepler_lib::{
-    authorization::{make_invocation, InvocationError as ZcapError, KeplerInvocation},
+    authorization::{make_invocation, InvocationError, KeplerInvocation},
     cacaos::{
         siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
@@ -21,7 +21,7 @@ use time::OffsetDateTime;
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    pub actions: HashMap<String, Vec<String>>,
+    pub actions: HashMap<String, HashMap<String, Vec<String>>>,
     #[serde(with = "crate::serde_siwe::address")]
     pub address: [u8; 20],
     pub chain_id: u64,
@@ -35,7 +35,6 @@ pub struct SessionConfig {
     pub not_before: Option<TimeStamp>,
     #[serde_as(as = "DisplayFromStr")]
     pub expiration_time: TimeStamp,
-    pub service: String,
     #[serde_as(as = "Option<Vec<DisplayFromStr>>")]
     #[serde(default)]
     pub parents: Option<Vec<Cid>>,
@@ -49,7 +48,6 @@ pub struct SessionConfig {
 pub struct PreparedSession {
     pub jwk: JWK,
     pub orbit_id: OrbitId,
-    pub service: String,
     #[serde_as(as = "DisplayFromStr")]
     pub siwe: Message,
     pub verification_method: String,
@@ -74,7 +72,6 @@ pub struct Session {
     pub delegation_cid: Cid,
     pub jwk: JWK,
     pub orbit_id: OrbitId,
-    pub service: String,
     pub verification_method: String,
 }
 
@@ -87,15 +84,17 @@ impl SessionConfig {
         let b = self
             .actions
             .into_iter()
-            .fold(Builder::new(), |builder, (path, actions)| {
-                builder.with_actions(
-                    &ns,
-                    self.orbit_id
-                        .clone()
-                        .to_resource(Some(self.service.clone()), Some(path), None)
-                        .to_string(),
-                    actions,
-                )
+            .fold(Builder::new(), |builder, (service, actions)| {
+                actions.into_iter().fold(builder, |b, (path, action)| {
+                    b.with_actions(
+                        &ns,
+                        self.orbit_id
+                            .clone()
+                            .to_resource(Some(service.clone()), Some(path), None)
+                            .to_string(),
+                        action,
+                    )
+                })
             });
         match self.parents {
             Some(p) => b.with_extra_fields(
@@ -130,10 +129,15 @@ impl SessionConfig {
 }
 
 impl Session {
-    pub async fn invoke(self, path: String, action: String) -> Result<KeplerInvocation, ZcapError> {
+    pub async fn invoke(
+        self,
+        service: String,
+        path: String,
+        action: String,
+    ) -> Result<KeplerInvocation, InvocationError> {
         let target = self
             .orbit_id
-            .to_resource(Some(self.service), Some(path), Some(action));
+            .to_resource(Some(service), Some(path), Some(action));
         make_invocation(
             target,
             self.delegation_cid,
@@ -164,7 +168,6 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
         .ok_or(Error::UnableToGenerateDID)?;
 
     let orbit_id = config.orbit_id.clone();
-    let service = config.service.clone();
 
     let siwe = config
         .into_message(&verification_method)
@@ -172,7 +175,6 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 
     Ok(PreparedSession {
         orbit_id,
-        service,
         jwk,
         verification_method,
         siwe,
@@ -201,7 +203,6 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
         delegation_cid,
         jwk: signed_session.session.jwk,
         orbit_id: signed_session.session.orbit_id,
-        service: signed_session.session.service,
         verification_method: signed_session.session.verification_method,
     })
 }

@@ -312,7 +312,7 @@ async fn invoke(
         Ok(None) => return not_found(anyhow!("No Orbit found")),
         Err(e) => return internal_server_error(e),
     };
-    let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
+    let auth_ref = match orbit.capabilities.invoke([token]).await {
         Ok(c) => c,
         Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
         Err(InvokeError::Other(e)) => {
@@ -371,18 +371,15 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
             let res = match target.resource.service() {
                 None => bad_request(anyhow!("missing service in invocation target")),
                 Some("capabilities") => match target.action.as_str() {
-                    "read" => {
-                        // orbit_fut.await.map(|(o, a)| )
-                        invoke(token, &config, relay)
-                            .await
-                            .map(|(orbit, auth_ref)| {
-                                Self::CapabilityQuery(Box::new(CapAction::Query {
-                                    orbit,
-                                    query: Query::All,
-                                    invoker,
-                                }))
-                            })
-                    }
+                    "read" => invoke(token, &config, relay)
+                        .await
+                        .map(|(orbit, auth_ref)| {
+                            Self::CapabilityQuery(Box::new(CapAction::Query {
+                                orbit,
+                                query: Query::All,
+                                invoker,
+                            }))
+                        }),
                     a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
                 },
                 Some("kv") => {

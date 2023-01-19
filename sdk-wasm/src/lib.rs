@@ -59,10 +59,11 @@ pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
-pub fn invoke(session: String, path: String, action: String) -> Promise {
+pub fn invoke(session: String, service: String, path: String, action: String) -> Promise {
     map_async_jsvalue(async move {
         authorization::InvocationHeaders::from(
             serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
+            service,
             path,
             action,
         )
