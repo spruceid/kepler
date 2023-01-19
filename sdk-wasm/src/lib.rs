@@ -26,6 +26,15 @@ fn map_async_jsvalue<E: std::error::Error>(
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
+/// Initialise console-error-panic-hook to improve debug output for panics.
+///
+/// Run once on initialisation.
+pub fn initPanicHook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+#[allow(non_snake_case)]
 pub fn makeOrbitId(address: String, chainId: u32, name: Option<String>) -> String {
     util::make_orbit_id_pkh_eip155(address, chainId, name)
 }

@@ -304,8 +304,8 @@ where
             InvocationResponse::Revoked => ().respond_to(request),
             InvocationResponse::CapabilityQuery(caps) => Json(
                 caps.into_iter()
-                    .map(|(cid, del)| Ok((cid, CapJsonRep::from_delegation(del)?)))
-                    .collect::<Result<HashMap<Cid, CapJsonRep>>>()
+                    .map(|(cid, del)| Ok((cid.to_string(), CapJsonRep::from_delegation(del)?)))
+                    .collect::<Result<HashMap<String, CapJsonRep>>>()
                     .map_err(|_| Status::InternalServerError)?,
             )
             .respond_to(request),

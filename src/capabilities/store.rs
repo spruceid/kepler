@@ -99,10 +99,6 @@ where
         // traverse the graph collecting all delegations which fit the query
         let (cids, _h) = self.delegation_heads.get_heads().await?;
 
-        if invoker != self.id.orbit().did() {
-            return Err(anyhow!("Currently only the controller can make queries"));
-        }
-
         match query {
             Query::All => Ok(self
                 .traverse_delegations(&cids)
@@ -119,14 +115,19 @@ where
                 // fetch delegations from each event
                 let f = FuturesUnordered::new();
                 for cid in eb.delegate.iter() {
-                    f.push(self.get_obj(*cid));
+                    f.push(self.get_obj::<LinkedUpdate>(*cid));
                 }
                 f
             })
             .try_flatten()
-            .and_then(|d| async {
-                d.map(|wb| (*wb.block.cid(), wb.base))
-                    .ok_or_else(|| anyhow!("Could not find block"))
+            .and_then(|linked_update| async {
+                match linked_update {
+                    Some(lu) => match self.get_obj(lu.base.update).await? {
+                        Some(wb) => Ok((*wb.block.cid(), wb.base)),
+                        None => Err(anyhow!("Could not find block")),
+                    },
+                    None => Err(anyhow!("Could not find block")),
+                }
             })
     }
     fn traverse_events(&self, starts: &[Cid]) -> impl Stream<Item = Result<EventBlock>> + '_ {
@@ -520,8 +521,11 @@ impl CapStore for Event {
 
 #[derive(DagCbor, Debug, Clone)]
 pub(crate) struct EventBlock {
+    // links to EventBlock blocks
     pub prev: Vec<Cid>,
+    // links to LinkedUpdate blocks
     pub delegate: Vec<Cid>,
+    // links to LinkedUpdate blocks
     pub revoke: Vec<Cid>,
 }
 
