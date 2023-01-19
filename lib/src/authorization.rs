@@ -121,4 +121,6 @@ pub enum EncodingError {
     Base64(#[from] base64::DecodeError),
 }
 
-pub struct Query {}
+pub enum Query {
+    All,
+}

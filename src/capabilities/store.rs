@@ -8,11 +8,14 @@ use crate::{
 use anyhow::Result;
 use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
-    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
+    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation, Query},
     cacaos::siwe_cacao::SiweCacao,
     resource::{OrbitId, ResourceId},
 };
-use rocket::futures::future::try_join_all;
+use rocket::futures::{
+    future::try_join_all,
+    stream::{TryStream, TryStreamExt},
+};
 use thiserror::Error;
 
 use crate::config;
@@ -88,6 +91,36 @@ where
         let event = self.make_event(updates).await?;
         self.apply(event).await?;
         Ok(())
+    }
+
+    pub async fn query(&self, query: Query, invoker: &str) -> Result<Vec<Delegation>> {
+        // traverse the graph collecting all delegations which fit the query
+        let (cids, h) = self.delegation_heads.get_heads().await?;
+
+        if invoker != self.id.orbit().did() {
+            return Err(anyhow!("Currently only the controller can make queries"));
+        }
+
+        match query {
+            Query::All => Ok(self
+                .traverse(&cids)
+                .map_ok(|event| {
+                    event
+                        .delegate
+                        .into_iter()
+                        .map(|(_, wb)| wb.base)
+                        .collect::<Vec<Delegation>>()
+                })
+                .try_collect::<Vec<Vec<Delegation>>>()
+                .await?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Delegation>>()),
+        }
+    }
+
+    fn traverse(&self, starts: &[Cid]) -> impl TryStream<Ok = Event, Error = anyhow::Error> {
+        todo!()
     }
 
     pub(crate) async fn apply(&self, event: Event) -> Result<()> {

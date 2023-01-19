@@ -235,7 +235,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 pub enum InvokeAuthWrapper<B> {
     KV(Box<KVAction<B>>),
     Revocation,
-    CapabilityQuery(Query),
+    CapabilityQuery(Box<CapAction<B>>),
 }
 
 impl<B> InvokeAuthWrapper<B> {
@@ -284,6 +284,14 @@ impl<B> KVAction<B> {
             KVAction::Put { .. } => "kv_put",
         }
     }
+}
+
+pub enum CapAction<B> {
+    Query {
+        orbit: Orbit<B>,
+        query: Query,
+        invoker: String,
+    },
 }
 
 async fn invoke(
@@ -358,13 +366,22 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
             };
 
             let target = &token.capability;
+            let invoker = token.invoker.clone();
 
             let res = match target.resource.service() {
                 None => bad_request(anyhow!("missing service in invocation target")),
                 Some("capabilities") => match target.action.as_str() {
                     "read" => {
                         // orbit_fut.await.map(|(o, a)| )
-                        todo!()
+                        invoke(token, &config, relay)
+                            .await
+                            .map(|(orbit, auth_ref)| {
+                                Self::CapabilityQuery(Box::new(CapAction::Query {
+                                    orbit,
+                                    query: Query::All,
+                                    invoker,
+                                }))
+                            })
                     }
                     a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
                 },

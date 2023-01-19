@@ -24,7 +24,7 @@ use std::{
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
     storage::ImmutableStore,
@@ -142,7 +142,7 @@ pub async fn invoke(
         let res = match i {
             InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
             InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
-            InvokeAuthWrapper::CapabilityQuery(_) => todo!(),
+            InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
         };
 
         timer.observe_duration();
@@ -232,6 +232,28 @@ where
                 .map_err(|e| (Status::InternalServerError, e.to_string()))?;
             Ok(InvocationResponse::EmptySuccess)
         }
+    }
+}
+
+pub async fn handle_cap_action<B>(
+    action: CapAction<B>,
+    _data: Data<'_>,
+) -> Result<InvocationResponse<B::Readable>, (Status, String)>
+where
+    B: 'static + ImmutableStore,
+{
+    match action {
+        CapAction::Query {
+            orbit,
+            query,
+            invoker,
+        } => orbit
+            .capabilities
+            .store
+            .query(query, Some(&invoker))
+            .await
+            .map(InvocationResponse::CapabilityQuery)
+            .map_err(|e| (Status::InternalServerError, e.to_string())),
     }
 }
 
