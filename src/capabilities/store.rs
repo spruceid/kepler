@@ -95,7 +95,7 @@ where
         Ok(())
     }
 
-    pub async fn query(&self, query: Query, invoker: &str) -> Result<HashMap<Cid, Delegation>> {
+    pub async fn query(&self, query: Query, _invoker: &str) -> Result<HashMap<Cid, Delegation>> {
         // traverse the graph collecting all delegations which fit the query
         let (cids, _h) = self.delegation_heads.get_heads().await?;
 
