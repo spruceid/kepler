@@ -15,7 +15,7 @@ use kepler_lib::{
 };
 use rocket::futures::{
     future::try_join_all,
-    stream::{futures_unordered::FuturesUnordered, Stream, TryStreamExt},
+    stream::{futures_unordered::FuturesUnordered, Stream, StreamExt, TryStreamExt},
 };
 use std::collections::HashSet;
 use thiserror::Error;
@@ -132,12 +132,12 @@ where
         // get links
         // return Ok.chain(traverse(links)) ?
         let mut traversed: HashSet<Cid> = HashSet::new();
-        let f = FuturesUnordered::new();
+        let mut f = FuturesUnordered::new();
         for cid in starts.iter() {
             f.push(self.get_obj(*cid));
         }
         try_stream! {
-            for await r in f {
+            while let Some(r) = f.next().await {
                 let wb = r?.ok_or_else(|| anyhow!("Coud not find block"))?;
                 let eb: EventBlock = wb.base;
                 let cid = wb.block.cid();
