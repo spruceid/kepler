@@ -112,7 +112,7 @@ pub struct Delegation {
     pub delegator: String,
     pub delegate: String,
     pub parents: Vec<Cid>,
-    delegation: KeplerDelegation,
+    pub(crate) delegation: KeplerDelegation,
 }
 
 impl ToBlock for Delegation {

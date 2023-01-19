@@ -1,7 +1,7 @@
 use anyhow::Result;
 use futures::io::AsyncRead;
 use kepler_lib::{
-    authorization::{EncodingError, HeaderEncode, KeplerDelegation},
+    authorization::{EncodingError, HeaderEncode},
     libipld::Cid,
 };
 use libp2p::{
@@ -25,6 +25,7 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    authorization::Delegation,
     kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
     storage::ImmutableStore,
@@ -263,7 +264,7 @@ pub enum InvocationResponse<R> {
     KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
-    CapabilityQuery(Vec<KeplerDelegation>),
+    CapabilityQuery(Vec<Delegation>),
     Revoked,
 }
 
@@ -281,7 +282,7 @@ where
             InvocationResponse::Revoked => ().respond_to(request),
             InvocationResponse::CapabilityQuery(caps) => Json(
                 caps.into_iter()
-                    .map(|c| c.encode())
+                    .map(|c| c.delegation.encode())
                     .collect::<Result<Vec<String>, EncodingError>>()
                     .map_err(|_| Status::InternalServerError)?,
             )
