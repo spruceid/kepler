@@ -19,10 +19,11 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
+use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr};
 use time::OffsetDateTime;
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Capability {
     pub resource: ResourceId,
     pub action: String,

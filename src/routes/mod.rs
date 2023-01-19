@@ -17,6 +17,7 @@ use rocket::{
     serde::json::Json,
     State,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::RwLock,
@@ -25,7 +26,7 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
-    authorization::Delegation,
+    authorization::{Capability, Delegation},
     kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
     storage::ImmutableStore,
@@ -264,8 +265,29 @@ pub enum InvocationResponse<R> {
     KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
-    CapabilityQuery(Vec<Delegation>),
+    CapabilityQuery(HashMap<Cid, Delegation>),
     Revoked,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CapJsonRep {
+    pub capabilities: Vec<Capability>,
+    pub delegator: String,
+    pub delegate: String,
+    pub parents: Vec<Cid>,
+    raw: String,
+}
+
+impl CapJsonRep {
+    pub fn from_delegation(d: Delegation) -> Result<Self, EncodingError> {
+        Ok(Self {
+            capabilities: d.capabilities,
+            delegator: d.delegator,
+            delegate: d.delegate,
+            parents: d.parents,
+            raw: d.delegation.encode()?,
+        })
+    }
 }
 
 impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
@@ -282,8 +304,8 @@ where
             InvocationResponse::Revoked => ().respond_to(request),
             InvocationResponse::CapabilityQuery(caps) => Json(
                 caps.into_iter()
-                    .map(|c| c.delegation.encode())
-                    .collect::<Result<Vec<String>, EncodingError>>()
+                    .map(|(cid, del)| Ok((cid, CapJsonRep::from_delegation(del)?)))
+                    .collect::<Result<HashMap<Cid, CapJsonRep>>>()
                     .map_err(|_| Status::InternalServerError)?,
             )
             .respond_to(request),

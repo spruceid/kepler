@@ -373,7 +373,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
                 Some("capabilities") => match target.action.as_str() {
                     "read" => invoke(token, &config, relay)
                         .await
-                        .map(|(orbit, auth_ref)| {
+                        .map(|(orbit, _auth_ref)| {
                             Self::CapabilityQuery(Box::new(CapAction::Query {
                                 orbit,
                                 query: Query::All,

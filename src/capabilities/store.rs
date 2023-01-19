@@ -17,7 +17,7 @@ use rocket::futures::{
     future::try_join_all,
     stream::{futures_unordered::FuturesUnordered, Stream, StreamExt, TryStreamExt},
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use crate::config;
@@ -95,9 +95,9 @@ where
         Ok(())
     }
 
-    pub async fn query(&self, query: Query, invoker: &str) -> Result<Vec<Delegation>> {
+    pub async fn query(&self, query: Query, invoker: &str) -> Result<HashMap<Cid, Delegation>> {
         // traverse the graph collecting all delegations which fit the query
-        let (cids, h) = self.delegation_heads.get_heads().await?;
+        let (cids, _h) = self.delegation_heads.get_heads().await?;
 
         if invoker != self.id.orbit().did() {
             return Err(anyhow!("Currently only the controller can make queries"));
@@ -106,11 +106,14 @@ where
         match query {
             Query::All => Ok(self
                 .traverse_delegations(&cids)
-                .try_collect::<Vec<Delegation>>()
+                .try_collect::<HashMap<Cid, Delegation>>()
                 .await?),
         }
     }
-    fn traverse_delegations(&self, starts: &[Cid]) -> impl Stream<Item = Result<Delegation>> + '_ {
+    fn traverse_delegations(
+        &self,
+        starts: &[Cid],
+    ) -> impl Stream<Item = Result<(Cid, Delegation)>> + '_ {
         self.traverse_events(starts)
             .map_ok(|eb| {
                 // fetch delegations from each event
@@ -122,7 +125,7 @@ where
             })
             .try_flatten()
             .and_then(|d| async {
-                d.map(|wb| wb.base)
+                d.map(|wb| (*wb.block.cid(), wb.base))
                     .ok_or_else(|| anyhow!("Could not find block"))
             })
     }

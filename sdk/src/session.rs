@@ -229,14 +229,14 @@ pub mod test {
     use serde_json::json;
     pub async fn test_session() -> Session {
         let config = json!({
-            "actions": { "path": vec!["put", "get", "list", "del", "metadata"] },
+            "actions": { "kv": { "path": vec!["put", "get", "list", "del", "metadata"] },
+            "capabilities": { "": vec!["read"] }},
             "address": "0x7BD63AA37326a64d458559F44432103e3d6eEDE9",
             "chainId": 1u8,
             "domain": "example.com",
             "issuedAt": "2022-01-01T00:00:00.000Z",
             "orbitId": "kepler:pkh:eip155:1:0x7BD63AA37326a64d458559F44432103e3d6eEDE9://default",
             "expirationTime": "3000-01-01T00:00:00.000Z",
-            "service": "kv",
         });
         let prepared = prepare_session(serde_json::from_value(config).unwrap())
             .await
@@ -255,7 +255,7 @@ pub mod test {
     async fn create_session_and_invoke() {
         test_session()
             .await
-            .invoke("path".into(), "get".into())
+            .invoke("kv".into(), "path".into(), "get".into())
             .await
             .expect("failed to create invocation");
     }

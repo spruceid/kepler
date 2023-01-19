@@ -7,7 +7,7 @@ const TS_DEF: &'static str = r#"
  */
 export type SessionConfig = {
   /** Actions that the session key will be permitted to perform, organized by service and path */
-  actions: { [key: string]: string[] },
+  actions: { [service: string]: { [key: string]: string[] }},
   /** Ethereum address. */
   address: string,
   /** Chain ID. */
@@ -22,8 +22,6 @@ export type SessionConfig = {
   notBefore?: string,
   /** The latest time that the session will be valid until. */
   expirationTime: string,
-  /** The service that the session key will be permitted to perform actions against. */
-  service: string,
   /** Optional parent delegations to inherit and attenuate */
   parents?: string[]
   /** Optional jwk to delegate to */
@@ -45,8 +43,6 @@ export type Session = {
   jwk: object,
   /** The orbit that the session key is permitted to perform actions against. */
   orbitId: string,
-  /** The service that the session key is permitted to perform actions against. */
-  service: string,
   /** The verification method of the session key. */
   verificationMethod: string,
 }
