@@ -262,7 +262,9 @@ where
                     })
                     .collect::<Result<Vec<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>>>()?,
             })
-            .await?;
+            .await
+            // TODO this encompasses many possible errors, these error types should be broken down
+            .map_err(InvokeError::Unauthorized)?;
         Ok(cid)
     }
     pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
