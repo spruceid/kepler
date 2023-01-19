@@ -1,6 +1,9 @@
 use anyhow::Result;
 use futures::io::AsyncRead;
-use kepler_lib::libipld::Cid;
+use kepler_lib::{
+    authorization::{EncodingError, HeaderEncode, KeplerDelegation},
+    libipld::Cid,
+};
 use libp2p::{
     core::PeerId,
     identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
@@ -139,6 +142,7 @@ pub async fn invoke(
         let res = match i {
             InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
             InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
+            InvokeAuthWrapper::CapabilityQuery(_) => todo!(),
         };
 
         timer.observe_duration();
@@ -237,6 +241,7 @@ pub enum InvocationResponse<R> {
     KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
+    CapabilityQuery(Vec<KeplerDelegation>),
     Revoked,
 }
 
@@ -252,6 +257,13 @@ where
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
             InvocationResponse::Revoked => ().respond_to(request),
+            InvocationResponse::CapabilityQuery(caps) => Json(
+                caps.into_iter()
+                    .map(|c| c.encode())
+                    .collect::<Result<Vec<String>, EncodingError>>()
+                    .map_err(|_| Status::InternalServerError)?,
+            )
+            .respond_to(request),
         }
     }
 }

@@ -7,6 +7,7 @@ use crate::routes::Metadata;
 use crate::BlockStores;
 use anyhow::Result;
 use kepler_lib::{
+    authorization::Query,
     libipld::Cid,
     resource::{OrbitId, ResourceId},
 };
@@ -234,6 +235,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
 pub enum InvokeAuthWrapper<B> {
     KV(Box<KVAction<B>>),
     Revocation,
+    CapabilityQuery(Query),
 }
 
 impl<B> InvokeAuthWrapper<B> {
@@ -241,6 +243,7 @@ impl<B> InvokeAuthWrapper<B> {
         match self {
             InvokeAuthWrapper::Revocation => "revoke_delegation",
             InvokeAuthWrapper::KV(kv) => kv.prometheus_label(),
+            InvokeAuthWrapper::CapabilityQuery(_) => "query capabilities",
         }
     }
 }
@@ -283,6 +286,50 @@ impl<B> KVAction<B> {
     }
 }
 
+async fn invoke(
+    token: Invocation,
+    config: &config::Config,
+    relay: (PeerId, Multiaddr),
+) -> Outcome<(Orbit<BlockStores>, Cid), anyhow::Error> {
+    let target = &token.capability;
+    let orbit = match load_orbit(
+        target.resource.orbit().clone(),
+        &config.storage.blocks,
+        &config.storage.indexes,
+        relay,
+    )
+    .await
+    {
+        Ok(Some(o)) => o,
+        Ok(None) => return not_found(anyhow!("No Orbit found")),
+        Err(e) => return internal_server_error(e),
+    };
+    let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
+        Ok(c) => c,
+        Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
+        Err(InvokeError::Other(e)) => {
+            warn!("Invoke error: {}", e);
+            match e.downcast_ref::<aws_sdk_dynamodb::Error>() {
+                Some(aws_sdk_dynamodb::Error::TransactionCanceledException(
+                    aws_sdk_dynamodb::error::TransactionCanceledException {
+                        cancellation_reasons: Some(reasons),
+                        ..
+                    },
+                )) => {
+                    for reason in reasons {
+                        if reason.code == Some("ThrottlingError".to_string()) {
+                            return Outcome::Failure((Status::ServiceUnavailable, e));
+                        }
+                    }
+                    return internal_server_error(e);
+                }
+                _ => return internal_server_error(e),
+            };
+        }
+    };
+    Outcome::Success((orbit, auth_ref))
+}
+
 #[async_trait]
 impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
     type Error = anyhow::Error;
@@ -314,78 +361,55 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
 
             let res = match target.resource.service() {
                 None => bad_request(anyhow!("missing service in invocation target")),
+                Some("capabilities") => match target.action.as_str() {
+                    "read" => {
+                        // orbit_fut.await.map(|(o, a)| )
+                        todo!()
+                    }
+                    a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
+                },
                 Some("kv") => {
-                    let orbit = match load_orbit(
-                        target.resource.orbit().clone(),
-                        &config.storage.blocks,
-                        &config.storage.indexes,
-                        relay,
-                    )
-                    .await
-                    {
-                        Ok(Some(o)) => o,
-                        Ok(None) => return not_found(anyhow!("No Orbit found")),
-                        Err(e) => return internal_server_error(e),
-                    };
-                    let auth_ref = match orbit.capabilities.invoke([token.clone()]).await {
-                        Ok(c) => c,
-                        Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
-                        Err(InvokeError::Other(e)) => {
-                            warn!("Invoke error: {}", e);
-                            match e.downcast_ref::<aws_sdk_dynamodb::Error>() {
-                                Some(aws_sdk_dynamodb::Error::TransactionCanceledException(
-                                    aws_sdk_dynamodb::error::TransactionCanceledException {
-                                        cancellation_reasons: Some(reasons),
-                                        ..
-                                    },
-                                )) => {
-                                    for reason in reasons {
-                                        if reason.code == Some("ThrottlingError".to_string()) {
-                                            return Outcome::Failure((
-                                                Status::ServiceUnavailable,
-                                                e,
-                                            ));
-                                        }
-                                    }
-                                    return internal_server_error(e);
-                                }
-                                _ => return internal_server_error(e),
-                            };
-                        }
-                    };
-
                     let key = match target.resource.path() {
                         Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
                         None => return bad_request(anyhow!("missing path in invocation target")),
                     };
                     match target.action.as_str() {
-                        "del" => Outcome::Success(Self::KV(Box::new(KVAction::Delete {
-                            orbit,
-                            key,
-                            auth_ref,
-                        }))),
-                        "get" => Outcome::Success(Self::KV(Box::new(KVAction::Get { orbit, key }))),
-                        "list" => Outcome::Success(Self::KV(Box::new(KVAction::List {
-                            orbit,
-                            prefix: key,
-                        }))),
-                        "metadata" => {
-                            Outcome::Success(Self::KV(Box::new(KVAction::Metadata { orbit, key })))
-                        }
-                        "put" => match Metadata::from_request(req).await {
-                            Outcome::Success(metadata) => {
-                                Outcome::Success(Self::KV(Box::new(KVAction::Put {
+                        "del" => invoke(token, &config, relay)
+                            .await
+                            .map(|(orbit, auth_ref)| {
+                                Self::KV(Box::new(KVAction::Delete {
                                     orbit,
                                     key,
-                                    metadata,
                                     auth_ref,
-                                })))
+                                }))
+                            }),
+                        "get" => invoke(token, &config, relay)
+                            .await
+                            .map(|(orbit, _)| Self::KV(Box::new(KVAction::Get { orbit, key }))),
+                        "list" => invoke(token, &config, relay).await.map(|(orbit, _)| {
+                            Self::KV(Box::new(KVAction::List { orbit, prefix: key }))
+                        }),
+                        "metadata" => invoke(token, &config, relay).await.map(|(orbit, _)| {
+                            Self::KV(Box::new(KVAction::Metadata { orbit, key }))
+                        }),
+                        "put" => {
+                            match Metadata::from_request(req).await {
+                                Outcome::Success(metadata) => invoke(token, &config, relay)
+                                    .await
+                                    .map(|(orbit, auth_ref)| {
+                                        Self::KV(Box::new(KVAction::Put {
+                                            orbit,
+                                            key,
+                                            metadata,
+                                            auth_ref,
+                                        }))
+                                    }),
+                                Outcome::Failure(e) => Outcome::Failure(e),
+                                Outcome::Forward(_) => internal_server_error(anyhow!(
+                                    "unable to parse metadata from request"
+                                )),
                             }
-                            Outcome::Failure(e) => Outcome::Failure(e),
-                            Outcome::Forward(_) => internal_server_error(anyhow!(
-                                "unable to parse metadata from request"
-                            )),
-                        },
+                        }
                         a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
                     }
                 }
