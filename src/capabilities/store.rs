@@ -6,6 +6,7 @@ use crate::{
     Block,
 };
 use anyhow::Result;
+use async_stream::try_stream;
 use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation, Query},
@@ -14,8 +15,9 @@ use kepler_lib::{
 };
 use rocket::futures::{
     future::try_join_all,
-    stream::{TryStream, TryStreamExt},
+    stream::{futures_unordered::FuturesUnordered, Stream, TryStreamExt},
 };
+use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::config;
@@ -103,24 +105,51 @@ where
 
         match query {
             Query::All => Ok(self
-                .traverse(&cids)
-                .map_ok(|event| {
-                    event
-                        .delegate
-                        .into_iter()
-                        .map(|(_, wb)| wb.base)
-                        .collect::<Vec<Delegation>>()
-                })
-                .try_collect::<Vec<Vec<Delegation>>>()
-                .await?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<Delegation>>()),
+                .traverse_delegations(&cids)
+                .try_collect::<Vec<Delegation>>()
+                .await?),
         }
     }
-
-    fn traverse(&self, starts: &[Cid]) -> impl TryStream<Ok = Event, Error = anyhow::Error> {
-        todo!()
+    fn traverse_delegations(&self, starts: &[Cid]) -> impl Stream<Item = Result<Delegation>> + '_ {
+        self.traverse_events(starts)
+            .map_ok(|eb| {
+                // fetch delegations from each event
+                let f = FuturesUnordered::new();
+                for cid in eb.delegate.iter() {
+                    f.push(self.get_obj(*cid));
+                }
+                f
+            })
+            .try_flatten()
+            .and_then(|d| async {
+                d.map(|wb| wb.base)
+                    .ok_or_else(|| anyhow!("Could not find block"))
+            })
+    }
+    fn traverse_events(&self, starts: &[Cid]) -> impl Stream<Item = Result<EventBlock>> + '_ {
+        // get events
+        // mark cid as traversed
+        // get links
+        // return Ok.chain(traverse(links)) ?
+        let mut traversed: HashSet<Cid> = HashSet::new();
+        let f = FuturesUnordered::new();
+        for cid in starts.iter() {
+            f.push(self.get_obj(*cid));
+        }
+        try_stream! {
+            for await r in f {
+                let wb = r?.ok_or_else(|| anyhow!("Coud not find block"))?;
+                let eb: EventBlock = wb.base;
+                let cid = wb.block.cid();
+                if !traversed.contains(cid) {
+                    traversed.insert(*cid);
+                    for parent in eb.prev.iter() {
+                        f.push(self.get_obj(*parent));
+                    }
+                    yield eb
+                }
+            }
+        }
     }
 
     pub(crate) async fn apply(&self, event: Event) -> Result<()> {
@@ -299,14 +328,14 @@ where
         })
     }
 
-    async fn get_obj<T>(&self, c: &Cid) -> Result<Option<WithBlock<T>>>
+    async fn get_obj<T>(&self, c: Cid) -> Result<Option<WithBlock<T>>>
     where
         T: FromBlock,
     {
         self.blocks
             .read_to_vec(c.hash())
             .await?
-            .map(|v| Block::new(*c, v).and_then(WithBlock::try_from))
+            .map(|v| Block::new(c, v).and_then(WithBlock::try_from))
             .transpose()
     }
 }
@@ -319,7 +348,7 @@ where
 {
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here
-        self.get_obj(c).await.map(|o| o.map(|d| d.base))
+        self.get_obj(*c).await.map(|o| o.map(|d| d.base))
     }
 }
 

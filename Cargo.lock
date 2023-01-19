@@ -2837,6 +2837,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-stream",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-s3",

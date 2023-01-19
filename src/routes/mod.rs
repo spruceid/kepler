@@ -251,7 +251,7 @@ where
         } => orbit
             .capabilities
             .store
-            .query(query, Some(&invoker))
+            .query(query, &invoker)
             .await
             .map(InvocationResponse::CapabilityQuery)
             .map_err(|e| (Status::InternalServerError, e.to_string())),
