@@ -6,13 +6,18 @@ use crate::{
     Block,
 };
 use anyhow::Result;
+use async_stream::try_stream;
 use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
-    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
+    authorization::{CapabilitiesQuery, KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe_cacao::SiweCacao,
     resource::{OrbitId, ResourceId},
 };
-use rocket::futures::future::try_join_all;
+use rocket::futures::{
+    future::try_join_all,
+    stream::{futures_unordered::FuturesUnordered, Stream, StreamExt, TryStreamExt},
+};
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use crate::config;
@@ -88,6 +93,71 @@ where
         let event = self.make_event(updates).await?;
         self.apply(event).await?;
         Ok(())
+    }
+
+    pub async fn query(
+        &self,
+        query: CapabilitiesQuery,
+        _invoker: &str,
+    ) -> Result<HashMap<Cid, Delegation>> {
+        // traverse the graph collecting all delegations which fit the query
+        let (cids, _h) = self.delegation_heads.get_heads().await?;
+
+        match query {
+            CapabilitiesQuery::All => Ok(self
+                .traverse_delegations(&cids)
+                .try_collect::<HashMap<Cid, Delegation>>()
+                .await?),
+        }
+    }
+    fn traverse_delegations(
+        &self,
+        starts: &[Cid],
+    ) -> impl Stream<Item = Result<(Cid, Delegation)>> + '_ {
+        self.traverse_events(starts)
+            .map_ok(|eb| {
+                // fetch delegations from each event
+                let f = FuturesUnordered::new();
+                for cid in eb.delegate.iter() {
+                    f.push(self.get_obj::<LinkedUpdate>(*cid));
+                }
+                f
+            })
+            .try_flatten()
+            .and_then(|linked_update| async {
+                match linked_update {
+                    Some(lu) => match self.get_obj(lu.base.update).await? {
+                        Some(wb) => Ok((*wb.block.cid(), wb.base)),
+                        None => Err(anyhow!("Could not find block")),
+                    },
+                    None => Err(anyhow!("Could not find block")),
+                }
+            })
+    }
+    fn traverse_events(&self, starts: &[Cid]) -> impl Stream<Item = Result<EventBlock>> + '_ {
+        // get events
+        // mark cid as traversed
+        // get links
+        // return Ok.chain(traverse(links)) ?
+        let mut traversed: HashSet<Cid> = HashSet::new();
+        let mut f = FuturesUnordered::new();
+        for cid in starts.iter() {
+            f.push(self.get_obj(*cid));
+        }
+        try_stream! {
+            while let Some(r) = f.next().await {
+                let wb = r?.ok_or_else(|| anyhow!("Coud not find block"))?;
+                let eb: EventBlock = wb.base;
+                let cid = wb.block.cid();
+                if !traversed.contains(cid) {
+                    traversed.insert(*cid);
+                    for parent in eb.prev.iter() {
+                        f.push(self.get_obj(*parent));
+                    }
+                    yield eb
+                }
+            }
+        }
     }
 
     pub(crate) async fn apply(&self, event: Event) -> Result<()> {
@@ -196,7 +266,9 @@ where
                     })
                     .collect::<Result<Vec<(WithBlock<LinkedUpdate>, WithBlock<Invocation>)>>>()?,
             })
-            .await?;
+            .await
+            // TODO this encompasses many possible errors, these error types should be broken down
+            .map_err(InvokeError::Unauthorized)?;
         Ok(cid)
     }
     pub(crate) async fn apply_invocations(&self, event: Invocations) -> Result<Cid> {
@@ -266,14 +338,14 @@ where
         })
     }
 
-    async fn get_obj<T>(&self, c: &Cid) -> Result<Option<WithBlock<T>>>
+    async fn get_obj<T>(&self, c: Cid) -> Result<Option<WithBlock<T>>>
     where
         T: FromBlock,
     {
         self.blocks
             .read_to_vec(c.hash())
             .await?
-            .map(|v| Block::new(*c, v).and_then(WithBlock::try_from))
+            .map(|v| Block::new(c, v).and_then(WithBlock::try_from))
             .transpose()
     }
 }
@@ -286,7 +358,7 @@ where
 {
     async fn get_cap(&self, c: &Cid) -> Result<Option<Delegation>> {
         // annoyingly ipfs will error if it cant find something, so we probably dont want to error here
-        self.get_obj(c).await.map(|o| o.map(|d| d.base))
+        self.get_obj(*c).await.map(|o| o.map(|d| d.base))
     }
 }
 
@@ -455,8 +527,11 @@ impl CapStore for Event {
 
 #[derive(DagCbor, Debug, Clone)]
 pub(crate) struct EventBlock {
+    // links to EventBlock blocks
     pub prev: Vec<Cid>,
+    // links to LinkedUpdate blocks
     pub delegate: Vec<Cid>,
+    // links to LinkedUpdate blocks
     pub revoke: Vec<Cid>,
 }
 

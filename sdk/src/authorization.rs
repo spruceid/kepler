@@ -1,6 +1,5 @@
 use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 
 use crate::session::Session;
 
@@ -17,15 +16,16 @@ pub struct InvocationHeaders {
 }
 
 impl InvocationHeaders {
-    pub async fn from(session: Session, path: String, action: String) -> Result<Self, Error> {
+    pub async fn from(
+        session: Session,
+        service: String,
+        path: String,
+        action: String,
+    ) -> Result<Self, Error> {
         Ok(Self {
             invocation: session
-                .invoke(path, action)
+                .invoke(service, path, action)
                 .await
-                .map(|i| {
-                    debug!("{:?}", i);
-                    i
-                })
                 .map_err(Error::FailedToMakeInvocation)?,
         })
     }

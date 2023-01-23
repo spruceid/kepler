@@ -1,6 +1,9 @@
 use anyhow::Result;
 use futures::io::AsyncRead;
-use kepler_lib::libipld::Cid;
+use kepler_lib::{
+    authorization::{EncodingError, HeaderEncode},
+    libipld::Cid,
+};
 use libp2p::{
     core::PeerId,
     identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
@@ -14,6 +17,7 @@ use rocket::{
     serde::json::Json,
     State,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::RwLock,
@@ -21,7 +25,8 @@ use std::{
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth_guards::{DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    authorization::{Capability, Delegation},
     kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
     storage::ImmutableStore,
@@ -139,6 +144,7 @@ pub async fn invoke(
         let res = match i {
             InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
             InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
+            InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
         };
 
         timer.observe_duration();
@@ -231,13 +237,57 @@ where
     }
 }
 
+pub async fn handle_cap_action<B>(
+    action: CapAction<B>,
+    _data: Data<'_>,
+) -> Result<InvocationResponse<B::Readable>, (Status, String)>
+where
+    B: 'static + ImmutableStore,
+{
+    match action {
+        CapAction::Query {
+            orbit,
+            query,
+            invoker,
+        } => orbit
+            .capabilities
+            .store
+            .query(query, &invoker)
+            .await
+            .map(InvocationResponse::CapabilityQuery)
+            .map_err(|e| (Status::InternalServerError, e.to_string())),
+    }
+}
+
 pub enum InvocationResponse<R> {
     NotFound,
     EmptySuccess,
     KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
+    CapabilityQuery(HashMap<Cid, Delegation>),
     Revoked,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CapJsonRep {
+    pub capabilities: Vec<Capability>,
+    pub delegator: String,
+    pub delegate: String,
+    pub parents: Vec<Cid>,
+    raw: String,
+}
+
+impl CapJsonRep {
+    pub fn from_delegation(d: Delegation) -> Result<Self, EncodingError> {
+        Ok(Self {
+            capabilities: d.capabilities,
+            delegator: d.delegator,
+            delegate: d.delegate,
+            parents: d.parents,
+            raw: d.delegation.encode()?,
+        })
+    }
 }
 
 impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
@@ -252,6 +302,13 @@ where
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
             InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
             InvocationResponse::Revoked => ().respond_to(request),
+            InvocationResponse::CapabilityQuery(caps) => Json(
+                caps.into_iter()
+                    .map(|(cid, del)| Ok((cid.to_string(), CapJsonRep::from_delegation(del)?)))
+                    .collect::<Result<HashMap<String, CapJsonRep>>>()
+                    .map_err(|_| Status::InternalServerError)?,
+            )
+            .respond_to(request),
         }
     }
 }

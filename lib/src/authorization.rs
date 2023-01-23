@@ -120,3 +120,7 @@ pub enum EncodingError {
     #[error(transparent)]
     Base64(#[from] base64::DecodeError),
 }
+
+pub enum CapabilitiesQuery {
+    All,
+}

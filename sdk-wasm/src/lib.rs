@@ -26,6 +26,15 @@ fn map_async_jsvalue<E: std::error::Error>(
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
+/// Initialise console-error-panic-hook to improve debug output for panics.
+///
+/// Run once on initialisation.
+pub fn initPanicHook() {
+    console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+#[allow(non_snake_case)]
 pub fn makeOrbitId(address: String, chainId: u32, name: Option<String>) -> String {
     util::make_orbit_id_pkh_eip155(address, chainId, name)
 }
@@ -59,10 +68,11 @@ pub fn completeSessionSetup(config: String) -> Result<String, JsValue> {
 
 #[wasm_bindgen]
 #[allow(non_snake_case)]
-pub fn invoke(session: String, path: String, action: String) -> Promise {
+pub fn invoke(session: String, service: String, path: String, action: String) -> Promise {
     map_async_jsvalue(async move {
         authorization::InvocationHeaders::from(
             serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
+            service,
             path,
             action,
         )

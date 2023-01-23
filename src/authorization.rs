@@ -19,10 +19,11 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
+use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, str::FromStr};
 use time::OffsetDateTime;
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Capability {
     pub resource: ResourceId,
     pub action: String,
@@ -112,7 +113,7 @@ pub struct Delegation {
     pub delegator: String,
     pub delegate: String,
     pub parents: Vec<Cid>,
-    delegation: KeplerDelegation,
+    pub(crate) delegation: KeplerDelegation,
 }
 
 impl ToBlock for Delegation {
@@ -402,7 +403,6 @@ impl Verifiable for Delegation {
                 .iter()
                 .all(|r| res.iter().any(|c| r.extends(c).is_ok()))
             {
-                // TODO should not return 500
                 Err(anyhow!("Capabilities Not Delegated"))
             } else {
                 Ok(())
@@ -450,7 +450,6 @@ impl Verifiable for Invocation {
 
             // check capabilities are supported by parents
             if !res.iter().any(|c| *c) {
-                // TODO should not return 500
                 Err(anyhow!("Capabilities Not Delegated"))
             } else {
                 Ok(())
