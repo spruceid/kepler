@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 base64 = "0.13"
-time = { version = "0.3", features = ["wasm-bindgen"] }
+time = "0.3"
 hex = "0.4"
 http = "0.2"
 iri-string = "0.6"
