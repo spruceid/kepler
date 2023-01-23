@@ -7,7 +7,7 @@ use crate::routes::Metadata;
 use crate::BlockStores;
 use anyhow::Result;
 use kepler_lib::{
-    authorization::Query,
+    authorization::CapabilitiesQuery,
     libipld::Cid,
     resource::{OrbitId, ResourceId},
 };
@@ -289,7 +289,7 @@ impl<B> KVAction<B> {
 pub enum CapAction<B> {
     Query {
         orbit: Orbit<B>,
-        query: Query,
+        query: CapabilitiesQuery,
         invoker: String,
     },
 }
@@ -376,7 +376,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
                         .map(|(orbit, _auth_ref)| {
                             Self::CapabilityQuery(Box::new(CapAction::Query {
                                 orbit,
-                                query: Query::All,
+                                query: CapabilitiesQuery::All,
                                 invoker,
                             }))
                         }),

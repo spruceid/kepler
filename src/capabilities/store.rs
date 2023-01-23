@@ -9,7 +9,7 @@ use anyhow::Result;
 use async_stream::try_stream;
 use kepler_lib::libipld::{cbor::DagCborCodec, multihash::Code, Cid, DagCbor};
 use kepler_lib::{
-    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation, Query},
+    authorization::{CapabilitiesQuery, KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe_cacao::SiweCacao,
     resource::{OrbitId, ResourceId},
 };
@@ -95,12 +95,16 @@ where
         Ok(())
     }
 
-    pub async fn query(&self, query: Query, _invoker: &str) -> Result<HashMap<Cid, Delegation>> {
+    pub async fn query(
+        &self,
+        query: CapabilitiesQuery,
+        _invoker: &str,
+    ) -> Result<HashMap<Cid, Delegation>> {
         // traverse the graph collecting all delegations which fit the query
         let (cids, _h) = self.delegation_heads.get_heads().await?;
 
         match query {
-            Query::All => Ok(self
+            CapabilitiesQuery::All => Ok(self
                 .traverse_delegations(&cids)
                 .try_collect::<HashMap<Cid, Delegation>>()
                 .await?),
