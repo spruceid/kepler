@@ -74,7 +74,7 @@ struct Element(pub u64, pub Cid);
 #[derive(thiserror::Error, Debug)]
 enum ElementDeserError {
     #[error(transparent)]
-    Cid(#[from] libipld::cid::Error),
+    Cid(#[from] kepler_lib::libipld::cid::Error),
     #[error("Insufficient bytes")]
     Length,
 }

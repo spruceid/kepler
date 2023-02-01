@@ -1,17 +1,17 @@
 [global]
 # log_level = "normal"
-# address = 127.0.0.1
-# port = 8000
+address = "127.0.0.1"
+port = 8000
 
 ## Example of nest config variable: KEPLER_DATABASE_PATH
 [global.storage]
     ###### Document shared aws config (`aws_config::from_env()`)
     [global.storage.blocks]
-    # type = "Local"
-    # path = "/tmp/kepler/blocks"
+    type = "Local"
+    path = "./tmp/kepler/blocks"
     [global.storage.indexes]
-    # type = "Local"
-    # path = "/tmp/kepler/indexes"
+    type = "Local"
+    path = "./tmp/kepler/indexes"
 
 [global.orbits]
 ## Orbit allow list api endpoint
