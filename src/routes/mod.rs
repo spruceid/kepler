@@ -175,7 +175,7 @@ where
                 .map_err(|e| {
                     (
                         Status::InternalServerError,
-                        format!("Failed to delete content: {}", e),
+                        format!("Failed to delete content: {e}"),
                     )
                 })?;
             Ok(InvocationResponse::EmptySuccess)

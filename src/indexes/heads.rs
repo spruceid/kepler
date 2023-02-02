@@ -22,11 +22,11 @@ impl HeadStore {
             heights: KV::new(
                 orbit_id,
                 subsystem_name.clone(),
-                format!("{}-heights", name),
+                format!("{name}-heights"),
                 config.clone(),
             )
             .await?,
-            heads: KV::new(orbit_id, subsystem_name, format!("{}-heads", name), config).await?,
+            heads: KV::new(orbit_id, subsystem_name, format!("{name}-heads"), config).await?,
         })
     }
     pub async fn get_heads(&self) -> Result<(Vec<Cid>, u64)> {
@@ -52,7 +52,6 @@ impl HeadStore {
                 Ok((heads, u64::max(max_height, height)))
             },
         )
-        // .collect()
         .await
     }
 

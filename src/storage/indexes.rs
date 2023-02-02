@@ -134,7 +134,7 @@ impl KV {
                     }) => match output.get(VALUE_ATTRIBUTE) {
                         Some(AttributeValue::B(blob)) => Ok(Some(blob.clone().into_inner())),
                         Some(_) => Err(anyhow!("Wrong type for value")),
-                        None => Err(anyhow!("No `{}` column", KEY_ATTRIBUTE)),
+                        None => Err(anyhow!("No `{KEY_ATTRIBUTE}` column")),
                     },
                     Ok(_) => Ok(None),
                     Err(e) => Err(anyhow!("Error checking on item: {}", e)),
@@ -182,7 +182,7 @@ impl KV {
                             c.orbit, c.subsystem, c.prefix, "elements"
                         )),
                     )
-                    .update_expression(format!("ADD {} :elements", ELEMENTS_ATTRIBUTE,))
+                    .update_expression(format!("ADD {ELEMENTS_ATTRIBUTE} :elements"))
                     .expression_attribute_values(
                         ":elements",
                         AttributeValue::Ss(vec![hex::encode(key)]),
@@ -246,7 +246,7 @@ impl KV {
                             c.orbit, c.subsystem, c.prefix, "elements"
                         )),
                     )
-                    .update_expression(format!("DELETE {} :elements", ELEMENTS_ATTRIBUTE,))
+                    .update_expression(format!("DELETE {ELEMENTS_ATTRIBUTE} :elements"))
                     .expression_attribute_values(
                         ":elements",
                         AttributeValue::Ss(batch.into_iter().map(hex::encode).collect()),
