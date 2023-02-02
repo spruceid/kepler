@@ -43,7 +43,7 @@ ARG DIR
 WORKDIR $DIR
 COPY --from=builder ${DIR}/target/x86_64-unknown-linux-musl/release/kepler /usr/local/bin/
 COPY ./kepler.toml ./
-ENV KEPLER_ADDRESS=0.0.0.0
+ENV ROCKET_ADDRESS=0.0.0.0
 EXPOSE 8000
 EXPOSE 8001
 EXPOSE 8081
