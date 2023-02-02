@@ -80,7 +80,7 @@ impl SessionConfig {
         use serde_json::Value;
         let ns = "kepler"
             .parse()
-            .map_err(|e| format!("error parsing kepler as Siwe Capability namespace: {}", e))?;
+            .map_err(|e| format!("error parsing kepler as Siwe Capability namespace: {e}"))?;
         let b = self
             .actions
             .into_iter()
@@ -121,10 +121,10 @@ impl SessionConfig {
             resources: vec![],
             uri: delegate
                 .try_into()
-                .map_err(|e| format!("failed to parse session key DID as a URI: {}", e))?,
+                .map_err(|e| format!("failed to parse session key DID as a URI: {e}"))?,
             version: SIWEVersion::V1,
         })
-        .map_err(|e| format!("error building Host SIWE message: {}", e))
+        .map_err(|e| format!("error building Host SIWE message: {e}"))
     }
 }
 

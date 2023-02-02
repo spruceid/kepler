@@ -43,7 +43,7 @@ impl TryFrom<HostConfig> for Message {
             .with_action(
                 &"kepler"
                     .parse()
-                    .map_err(|e| format!("failed to parse kepler as namespace: {}", e))?,
+                    .map_err(|e| format!("failed to parse kepler as namespace: {e}"))?,
                 c.orbit_id.to_resource(None, None, None).to_string(),
                 "host".to_string(),
             )
@@ -54,7 +54,7 @@ impl TryFrom<HostConfig> for Message {
                 issued_at: c.issued_at,
                 uri: format!("peer:{}", c.peer_id)
                     .try_into()
-                    .map_err(|e| format!("error parsing peer as a URI: {}", e))?,
+                    .map_err(|e| format!("error parsing peer as a URI: {e}"))?,
                 nonce: generate_nonce(),
                 statement: None,
                 resources: vec![],
@@ -63,7 +63,7 @@ impl TryFrom<HostConfig> for Message {
                 expiration_time: None,
                 request_id: None,
             })
-            .map_err(|e| format!("error building Host SIWE message: {}", e))
+            .map_err(|e| format!("error building Host SIWE message: {e}"))
     }
 }
 
