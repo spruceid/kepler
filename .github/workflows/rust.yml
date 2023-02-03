@@ -67,3 +67,8 @@ jobs:
     - name: Fmt
       working-directory: ${{ matrix.pkg }}
       run: cargo fmt -- --check
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+    - run: docker build .
