@@ -8,7 +8,7 @@ pub mod address {
     {
         String::deserialize(d).and_then(|address| {
             <[u8; 20]>::from_hex(address.strip_prefix("0x").unwrap_or(&address))
-                .map_err(|e| D::Error::custom(format!("failed to parse ethereum: {}", e)))
+                .map_err(|e| D::Error::custom(format!("failed to parse ethereum: {e}")))
         })
     }
 }
@@ -25,7 +25,7 @@ pub mod signature {
         String::deserialize(d).and_then(|sig| {
             <[u8; 65]>::from_hex(sig.strip_prefix("0x").unwrap_or(&sig))
                 .map(Into::into)
-                .map_err(|e| D::Error::custom(format!("failed to parse SIWE signature: {}", e)))
+                .map_err(|e| D::Error::custom(format!("failed to parse SIWE signature: {e}")))
         })
     }
 }

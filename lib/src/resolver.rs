@@ -24,7 +24,7 @@ lazy_static::lazy_static! {
                 Ok(url) => Some(url),
                 Err(VarError::NotPresent) => None,
                 Err(VarError::NotUnicode(err)) => {
-                    eprintln!("Unable to parse DID_ONION_PROXY_URL: {:?}", err);
+                    eprintln!("Unable to parse DID_ONION_PROXY_URL: {err:?}");
                     None
                 }
             } {

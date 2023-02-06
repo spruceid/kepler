@@ -61,7 +61,7 @@ impl OrbitId {
                 if p.starts_with('/') {
                     p
                 } else {
-                    format!("/{}", p)
+                    format!("/{p}")
                 }
             }),
             fragment,
@@ -147,7 +147,7 @@ impl TryInto<Capability> for ResourceId {
             ))),
             can: UcanScope {
                 namespace: match self.service {
-                    Some(s) => format!("kepler.{}", s),
+                    Some(s) => format!("kepler.{s}"),
                     None => "kepler".to_string(),
                 },
                 capability: self.fragment.ok_or(ResourceCapErr::MissingAction)?,
@@ -196,13 +196,13 @@ impl fmt::Display for ResourceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.orbit)?;
         if let Some(s) = &self.service {
-            write!(f, "/{}", s)?
+            write!(f, "/{s}")?
         };
         if let Some(p) = &self.path {
-            write!(f, "{}", p)?
+            write!(f, "{p}")?
         };
         if let Some(fr) = &self.fragment {
-            write!(f, "#{}", fr)?
+            write!(f, "#{fr}")?
         };
         Ok(())
     }
@@ -273,7 +273,7 @@ impl FromStr for ResourceId {
                     id: host.into(),
                 },
                 service: path.map(|(s, _)| s.into()),
-                path: path.map(|(_, pa)| format!("/{}", pa)),
+                path: path.map(|(_, pa)| format!("/{pa}")),
                 fragment: uri.fragment().map(|s| s.to_string()),
             }),
             _ => Err(Self::Err::IncorrectForm),

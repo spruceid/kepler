@@ -40,7 +40,7 @@ impl Fairing for TracingFairing {
         if let Some(TracingSpan(span)) = req.local_cache(|| Option::<TracingSpan>::None).to_owned()
         {
             let trace_id = span.context().span().span_context().trace_id();
-            res.set_raw_header(self.header_name.clone(), format!("{}", trace_id));
+            res.set_raw_header(self.header_name.clone(), format!("{trace_id}"));
         }
     }
 }
