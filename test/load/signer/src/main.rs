@@ -25,7 +25,7 @@ struct User {
 
 async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
     let address = to_checksum(&wallet.address(), None);
-    let did = format!("did:pkh:eip155:1:{}", address);
+    let did = format!("did:pkh:eip155:1:{address}");
     let orbit_id = OrbitId::new(
         did.strip_prefix("did:").unwrap().to_string(),
         String::from("default"),
@@ -33,17 +33,20 @@ async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
 
     let session_config = SessionConfig {
         actions: [(
-            "".into(),
-            vec![
-                "put".into(),
-                "get".into(),
-                "del".into(),
-                "metadata".into(),
-                "list".into(),
-            ],
+            "kv".into(),
+            [(
+                "".into(),
+                vec![
+                    "put".into(),
+                    "get".into(),
+                    "del".into(),
+                    "metadata".into(),
+                    "list".into(),
+                ],
+            )]
+            .into(),
         )]
         .into(),
-        service: "kv".to_string(),
         address: wallet.address().into(),
         chain_id: 1,
         domain: "localhost".try_into().unwrap(),
@@ -136,6 +139,7 @@ async fn invoke_session(
 ) -> Json<InvocationHeaders> {
     let headers = InvocationHeaders::from(
         users.read().await.get(&id).unwrap().session.clone(),
+        "kv".into(),
         params.name,
         params.action,
     )
