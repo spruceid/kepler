@@ -99,7 +99,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                     "Access-Control-Allow-Methods",
                     "POST, PUT, GET, OPTIONS, DELETE",
                 ));
-                resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+                resp.set_header(Header::new(
+                    "Access-Control-Expose-Headers",
+                    "*, Authorization",
+                ));
+                resp.set_header(Header::new(
+                    "Access-Control-Allow-Headers",
+                    "*, Authorization",
+                ));
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
         }))
