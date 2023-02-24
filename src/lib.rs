@@ -96,14 +96,17 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             Box::pin(async move {
                 resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
                 resp.set_header(Header::new(
+                    // allow these methods for requests
                     "Access-Control-Allow-Methods",
                     "POST, PUT, GET, OPTIONS, DELETE",
                 ));
                 resp.set_header(Header::new(
+                    // expose response headers to browser-run scripts
                     "Access-Control-Expose-Headers",
                     "*, Authorization",
                 ));
                 resp.set_header(Header::new(
+                    // allow custom headers + Authorization in requests
                     "Access-Control-Allow-Headers",
                     "*, Authorization",
                 ));
