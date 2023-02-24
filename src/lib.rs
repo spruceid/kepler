@@ -89,10 +89,17 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         delegate,
     ];
 
-    Ok(rocket::custom(config)
+    let rocket = rocket::custom(config)
         .mount("/", routes)
         .attach(AdHoc::config::<config::Config>())
-        .attach(AdHoc::on_response("CORS", |_, resp| {
+        .attach(tracing::TracingFairing {
+            header_name: kepler_config.log.tracing.traceheader,
+        })
+        .manage(relay_node)
+        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+
+    if kepler_config.cors {
+        Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {
             Box::pin(async move {
                 resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
                 resp.set_header(Header::new(
@@ -112,10 +119,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
                 ));
                 resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
             })
-        }))
-        .attach(tracing::TracingFairing {
-            header_name: kepler_config.log.tracing.traceheader,
-        })
-        .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new())))
+        })))
+    } else {
+        Ok(rocket)
+    }
 }
