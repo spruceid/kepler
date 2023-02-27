@@ -15,6 +15,7 @@ pub struct Config {
     pub orbits: OrbitsConfig,
     pub relay: Relay,
     pub prometheus: Prometheus,
+    pub cors: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]

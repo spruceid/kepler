@@ -89,23 +89,38 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         delegate,
     ];
 
-    Ok(rocket::custom(config)
+    let rocket = rocket::custom(config)
         .mount("/", routes)
         .attach(AdHoc::config::<config::Config>())
-        .attach(AdHoc::on_response("CORS", |_, resp| {
-            Box::pin(async move {
-                resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-                resp.set_header(Header::new(
-                    "Access-Control-Allow-Methods",
-                    "POST, PUT, GET, OPTIONS, DELETE",
-                ));
-                resp.set_header(Header::new("Access-Control-Allow-Headers", "*"));
-                resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-            })
-        }))
         .attach(tracing::TracingFairing {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new())))
+        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+
+    if kepler_config.cors {
+        Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {
+            Box::pin(async move {
+                resp.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+                resp.set_header(Header::new(
+                    // allow these methods for requests
+                    "Access-Control-Allow-Methods",
+                    "POST, PUT, GET, OPTIONS, DELETE",
+                ));
+                resp.set_header(Header::new(
+                    // expose response headers to browser-run scripts
+                    "Access-Control-Expose-Headers",
+                    "*, Authorization",
+                ));
+                resp.set_header(Header::new(
+                    // allow custom headers + Authorization in requests
+                    "Access-Control-Allow-Headers",
+                    "*, Authorization",
+                ));
+                resp.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+            })
+        })))
+    } else {
+        Ok(rocket)
+    }
 }

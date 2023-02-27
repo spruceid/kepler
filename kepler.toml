@@ -2,6 +2,7 @@
 # log_level = "normal"
 # address = "127.0.0.1"
 # port = 8000
+# cors = true
 
 ## Example of nest config variable: KEPLER_DATABASE_PATH
 [global.storage]
