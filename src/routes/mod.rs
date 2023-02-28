@@ -20,6 +20,7 @@ use rocket::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
+    path::PathBuf,
     sync::RwLock,
 };
 use tracing::{info_span, Instrument};
@@ -206,7 +207,7 @@ where
                         .transpose()
                     })
                     .collect::<Result<Vec<String>>>()
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?,
+                    .map_err(internal_server)?,
             ))
         }
         KVAction::Metadata { orbit, key } => match orbit.service.get(key).await {
@@ -234,6 +235,46 @@ where
                 .await
                 .map_err(|e| (Status::InternalServerError, e.to_string()))?;
             Ok(InvocationResponse::EmptySuccess)
+        }
+        KVAction::GetArchive { orbit, prefix } => {
+            use async_tar::{Builder, Header};
+            let mut archive = Builder::new(Vec::new());
+            let mut files = 0;
+            let mut bytes = 0;
+            // get all the file path-like keys
+            let list = orbit
+                .service
+                .list()
+                .await
+                .filter(|r| r.map(|v| v.starts_with(prefix.as_bytes())).unwrap_or(false))
+                .filter_map(|r| {
+                    r.map(|v| PathBuf::try_from(v.as_ref()).ok().map(|p| (v, p)))
+                        .transpose()
+                })
+                .collect::<Result<Vec<(Vec<u8>, PathBuf)>>>()
+                .map_err(internal_server)?;
+            for (key, path) in list {
+                if let Some(content) = orbit
+                    .service
+                    .get(key)
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?
+                {
+                    let mut header = Header::new_gnu();
+                    header.set_path(path).map_err(internal_server)?;
+                    header.set_size(content.len() as u64);
+                    header.set_cksum();
+                    archive.append(&header, content)?;
+                    files += 1;
+                    bytes += content.len();
+                }
+            }
+
+            let mut archive = archive.into_inner()?;
+            archive.shrink_to_fit();
+            Ok(Invocation::KVResponse(ArchiveResponse::new(
+                archive, files, bytes,
+            )))
         }
     }
 }
@@ -312,4 +353,11 @@ where
             .respond_to(request),
         }
     }
+}
+
+pub fn internal_server<E>(e: E) -> (Status, String)
+where
+    E: std::fmt::Display,
+{
+    (Status::InternalServerError, e.to_string())
 }

@@ -130,7 +130,7 @@ impl<B> Store<B> {
             .filter_map(move |r| async move {
                 match r {
                     Err(e) => Some(Err(e.into())),
-                    Ok((key, Element(_, cid))) => {
+                    Ok((key, Element(n, cid))) => {
                         match self
                             .index
                             .is_tombstoned(&Version(&key, cid).to_bytes())

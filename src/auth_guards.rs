@@ -272,6 +272,10 @@ pub enum KVAction<B> {
         metadata: Metadata,
         auth_ref: Cid,
     },
+    GetArchive {
+        orbit: Orbit<B>,
+        prefix: String,
+    },
 }
 
 impl<B> KVAction<B> {
@@ -282,6 +286,7 @@ impl<B> KVAction<B> {
             KVAction::List { .. } => "kv_list",
             KVAction::Metadata { .. } => "kv_metadata",
             KVAction::Put { .. } => "kv_put",
+            KVAction::GetArchive { .. } => "kv_archive",
         }
     }
 }
