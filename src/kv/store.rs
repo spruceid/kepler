@@ -188,7 +188,7 @@ where
             _ => return Ok(None),
         };
         match self.blocks.read(kv_obj.value.hash()).await? {
-            Some(r) => Ok(Some(ReadResponse(kv_obj.metadata, r))),
+            Some(r) => Ok(Some(ReadResponse(kv_obj.metadata, r.into_inner().1))),
             None => Err(anyhow!("Indexed contents missing from block store")),
         }
     }

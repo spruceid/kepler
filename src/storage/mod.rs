@@ -39,6 +39,22 @@ pub enum KeyedWriteError<E> {
     Store(#[from] E),
 }
 
+pub struct Content<R>(u64, R);
+
+impl<R> Content<R> {
+    pub fn new(size: u64, content: R) -> Self {
+        Self(size, content)
+    }
+
+    pub fn len(&self) -> u64 {
+        self.0
+    }
+
+    pub fn into_inner(self) -> (u64, R) {
+        (self.0, self.1)
+    }
+}
+
 /// A Store implementing content-addressed storage
 /// Content is address by [Multihash][libipld::cid::multihash::Multihash] and represented as an
 /// [AsyncRead][futures::io::AsyncRead]-implementing type.
@@ -58,7 +74,7 @@ pub trait ImmutableStore: Send + Sync {
         hash: &Multihash,
     ) -> Result<(), KeyedWriteError<Self::Error>>;
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error>;
     async fn read_to_vec(
         &self,
         id: &Multihash,
@@ -67,11 +83,11 @@ pub trait ImmutableStore: Send + Sync {
         Self::Readable: Send,
     {
         use futures::io::AsyncReadExt;
-        let r = match self.read(id).await? {
+        let (l, r) = match self.read(id).await? {
             None => return Ok(None),
-            Some(r) => r,
+            Some(r) => r.into_inner(),
         };
-        let mut v = Vec::new();
+        let mut v = vec![0u8; l as usize];
         Box::pin(r)
             .read_to_end(&mut v)
             .await
@@ -113,7 +129,7 @@ where
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         self.remove(id).await
     }
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         self.read(id).await
     }
     async fn read_to_vec(

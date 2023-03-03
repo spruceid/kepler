@@ -1,6 +1,6 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{ImmutableStore, KeyedWriteError, StorageConfig},
+    storage::{Content, ImmutableStore, KeyedWriteError, StorageConfig},
 };
 use futures::future::Either as AsyncReadEither;
 use kepler_lib::{
@@ -71,17 +71,27 @@ where
             Self::B(r) => r.remove(id).await.map_err(Self::Error::B),
         }
     }
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         match self {
             Self::A(l) => l
                 .read(id)
                 .await
-                .map(|o| o.map(Self::Readable::Left))
+                .map(|o| {
+                    o.map(|c| {
+                        let (l, r) = c.into_inner();
+                        Content::new(l, Self::Readable::Left(r))
+                    })
+                })
                 .map_err(Self::Error::A),
             Self::B(r) => r
                 .read(id)
                 .await
-                .map(|o| o.map(Self::Readable::Right))
+                .map(|o| {
+                    o.map(|c| {
+                        let (l, r) = c.into_inner();
+                        Content::new(l, Self::Readable::Right(r))
+                    })
+                })
                 .map_err(Self::Error::B),
         }
     }

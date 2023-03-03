@@ -1,6 +1,6 @@
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
+    storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
 };
 use kepler_lib::{
     libipld::cid::{
@@ -189,9 +189,9 @@ impl ImmutableStore for FileSystemStore {
             Err(e) => Err(e.into()),
         }
     }
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         match File::open(self.get_path(id)).await {
-            Ok(f) => Ok(Some(f.compat())),
+            Ok(f) => Ok(Some(Content::new(f.metadata().await?.len(), f.compat()))),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
