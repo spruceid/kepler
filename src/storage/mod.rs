@@ -4,6 +4,7 @@ use kepler_lib::libipld::cid::{
     Cid,
 };
 use kepler_lib::resource::OrbitId;
+use pin_project::pin_project;
 use std::{collections::HashMap, error::Error as StdError};
 
 pub mod either;
@@ -39,7 +40,9 @@ pub enum KeyedWriteError<E> {
     Store(#[from] E),
 }
 
-pub struct Content<R>(u64, R);
+#[pin_project]
+#[derive(Debug)]
+pub struct Content<R>(u64, #[pin] R);
 
 impl<R> Content<R> {
     pub fn new(size: u64, content: R) -> Self {
@@ -52,6 +55,29 @@ impl<R> Content<R> {
 
     pub fn into_inner(self) -> (u64, R) {
         (self.0, self.1)
+    }
+}
+
+impl<R> futures::io::AsyncRead for Content<R>
+where
+    R: futures::io::AsyncRead,
+{
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.project();
+        this.1.poll_read(cx, buf)
+    }
+
+    fn poll_read_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.project();
+        this.1.poll_read_vectored(cx, bufs)
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::indexes::{AddRemoveSetStore, HeadStore};
 use crate::kv::{Object, ObjectBuilder, Service};
-use crate::storage::ImmutableStore;
+use crate::storage::{Content, ImmutableStore};
 use anyhow::Result;
 use futures::{
     io::AsyncRead,
@@ -179,7 +179,7 @@ where
     }
 
     #[instrument(name = "kv::read", skip_all)]
-    pub async fn read<N>(&self, key: N) -> Result<Option<ReadResponse<B::Readable>>>
+    pub async fn read<N>(&self, key: N) -> Result<Option<ReadResponse<Content<B::Readable>>>>
     where
         N: AsRef<[u8]>,
     {
@@ -188,7 +188,7 @@ where
             _ => return Ok(None),
         };
         match self.blocks.read(kv_obj.value.hash()).await? {
-            Some(r) => Ok(Some(ReadResponse(kv_obj.metadata, r.into_inner().1))),
+            Some(r) => Ok(Some(ReadResponse(kv_obj.metadata, r))),
             None => Err(anyhow!("Indexed contents missing from block store")),
         }
     }
