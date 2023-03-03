@@ -11,7 +11,7 @@ use libp2p::{
 };
 use rocket::{
     data::{Data, ToByteUnit},
-    http::{Header, Status},
+    http::{ContentType, Header, Status},
     request::{FromRequest, Outcome, Request},
     response::{Responder, Response},
     serde::json::Json,
@@ -20,6 +20,7 @@ use rocket::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
+    io::Cursor,
     path::PathBuf,
     sync::RwLock,
 };
@@ -244,11 +245,18 @@ where
                 .service
                 .list()
                 .await
-                .filter(|r| r.map(|v| v.starts_with(prefix.as_bytes())).unwrap_or(false))
+                // keys which start with prefix
+                .filter(|r| {
+                    r.as_ref()
+                        .map(|v| v.starts_with(prefix.as_bytes()))
+                        .unwrap_or(false)
+                })
+                // keys which are valid paths
                 .filter_map(|r| {
                     r.map(|v| {
-                        PathBuf::try_from(String::from_utf8(v.as_ref()))
+                        std::str::from_utf8(&v)
                             .ok()
+                            .and_then(|s| PathBuf::try_from(s).ok())
                             .map(|p| (v, p))
                     })
                     .transpose()
@@ -259,7 +267,7 @@ where
                 if let Some(content) = orbit.service.read(key).await.map_err(internal_server)? {
                     let mut header = Header::new_gnu();
                     header.set_path(path).map_err(internal_server)?;
-                    // header.set_size(content.len() as u64);
+                    header.set_size(content.1.len());
                     header.set_cksum();
                     archive
                         .append(&header, Box::pin(content.1))
@@ -348,6 +356,13 @@ where
                     .map_err(|_| Status::InternalServerError)?,
             )
             .respond_to(request),
+            InvocationResponse::Archive(archive) => {
+                let mut response = Response::build();
+                response
+                    .header(ContentType::new("application", "x-tar"))
+                    .sized_body(archive.len(), Cursor::new(archive));
+                response.ok()
+            }
         }
     }
 }
