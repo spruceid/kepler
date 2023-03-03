@@ -233,14 +233,12 @@ where
                     rm,
                 )
                 .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                .map_err(internal_server)?;
             Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::GetArchive { orbit, prefix } => {
             use async_tar::{Builder, Header};
             let mut archive = Builder::new(Vec::new());
-            let mut files = 0;
-            let mut bytes = 0;
             // get all the file path-like keys
             let list = orbit
                 .service
@@ -248,33 +246,31 @@ where
                 .await
                 .filter(|r| r.map(|v| v.starts_with(prefix.as_bytes())).unwrap_or(false))
                 .filter_map(|r| {
-                    r.map(|v| PathBuf::try_from(v.as_ref()).ok().map(|p| (v, p)))
-                        .transpose()
+                    r.map(|v| {
+                        PathBuf::try_from(String::from_utf8(v.as_ref()))
+                            .ok()
+                            .map(|p| (v, p))
+                    })
+                    .transpose()
                 })
                 .collect::<Result<Vec<(Vec<u8>, PathBuf)>>>()
                 .map_err(internal_server)?;
             for (key, path) in list {
-                if let Some(content) = orbit
-                    .service
-                    .get(key)
-                    .await
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?
-                {
+                if let Some(content) = orbit.service.read(key).await.map_err(internal_server)? {
                     let mut header = Header::new_gnu();
                     header.set_path(path).map_err(internal_server)?;
-                    header.set_size(content.len() as u64);
+                    // header.set_size(content.len() as u64);
                     header.set_cksum();
-                    archive.append(&header, content)?;
-                    files += 1;
-                    bytes += content.len();
+                    archive
+                        .append(&header, Box::pin(content.1))
+                        .await
+                        .map_err(internal_server)?;
                 }
             }
 
-            let mut archive = archive.into_inner()?;
+            let mut archive = archive.into_inner().await.map_err(internal_server)?;
             archive.shrink_to_fit();
-            Ok(Invocation::KVResponse(ArchiveResponse::new(
-                archive, files, bytes,
-            )))
+            Ok(InvocationResponse::Archive(archive))
         }
     }
 }
@@ -305,6 +301,7 @@ pub enum InvocationResponse<R> {
     NotFound,
     EmptySuccess,
     KVResponse(KVResponse<R>),
+    Archive(Vec<u8>),
     List(Vec<String>),
     Metadata(Metadata),
     CapabilityQuery(HashMap<Cid, Delegation>),
