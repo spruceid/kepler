@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.5.6"
-ethers = "0.6.2"
+ethers = "1.0.2"
 iri-string = "0.4"
 kepler-lib = { path = "../../../lib" }
 kepler-sdk = { path = "../../../sdk" }
