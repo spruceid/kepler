@@ -3,7 +3,7 @@ use futures::io::{AsyncRead, AsyncWrite};
 use libp2p::{
     core::transport::{dummy::DummyTransport, MemoryTransport, OrTransport, Transport},
     dns::{ResolverConfig, ResolverOpts, TokioDnsConfig as DnsTransport},
-    tcp::TokioTcpTransport as TcpTransport,
+    tcp::tokio::Transport as TcpTransport,
     wasm_ext::ExtTransport,
     websocket::{tls::Config as WsTlsConfig, WsConfig as WsTransport},
 };
@@ -21,7 +21,7 @@ pub trait IntoTransport {
     }
 }
 
-pub use libp2p::tcp::GenTcpConfig as TcpConfig;
+pub use libp2p::tcp::Config as TcpConfig;
 pub use libp2p::wasm_ext::ffi::Transport as ExtConfig;
 
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq)]

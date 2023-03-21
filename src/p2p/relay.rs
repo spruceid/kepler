@@ -9,14 +9,14 @@ use futures::{
 };
 use libp2p::{
     autonat::{Behaviour as AutoNat, Config as AutoNatConfig},
-    core::{identity::Keypair, upgrade, Multiaddr, PeerId, Transport},
+    core::{identity::Keypair, upgrade, Multiaddr, Transport},
     identify::Behaviour as Identify,
     identity::PublicKey,
     mplex, noise,
     ping::{Behaviour as Ping, Config as PingConfig},
-    relay::v2::relay::{Config as RelayConfig, Relay},
+    relay::{Behaviour as Relay, Config as RelayConfig},
     swarm::{NetworkBehaviour, SwarmBuilder},
-    yamux,
+    yamux, PeerId,
 };
 
 #[derive(Clone, Debug)]
@@ -34,7 +34,7 @@ pub struct Behaviour {
 }
 
 #[derive(Debug)]
-pub enum Message {
+enum Message {
     GetAddresses(oneshot::Sender<Vec<Multiaddr>>),
     ListenOn(Vec<Multiaddr>, oneshot::Sender<Result<()>>),
 }
@@ -58,12 +58,25 @@ impl RelayNode {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Config {
     identify: IdentifyConfig,
     ping: PingConfig,
     relay: RelayConfig,
     autonat: AutoNatConfig,
+    channel_size: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            identify: IdentifyConfig::default(),
+            ping: PingConfig::default(),
+            relay: RelayConfig::default(),
+            autonat: AutoNatConfig::default(),
+            channel_size: 100,
+        }
+    }
 }
 
 impl Config {
@@ -81,6 +94,10 @@ impl Config {
     }
     pub fn autonat(&mut self, i: impl Into<AutoNatConfig>) -> &mut Self {
         self.autonat = i.into();
+        self
+    }
+    pub fn channel_size(&mut self, i: impl Into<usize>) -> &mut Self {
+        self.channel_size = i.into();
         self
     }
 
@@ -170,5 +187,27 @@ impl Config {
             Result::<(), anyhow::Error>::Ok(())
         });
         Ok(r)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::p2p::transport::MemoryConfig;
+    use libp2p::build_multiaddr;
+
+    #[test]
+    async fn basic_test() {
+        let addr = build_multiaddr!(Memory(0));
+
+        let relay = RelayConfig::default()
+            .launch(Keypair::generate_ed25519(), MemoryConfig)
+            .await
+            .unwrap();
+
+        relay.listen_on([addr.clone()]).await.unwrap();
+        let listened = relay.get_addresses().await.unwrap();
+
+        assert_eq!(listened, vec![addr]);
     }
 }

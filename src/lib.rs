@@ -27,16 +27,10 @@ mod tracing;
 pub mod transport;
 
 use config::{BlockStorage, Config};
-use libp2p::{
-    core::multiaddr::multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    PeerId,
-};
+use libp2p::{build_multiaddr, identity::ed25519::Keypair as Ed25519Keypair, PeerId};
 use orbit::ProviderUtils;
-use p2p::{
-    relay::Config as RelayConfig,
-    transport::{Both, DnsConfig, MemoryConfig, TcpConfig, WsConfig},
-};
+use p2p::relay::Config as RelayConfig;
+use p2p::transport::{Both, DnsConfig, MemoryConfig, TcpConfig, WsConfig};
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
@@ -79,18 +73,18 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     tracing::tracing_try_init(&kepler_config.log);
 
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
-    let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
-    let mut relay_node = RelayConfig::default().launch(
-        Keypair::Ed25519(kp),
-        // transport for memory, dns + tcp and websocket over dns + tcp
-        Both::<MemoryConfig, Both<DnsConfig<TcpConfig>, WsConfig<DnsConfig<TcpConfig>>>>::default(),
-    )?;
+    let relay_node = RelayConfig::default()
+        .launch(
+            kepler_config.storage.blocks.relay_key_pair().await?,
+            Both::<MemoryConfig, TcpConfig>::default(),
+        )
+        .await?;
 
     relay_node
         .listen_on([
-            multiaddr!(Memory(kepler_config.relay.port)),
-            multiaddr!(Ip4([127, 0, 0, 1]), Tcp(kepler_config.relay.port)),
+            build_multiaddr!(Memory(kepler_config.relay.port)),
+            build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(kepler_config.relay.port)),
         ])
         .await?;
 

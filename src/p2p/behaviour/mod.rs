@@ -9,21 +9,21 @@ use futures::{
 use libipld::Cid;
 use libp2p::{
     autonat::Behaviour as AutoNat,
-    core::{ConnectedPoint, PeerId},
-    dcutr::behaviour::Behaviour as Dcutr,
-    gossipsub::Gossipsub,
+    core::ConnectedPoint,
+    dcutr::Behaviour as Dcutr,
+    gossipsub::Behaviour as GossipSub,
     identify::Behaviour as Identify,
+    identity::PeerId,
     kad::{
         record::store::{MemoryStore, RecordStore},
         Kademlia,
     },
     ping::Behaviour as Ping,
-    relay::v2::client::Client,
-    simple::SimpleProtocol,
+    relay::client::Behaviour as Client,
     swarm::{
-        behaviour::toggle::Toggle, ConnectionHandler, ConnectionHandlerEvent,
-        IntoConnectionHandler, KeepAlive, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-        SubstreamProtocol, Swarm,
+        behaviour::toggle::Toggle, ConnectionHandler, ConnectionHandlerEvent, ConnectionId,
+        FromSwarm, KeepAlive, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
+        SubstreamProtocol,
     },
 };
 use std::io::Error as IoError;

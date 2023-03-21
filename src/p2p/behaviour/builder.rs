@@ -1,4 +1,8 @@
-use crate::p2p::{behaviour::Behaviour, transport::IntoTransport, IdentifyConfig};
+use crate::p2p::{
+    behaviour::{BaseBehaviour, Behaviour},
+    transport::IntoTransport,
+    IdentifyConfig,
+};
 use futures::{
     channel::{mpsc, oneshot},
     future::{select, Either},
@@ -8,19 +12,23 @@ use futures::{
 };
 use libp2p::{
     autonat::{Behaviour as AutoNat, Config as AutoNatConfig},
-    core::{upgrade, PeerId, Transport},
-    dcutr::behaviour::Behaviour as Dcutr,
+    core::{upgrade, Transport},
+    dcutr::Behaviour as Dcutr,
     gossipsub::{
-        Gossipsub, GossipsubConfig, GossipsubConfigBuilder, MessageAuthenticity, ValidationMode,
+        Behaviour as Gossipsub, Config as GossipsubConfig, ConfigBuilder as GossipsubConfigBuilder,
+        MessageAuthenticity, ValidationMode,
     },
     identify::Behaviour as Identify,
-    identity::Keypair,
+    identity::{Keypair, PeerId},
     kad::{
         record::store::{MemoryStore, MemoryStoreConfig, RecordStore},
         Kademlia, KademliaConfig,
     },
+    mplex, noise,
     ping::{Behaviour as Ping, Config as PingConfig},
-    relay::v2::client::Client,
+    relay::client::{new, Behaviour as Client},
+    swarm::{Swarm, SwarmBuilder},
+    yamux,
 };
 use thiserror::Error;
 
@@ -163,7 +171,7 @@ pub enum OrbitLaunchError<T> {
 
 pub trait RecordStoreConfig<S>
 where
-    S: for<'a> RecordStore<'a>,
+    S: RecordStore + Send + 'static,
 {
     fn init(self, id: PeerId) -> S;
 }
