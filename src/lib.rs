@@ -11,6 +11,7 @@ use kepler_lib::libipld::{block::Block as OBlock, store::DefaultParams};
 use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 
 pub mod allow_list;
+pub mod api_keys;
 pub mod auth_guards;
 pub mod authorization;
 pub mod capabilities;
