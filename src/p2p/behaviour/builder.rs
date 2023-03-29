@@ -90,30 +90,32 @@ impl<KSC> BehaviourConfig<KSC> {
     ) -> Result<Behaviour<KS>, OrbitBehaviourBuildError>
     where
         KSC: RecordStoreConfig<KS>,
-        KS: for<'a> RecordStore<'a> + Send,
+        KS: RecordStore + Send + 'static,
     {
         let peer_id = keypair.public().to_peer_id();
         Ok(Behaviour {
-            capabilities: (),
-            identify: Identify::new(self.identify.to_config(keypair.public())),
-            ping: Ping::new(self.ping),
-            gossipsub: Gossipsub::new(
-                MessageAuthenticity::Signed(keypair),
-                GossipsubConfigBuilder::from(self.gossipsub)
-                    // always ensure validation
-                    .validation_mode(ValidationMode::Strict)
-                    .build()
-                    .map_err(OrbitBehaviourBuildError::Gossipsub)?,
-            )
-            .map_err(OrbitBehaviourBuildError::Gossipsub)?,
-            relay: relay.into(),
-            kademlia: Kademlia::with_config(
-                peer_id,
-                self.kademlia_store.init(peer_id),
-                self.kademlia,
-            ),
-            dcutr: Dcutr::new(),
-            autonat: AutoNat::new(peer_id, self.autonat),
+            exchange: todo!(),
+            base: BaseBehaviour {
+                identify: Identify::new(self.identify.to_config(keypair.public())),
+                ping: Ping::new(self.ping),
+                gossipsub: Gossipsub::new(
+                    MessageAuthenticity::Signed(keypair),
+                    GossipsubConfigBuilder::from(self.gossipsub)
+                        // always ensure validation
+                        .validation_mode(ValidationMode::Strict)
+                        .build()
+                        .map_err(OrbitBehaviourBuildError::Gossipsub)?,
+                )
+                .map_err(OrbitBehaviourBuildError::Gossipsub)?,
+                relay: relay.into(),
+                kademlia: Kademlia::with_config(
+                    peer_id,
+                    self.kademlia_store.init(peer_id),
+                    self.kademlia,
+                ),
+                dcutr: Dcutr::new(peer_id),
+                autonat: AutoNat::new(peer_id, self.autonat),
+            },
         })
     }
     pub fn launch<T, KS>(
@@ -129,18 +131,22 @@ impl<KSC> BehaviourConfig<KSC> {
         <T::T as Transport>::Error: 'static + Send + Sync,
         <T::T as Transport>::Dial: Send,
         <T::T as Transport>::ListenerUpgrade: Send,
+        KS: RecordStore + Send + 'static,
     {
         let local_public_key = keypair.public();
         let id = local_public_key.to_peer_id();
-        let b = self.build(local_public_key);
-        let (sender, mut reciever) = mpsc::channel(100);
-        let r = RelayNode { id, sender };
+        let transport = transport.into_transport()?;
+        let (transport, behaviour) = if self.relay {
+            let (t, b) = new(id);
+            (transport.or_transport(t), self.build(keypair, Some(b))?)
+        } else {
+            (transport, self.build(keypair, None)?)
+        };
 
-        let mut swarm = SwarmBuilder::new(
+        let mut swarm = SwarmBuilder::with_tokio_executor(
             transport
-                .into_transport()
-                .map_err(OrbitLaunchError::Transport)?
                 .upgrade(upgrade::Version::V1)
+                // TODO replace with AWAKE protcol (or similar)
                 .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
                 .multiplex(upgrade::SelectUpgrade::new(
                     yamux::YamuxConfig::default(),
@@ -148,10 +154,11 @@ impl<KSC> BehaviourConfig<KSC> {
                 ))
                 .timeout(std::time::Duration::from_secs(20))
                 .boxed(),
-            b,
+            behaviour,
             id,
         )
         .build();
+        Ok(())
     }
 }
 

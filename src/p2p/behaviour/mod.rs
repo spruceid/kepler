@@ -1,5 +1,6 @@
 use crate::storage::ImmutableStore;
 use core::task::Poll;
+use either::Either;
 use exchange_protocol::RequestResponse;
 use futures::{
     future::Pending,
@@ -38,9 +39,26 @@ pub struct Config {
     commit_epoch: (),
 }
 
-pub struct Behaviour {
-    config: Config,
+pub struct Behaviour<KS = MemoryStore>
+where
+    KS: RecordStore + Send + 'static,
+{
     exchange: RequestResponse<KeplerSwap, &'static [u8]>,
+    base: BaseBehaviour<KS>,
+}
+
+#[derive(NetworkBehaviour, Debug)]
+pub struct BaseBehaviour<KS>
+where
+    KS: RecordStore + Send + 'static,
+{
+    identify: Identify,
+    ping: Ping,
+    gossipsub: GossipSub,
+    relay: Toggle<Client>,
+    kademlia: Kademlia<KS>,
+    dcutr: Dcutr,
+    autonat: AutoNat,
 }
 
 /// An Epoch is a builder for a block in the capabilities graph.
@@ -68,25 +86,43 @@ impl Behaviour {
     }
 }
 
-pub enum Event {}
+pub enum Event {
+    NewEpoch,
+    GossipSub,
+}
 pub struct Handler {}
-pub struct IntoHandler {}
 pub enum HandlerError {}
 pub enum HandlerInEvent {}
 pub enum HandlerOutEvent {}
 
-impl NetworkBehaviour for Behaviour {
-    type ConnectionHandler = IntoHandler;
+impl<KS> NetworkBehaviour for Behaviour<KS>
+where
+    KS: RecordStore + Send + 'static,
+{
+    type ConnectionHandler =
+        Either<Handler, <BaseBehaviour<KS> as NetworkBehaviour>::ConnectionHandler>;
     type OutEvent = Event;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        IntoHandler {}
+    fn on_swarm_event(&mut self, event: FromSwarm<'_, Self::ConnectionHandler>) {}
+
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
+    ) {
     }
+
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-        params: &mut impl PollParameters
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler, <<Self::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::InEvent>>{
+        params: &mut impl PollParameters,
+    ) -> Poll<
+        NetworkBehaviourAction<
+            Self::OutEvent,
+            <Self::ConnectionHandler as ConnectionHandler>::InEvent,
+        >,
+    > {
         Poll::Pending
     }
 }
@@ -118,20 +154,5 @@ impl ConnectionHandler for Handler {
         >,
     > {
         Poll::Pending
-    }
-}
-
-impl IntoConnectionHandler for IntoHandler {
-    type Handler = Handler;
-
-    fn into_handler(
-        self,
-        remote_peer_id: &PeerId,
-        connected_point: &ConnectedPoint,
-    ) -> Self::Handler {
-        Handler {}
-    }
-    fn inbound_protocol(&self) -> <Self::Handler as ConnectionHandler>::InboundProtocol {
-        SimpleProtocol::new([], || async {})
     }
 }
