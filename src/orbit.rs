@@ -46,11 +46,6 @@ impl<T> Deref for AbortOnDrop<T> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Limits {
-    storage: Option<usize>,
-}
-
 #[derive(Clone)]
 pub struct Orbit<B> {
     pub service: KVService<B>,
@@ -70,8 +65,6 @@ pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
     blocks: B,
     #[builder(setter(into))]
     index: I,
-    #[builder(setter(into))]
-    limits: Limits,
 }
 
 impl<B> Orbit<B>
