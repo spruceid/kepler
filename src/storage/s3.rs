@@ -20,7 +20,13 @@ use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError}
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::io::Error as IoError;
+use std::{
+    io::Error as IoError,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 use tempfile::NamedTempFile;
 use tokio::fs::File;
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -40,6 +46,7 @@ pub struct S3BlockStore {
     pub client: Client,
     pub bucket: String,
     pub orbit: String,
+    size: Arc<AtomicU64>,
 }
 
 #[serde_as]
@@ -53,12 +60,12 @@ pub struct S3BlockConfig {
 
 #[async_trait]
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
-    type Error = std::convert::Infallible;
+    type Error = S3Error;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
-        Ok(Some(S3BlockStore::new_(self, orbit.get_cid())))
+        Ok(Some(S3BlockStore::new_(self, orbit.get_cid()).await?))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
-        Ok(S3BlockStore::new_(self, orbit.get_cid()))
+        Ok(S3BlockStore::new_(self, orbit.get_cid()).await?)
     }
 }
 
@@ -177,16 +184,47 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
 }
 
 impl S3BlockStore {
-    pub fn new_(config: &S3BlockConfig, orbit: Cid) -> Self {
-        S3BlockStore {
-            client: new_client(config),
+    async fn new_(config: &S3BlockConfig, orbit: Cid) -> Result<Self, S3Error> {
+        let client = new_client(config);
+        let size = client
+            .list_objects_v2()
+            .bucket(&config.bucket)
+            .prefix(format!("{}/", orbit))
+            .into_paginator()
+            .send()
+            .try_fold(0, |acc, page| async move {
+                Ok(page
+                    .contents
+                    .into_iter()
+                    .flatten()
+                    .map(|content| {
+                        let s = content.size();
+                        if s < 0 {
+                            acc
+                        } else {
+                            acc + s as u64
+                        }
+                    })
+                    .sum::<u64>())
+            })
+            .await?;
+        Ok(S3BlockStore {
+            client,
             bucket: config.bucket.clone(),
             orbit: orbit.to_string(),
-        }
+            size: Arc::new(AtomicU64::new(size)),
+        })
     }
 
     fn key(&self, id: &Multihash) -> String {
         format!("{}/{}", self.orbit, encode(Base::Base64Url, id.to_bytes()))
+    }
+
+    fn increment_size(&self, size: u64) {
+        self.size.fetch_add(size, Ordering::SeqCst);
+    }
+    fn decrement_size(&self, size: u64) {
+        self.size.fetch_sub(size, Ordering::SeqCst);
     }
 }
 
@@ -253,6 +291,7 @@ impl ImmutableStore for S3BlockStore {
                 .await
                 .map_err(S3Error::from)?;
         }
+        self.increment_size(written);
         Ok(multihash)
     }
     async fn write_keyed(
@@ -290,9 +329,11 @@ impl ImmutableStore for S3BlockStore {
             .send()
             .await
             .map_err(|e| KeyedWriteError::Store(S3StoreError::from(S3Error::from(e))))?;
+        self.increment_size(written);
         Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
+        // TODO decrement size on removal
         match self
             .client
             .delete_object()
@@ -331,5 +372,8 @@ impl ImmutableStore for S3BlockStore {
             }) => Ok(None),
             Err(e) => Err(S3Error::from(e).into()),
         }
+    }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        Ok(self.size.load(Ordering::Relaxed))
     }
 }
