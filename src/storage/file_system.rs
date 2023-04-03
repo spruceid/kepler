@@ -240,3 +240,43 @@ async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
         })
         .await
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::io::AsyncReadExt;
+
+    #[test]
+    async fn test_file_system_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = FileSystemConfig::new(dir.path().to_path_buf());
+        let store = cfg
+            .create(&"kepler:example://default".parse().unwrap())
+            .await
+            .unwrap();
+        let data = b"hello world";
+        assert_eq!(store.total_size().await.unwrap(), 0);
+        let hash = store.write(&data[..], Code::Sha2_256).await.unwrap();
+
+        assert_eq!(store.contains(&hash).await.unwrap(), true);
+        assert_eq!(store.total_size().await.unwrap(), data.len() as u64);
+
+        let mut buf = Vec::new();
+        store
+            .read(&hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .read_to_end(&mut buf)
+            .await
+            .unwrap();
+
+        assert_eq!(buf, data);
+        assert_eq!(store.read_to_vec(&hash).await.unwrap().unwrap(), data);
+        assert_eq!(store.remove(&hash).await.unwrap(), Some(()));
+        assert_eq!(store.remove(&hash).await.unwrap(), None);
+        assert_eq!(store.contains(&hash).await.unwrap(), false);
+        assert_eq!(store.total_size().await.unwrap(), 0);
+        assert_eq!(store.read(&hash).await.unwrap().map(|_| ()), None);
+    }
+}
