@@ -21,7 +21,7 @@ use std::{
     },
 };
 use tempfile::{NamedTempFile, PathPersistError};
-use tokio::fs::{create_dir_all, read, remove_file, write, File};
+use tokio::fs::{create_dir_all, metadata, read, remove_file, write, File};
 use tokio_stream::wrappers::ReadDirStream;
 
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
@@ -208,12 +208,15 @@ impl ImmutableStore for FileSystemStore {
         Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        // TODO decrement size on removal
-        match remove_file(self.get_path(id)).await {
-            Ok(()) => Ok(Some(())),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let path = self.get_path(id);
+        let size = match metadata(&path).await {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        remove_file(self.get_path(id)).await?;
+        self.decrement_size(size);
+        Ok(Some(()))
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         match File::open(self.get_path(id)).await {

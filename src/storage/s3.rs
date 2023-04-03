@@ -333,19 +333,41 @@ impl ImmutableStore for S3BlockStore {
         Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        // TODO decrement size on removal
-        match self
+        // I wish we didnt have to make an extra head request here for the size, but we do
+        let size = match self
             .client
-            .delete_object()
+            .head_object()
             .bucket(&self.bucket)
             .key(self.key(id))
             .send()
             .await
         {
-            Ok(_) => Ok(Some(())),
-            // TODO does this distinguish between object missing and object present?
-            Err(e) => Err(S3Error::from(e).into()),
-        }
+            Ok(metadata) => {
+                if metadata.content_length() > 0 {
+                    metadata.content_length() as u64
+                } else {
+                    0
+                }
+            }
+            Err(SdkError::ServiceError {
+                err:
+                    HeadObjectError {
+                        kind: HeadObjectErrorKind::NotFound(_),
+                        ..
+                    },
+                ..
+            }) => return Ok(None),
+            Err(e) => return Err(S3Error::from(e).into()),
+        };
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+            .map_err(S3Error::from)?;
+        self.decrement_size(size);
+        Ok(Some(()))
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         let res = self
