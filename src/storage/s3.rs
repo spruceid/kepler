@@ -240,7 +240,8 @@ impl ImmutableStore for S3BlockStore {
     ) -> Result<Multihash, Self::Error> {
         // TODO find a way to do this without filesystem access
         let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
+        let (multihash, _, written) =
+            copy_in(data, File::from_std(file).compat(), hash_type).await?;
 
         if !self.contains(&multihash).await? {
             self.client
@@ -269,7 +270,7 @@ impl ImmutableStore for S3BlockStore {
         let (file, path) = NamedTempFile::new()
             .map_err(S3StoreError::from)?
             .into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+        let (multihash, _, written) = copy_in(data, File::from_std(file).compat(), hash_type)
             .await
             .map_err(S3StoreError::from)?;
 

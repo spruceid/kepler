@@ -2,6 +2,7 @@ use crate::{
     orbit::ProviderUtils,
     storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
 };
+use futures::{future::TryFutureExt, stream::TryStreamExt};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -14,24 +15,40 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 use tempfile::{NamedTempFile, PathPersistError};
 use tokio::fs::{create_dir_all, read, remove_file, write, File};
+use tokio_stream::wrappers::ReadDirStream;
 
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
 pub struct FileSystemStore {
     path: PathBuf,
+    size: Arc<AtomicU64>,
 }
 
 impl FileSystemStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    fn new(path: PathBuf, size: u64) -> Self {
+        Self {
+            path,
+            size: Arc::new(AtomicU64::new(size)),
+        }
     }
 
     fn get_path(&self, mh: &Multihash) -> PathBuf {
         self.path.join(encode(Base::Base64Url, mh.to_bytes()))
+    }
+
+    fn increment_size(&self, size: u64) {
+        self.size.fetch_add(size, Ordering::SeqCst);
+    }
+    fn decrement_size(&self, size: u64) {
+        self.size.fetch_sub(size, Ordering::SeqCst);
     }
 }
 
@@ -56,18 +73,22 @@ impl StorageConfig<FileSystemStore> for FileSystemConfig {
     type Error = IoError;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        if path.is_dir() {
-            Ok(Some(FileSystemStore::new(path)))
-        } else {
-            Ok(None)
+        if !path.is_dir() {
+            return Ok(None);
         }
+        // get the size of the directory
+        let size = dir_size(&path).await?;
+        Ok(Some(FileSystemStore::new(path, size)))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        if !path.is_dir() {
+        let size = if !path.is_dir() {
             create_dir_all(&path).await?;
-        }
-        Ok(FileSystemStore::new(path))
+            0
+        } else {
+            dir_size(&path).await?
+        };
+        Ok(FileSystemStore::new(path, size))
     }
 }
 
@@ -148,7 +169,10 @@ impl ImmutableStore for FileSystemStore {
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
+        let (multihash, _, written) =
+            copy_in(data, File::from_std(file).compat(), hash_type).await?;
+
+        self.increment_size(written);
 
         if !self.contains(&multihash).await? {
             path.persist(self.get_path(&multihash))?;
@@ -170,7 +194,7 @@ impl ImmutableStore for FileSystemStore {
         let (file, path) = NamedTempFile::new()
             .map_err(FileSystemStoreError::Io)?
             .into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+        let (multihash, _, written) = copy_in(data, File::from_std(file).compat(), hash_type)
             .await
             .map_err(FileSystemStoreError::from)?;
 
@@ -180,9 +204,11 @@ impl ImmutableStore for FileSystemStore {
 
         path.persist(self.get_path(&multihash))
             .map_err(FileSystemStoreError::from)?;
+        self.increment_size(written);
         Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
+        // TODO decrement size on removal
         match remove_file(self.get_path(id)).await {
             Ok(()) => Ok(Some(())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -196,4 +222,18 @@ impl ImmutableStore for FileSystemStore {
             Err(e) => Err(e.into()),
         }
     }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        Ok(self.size.load(Ordering::Relaxed))
+    }
+}
+
+async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
+    ReadDirStream::new(tokio::fs::read_dir(path).await?)
+        .try_fold(0, |acc, entry| async move {
+            entry
+                .metadata()
+                .map_ok(|m| if m.is_dir() { acc } else { acc + m.len() })
+                .await
+        })
+        .await
 }

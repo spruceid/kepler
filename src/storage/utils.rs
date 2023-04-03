@@ -48,10 +48,10 @@ macro_rules! write_with_multihash {
         match $code {
             $(Code::$hashes => {
                 let mut hb = HashBuffer::<$hashes, B>::new($buffer);
-                copy($data, &mut hb).await?;
+                let written = copy($data, &mut hb).await?;
                 hb.flush().await?;
                 let (mut h, b) = hb.into_inner();
-                Ok((Code::$hashes.wrap(h.finalize())?, b))
+                Ok((Code::$hashes.wrap(h.finalize())?, b, written))
             },)*
         }
     };
@@ -61,7 +61,7 @@ pub async fn copy_in<B>(
     data: impl AsyncRead,
     buffer: B,
     hash_type: Code,
-) -> Result<(Multihash, B), MultihashError>
+) -> Result<(Multihash, B, u64), MultihashError>
 where
     B: AsyncWrite + Unpin,
 {
