@@ -3167,7 +3167,6 @@ dependencies = [
  "tracing-log",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "ubyte",
  "urlencoding",
  "uuid",
  "void",

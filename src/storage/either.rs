@@ -95,6 +95,12 @@ where
                 .map_err(Self::Error::B),
         }
     }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        match self {
+            Self::A(l) => l.total_size().await.map_err(Self::Error::A),
+            Self::B(r) => r.total_size().await.map_err(Self::Error::B),
+        }
+    }
 }
 
 #[async_trait]

@@ -120,6 +120,10 @@ impl<B> Store<B> {
         })
     }
 
+    pub fn blocks(&self) -> &B {
+        &self.blocks
+    }
+
     #[instrument(name = "kv::list", skip_all)]
     pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
         let elements = match self.index.elements().await {

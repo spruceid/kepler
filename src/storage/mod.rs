@@ -128,6 +128,7 @@ pub trait ImmutableStore: Send + Sync {
             .map_err(VecReadError::Read)?;
         Ok(Some(v))
     }
+    async fn total_size(&self) -> Result<u64, Self::Error>;
 }
 
 #[async_trait]
@@ -174,6 +175,9 @@ where
         Self::Readable: Send,
     {
         self.read_to_vec(id).await
+    }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        self.total_size().await
     }
 }
 

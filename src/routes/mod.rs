@@ -31,7 +31,7 @@ use crate::{
     relay::RelayNode,
     storage::{Content, ImmutableStore},
     tracing::TracingSpan,
-    BlockStores,
+    BlockStores, Config,
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
@@ -132,6 +132,7 @@ pub async fn invoke(
     i: InvokeAuthWrapper<BlockStores>,
     req_span: TracingSpan,
     data: Data<'_>,
+    config: &State<Config>,
 ) -> Result<InvocationResponse<Content<<BlockStores as ImmutableStore>::Readable>>, (Status, String)>
 {
     let action_label = i.prometheus_label().to_string();
@@ -144,7 +145,7 @@ pub async fn invoke(
 
         let res = match i {
             InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
-            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
+            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data, config).await,
             InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
         };
 
@@ -158,6 +159,7 @@ pub async fn invoke(
 pub async fn handle_kv_action<B>(
     action: KVAction<B>,
     data: Data<'_>,
+    config: &Config,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
     B: 'static + ImmutableStore,
@@ -222,12 +224,26 @@ where
         } => {
             let rm: [([u8; 0], _, _); 0] = [];
 
+            let size = orbit
+                .service
+                .store
+                .blocks()
+                .total_size()
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+
+            let allowed_size = config
+                .storage
+                .limit
+                .map(|l| if l > size { l - size } else { 0.bytes() })
+                .unwrap_or(1u8.gigabytes());
+
             orbit
                 .service
                 .write(
                     [(
                         ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        data.open(1u8.gigabytes()).compat(),
+                        data.open(allowed_size).compat(),
                     )],
                     rm,
                 )
