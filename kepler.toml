@@ -6,6 +6,7 @@
 
 ## Example of nest config variable: KEPLER_DATABASE_PATH
 [global.storage]
+    # limit = "10 MiB"
     ###### Document shared aws config (`aws_config::from_env()`)
     [global.storage.blocks]
     # type = "Local"

@@ -17,12 +17,6 @@ pub struct Config {
     pub relay: Relay,
     pub prometheus: Prometheus,
     pub cors: bool,
-    pub key_value: KeyValue,
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
-pub struct KeyValue {
-    pub limit: Option<Byte>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
@@ -56,6 +50,7 @@ pub struct Storage {
     #[serde_as(as = "FromInto<BlockStorage>")]
     pub blocks: BlockConfig,
     pub indexes: IndexStorage,
+    pub limit: Option<Byte>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
