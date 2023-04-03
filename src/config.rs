@@ -3,6 +3,7 @@ use crate::{
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
     BlockConfig,
 };
+use byte_unit::Byte;
 use rocket::http::hyper::Uri;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr, FromInto};
@@ -16,6 +17,12 @@ pub struct Config {
     pub relay: Relay,
     pub prometheus: Prometheus,
     pub cors: bool,
+    pub key_value: KeyValue,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
+pub struct KeyValue {
+    pub limit: Option<Byte>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]

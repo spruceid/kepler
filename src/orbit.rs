@@ -20,6 +20,7 @@ use libp2p::{
 };
 use rocket::tokio::task::JoinHandle;
 
+use byte_unit::Byte;
 use cached::proc_macro::cached;
 use std::{convert::TryFrom, error::Error as StdError, ops::Deref};
 
@@ -46,6 +47,11 @@ impl<T> Deref for AbortOnDrop<T> {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Limits {
+    storage: Option<Byte>,
+}
+
 #[derive(Clone)]
 pub struct Orbit<B> {
     pub service: KVService<B>,
@@ -65,6 +71,8 @@ pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
     blocks: B,
     #[builder(setter(into))]
     index: I,
+    #[builder(setter(into))]
+    limits: Limits,
 }
 
 impl<B> Orbit<B>
