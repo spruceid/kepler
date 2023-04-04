@@ -53,6 +53,10 @@ impl<R> Content<R> {
         self.0
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
     pub fn into_inner(self) -> (u64, R) {
         (self.0, self.1)
     }
