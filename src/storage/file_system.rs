@@ -33,11 +33,13 @@ pub struct FileSystemStore {
 }
 
 impl FileSystemStore {
-    fn new(path: PathBuf, size: u64) -> Self {
-        Self {
+    async fn new(path: PathBuf) -> Result<Self, IoError> {
+        // get the size of the directory
+        let size = dir_size(&path).await?;
+        Ok(Self {
             path,
             size: Arc::new(AtomicU64::new(size)),
-        }
+        })
     }
 
     fn get_path(&self, mh: &Multihash) -> PathBuf {
@@ -76,19 +78,14 @@ impl StorageConfig<FileSystemStore> for FileSystemConfig {
         if !path.is_dir() {
             return Ok(None);
         }
-        // get the size of the directory
-        let size = dir_size(&path).await?;
-        Ok(Some(FileSystemStore::new(path, size)))
+        Ok(Some(FileSystemStore::new(path).await?))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        let size = if !path.is_dir() {
+        if !path.is_dir() {
             create_dir_all(&path).await?;
-            0
-        } else {
-            dir_size(&path).await?
         };
-        Ok(FileSystemStore::new(path, size))
+        Ok(FileSystemStore::new(path).await?)
     }
 }
 
