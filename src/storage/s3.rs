@@ -192,20 +192,24 @@ impl S3BlockStore {
             .prefix(format!("{}/", orbit))
             .into_paginator()
             .send()
+            // get the sum of all objects in each page
             .try_fold(0, |acc, page| async move {
-                Ok(page
-                    .contents
-                    .into_iter()
-                    .flatten()
-                    .map(|content| {
-                        let s = content.size();
-                        if s < 0 {
-                            acc
-                        } else {
-                            acc + s as u64
-                        }
-                    })
-                    .sum::<u64>())
+                Ok(acc
+                   // get the sum of all objects in this particular page
+                    + page
+                        .contents
+                        .into_iter()
+                        .flatten()
+                        .map(|content| {
+                            let s = content.size();
+                            // s is a signed int, not sure why but if it's negative we just return 0
+                            if s < 0 {
+                                0
+                            } else {
+                                s as u64
+                            }
+                        })
+                        .sum::<u64>())
             })
             .await?;
         Ok(S3BlockStore {
@@ -365,7 +369,7 @@ impl ImmutableStore for S3BlockStore {
             .key(self.key(id))
             .send()
             .await
-            .map_err(S3Error::from)?;
+            .map_err(S3Error::from)?; // this shouldnt be not found, because we checked earlier when getting the size
         self.decrement_size(size);
         Ok(Some(()))
     }

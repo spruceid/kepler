@@ -232,6 +232,7 @@ where
                 .await
                 .map_err(|e| (Status::InternalServerError, e.to_string()))?;
 
+            // get the remaining allocated space for the given orbit storage
             let allowed_size = config
                 .storage
                 .limit

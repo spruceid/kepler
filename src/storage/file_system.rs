@@ -214,6 +214,7 @@ impl ImmutableStore for FileSystemStore {
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
+        // this shouldnt be not found, because we checked earlier when getting the size
         remove_file(self.get_path(id)).await?;
         self.decrement_size(size);
         Ok(Some(()))
@@ -231,6 +232,7 @@ impl ImmutableStore for FileSystemStore {
 }
 
 async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
+    // get the sum size of all files in this directory (do not recurse into subdirectories)
     ReadDirStream::new(tokio::fs::read_dir(path).await?)
         .try_fold(0, |acc, entry| async move {
             entry
