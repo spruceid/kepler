@@ -1,91 +1,12 @@
-use core::future::IntoFuture;
 use core::time::Duration;
-use futures::{
-    channel::{mpsc, oneshot},
-    future::{select, Either},
-    io::{AsyncRead, AsyncWrite},
-    sink::{Sink, SinkExt},
-    stream::{Stream, StreamExt},
-};
-use libp2p::{
-    identify::Config as OIdentifyConfig,
-    identity::{Keypair, PublicKey},
-    swarm::{
-        behaviour::toggle::Toggle, ConnectionHandler, IntoConnectionHandler, NetworkBehaviour,
-        Swarm, SwarmEvent,
-    },
-};
-use std::fmt::Display;
+
+use libp2p::{identify::Config as OIdentifyConfig, identity::PublicKey};
 
 pub mod behaviour;
 pub mod relay;
 pub mod transport;
 
 pub const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
-
-pub trait BehaviourConfig {
-    type Error;
-    type Behaviour: NetworkBehaviour;
-    fn build<T>(
-        self,
-        keypair: Keypair,
-        transport: T,
-    ) -> Result<Swarm<Self::Behaviour>, Self::Error>;
-}
-
-#[async_trait]
-pub trait Logic<B>
-where
-    B: NetworkBehaviour,
-{
-    type Error;
-    type Message;
-    type Event;
-    async fn process_message(
-        &mut self,
-        swarm: &mut Swarm<B>,
-        event: Self::Event,
-    ) -> Result<Option<Self::Event>, Self::Error>;
-    async fn process_swarm(
-        &mut self,
-        swarm: &mut Swarm<B>,
-        event: SwarmEvent<
-            B::OutEvent,
-            <<B::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error,
-        >,
-    ) -> Result<Option<Self::Event>, Self::Error>;
-}
-
-pub async fn launch<L, B>(
-    logic: L,
-    swarm: Swarm<B>,
-    messages: impl Stream<Item = L::Message> + Unpin,
-    events: impl Sink<L::Event> + Unpin,
-) -> Result<(), L::Error>
-where
-    L: Logic<B>,
-    B: NetworkBehaviour,
-{
-    loop {
-        match select(messages.next(), swarm.next()).await {
-            // if the swarm or the channel are closed, close the relay
-            Either::Right((None, _)) | Either::Left((None, _)) => {
-                break;
-            }
-            // process message
-            Either::Left((Some(m), _)) => match logic.process_message(&mut swarm, m).await? {
-                Some(e) => events.send(e).await,
-                _ => (),
-            },
-            // process swarm event
-            Either::Right((Some(m), _)) => match logic.process_swarm(&mut swarm, m).await? {
-                Some(e) => events.send(e).await,
-                _ => (),
-            },
-        };
-    }
-    Ok(())
-}
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct IdentifyConfig {
