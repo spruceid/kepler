@@ -1,13 +1,44 @@
 use crate::storage::either::EitherError;
 use futures::io::{AsyncRead, AsyncWrite};
 use libp2p::{
-    core::transport::{dummy::DummyTransport, MemoryTransport, OrTransport, Transport},
+    core::{
+        muxing::StreamMuxerBox,
+        transport::{dummy::DummyTransport, Boxed, MemoryTransport, OrTransport, Transport},
+        upgrade,
+    },
     dns::{ResolverConfig, ResolverOpts, TokioDnsConfig as DnsTransport},
+    identity::Keypair,
+    mplex,
+    noise::{NoiseAuthenticated, NoiseError},
     tcp::tokio::Transport as TcpTransport,
     wasm_ext::ExtTransport,
     websocket::{tls::Config as WsTlsConfig, WsConfig as WsTransport},
+    yamux, PeerId,
 };
 use std::io::Error as IoError;
+
+pub fn build_transport<T>(
+    t: T,
+    timeout: std::time::Duration,
+    keypair: &Keypair,
+) -> Result<Boxed<(PeerId, StreamMuxerBox)>, NoiseError>
+where
+    T: 'static + Transport + Send + Unpin,
+    T::Output: 'static + AsyncRead + AsyncWrite + Unpin + Send,
+    T::Dial: Send,
+    T::Error: 'static + Send + Sync,
+    T::ListenerUpgrade: Send,
+{
+    Ok(t.upgrade(upgrade::Version::V1)
+        // TODO replace with AWAKE protcol (or similar)
+        .authenticate(NoiseAuthenticated::xx(keypair)?)
+        .multiplex(upgrade::SelectUpgrade::new(
+            yamux::YamuxConfig::default(),
+            mplex::MplexConfig::default(),
+        ))
+        .timeout(timeout)
+        .boxed())
+}
 
 pub trait IntoTransport {
     type T: Transport;

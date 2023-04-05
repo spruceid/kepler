@@ -74,12 +74,10 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
 
-    let relay_node = RelayConfig::default()
-        .launch(
-            kepler_config.storage.blocks.relay_key_pair().await?,
-            Both::<MemoryConfig, TcpConfig>::default(),
-        )
-        .await?;
+    let mut relay_node = RelayConfig::default().launch(
+        kepler_config.storage.blocks.relay_key_pair().await?,
+        Both::<MemoryConfig, TcpConfig>::default(),
+    )?;
 
     relay_node
         .listen_on([
