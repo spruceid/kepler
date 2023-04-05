@@ -46,6 +46,7 @@ where
 
         match this.inner.poll_read(cx, buf) {
             Poll::Ready(Ok(n)) if n as u64 > *this.remaining => {
+                // TODO once io_error_more is stable, use ErrorKind::FileTooLarge
                 Poll::Ready(Err(IoError::new(ErrorKind::Other, LimitExceeded)))
             }
             Poll::Ready(Ok(n)) => {
