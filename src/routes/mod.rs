@@ -35,6 +35,7 @@ use crate::{
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
+pub mod util;
 pub struct Metadata(pub BTreeMap<String, String>);
 
 #[async_trait]
