@@ -42,23 +42,27 @@ pub enum KeyedWriteError<E> {
 
 #[pin_project]
 #[derive(Debug)]
-pub struct Content<R>(u64, #[pin] R);
+pub struct Content<R> {
+    size: u64,
+    #[pin]
+    content: R,
+}
 
 impl<R> Content<R> {
     pub fn new(size: u64, content: R) -> Self {
-        Self(size, content)
+        Self { size, content }
     }
 
     pub fn len(&self) -> u64 {
-        self.0
+        self.size
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0 == 0
+        self.len() == 0
     }
 
     pub fn into_inner(self) -> (u64, R) {
-        (self.0, self.1)
+        (self.size, self.content)
     }
 }
 
@@ -72,7 +76,7 @@ where
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
         let this = self.project();
-        this.1.poll_read(cx, buf)
+        this.content.poll_read(cx, buf)
     }
 
     fn poll_read_vectored(
@@ -81,7 +85,7 @@ where
         bufs: &mut [std::io::IoSliceMut<'_>],
     ) -> std::task::Poll<std::io::Result<usize>> {
         let this = self.project();
-        this.1.poll_read_vectored(cx, bufs)
+        this.content.poll_read_vectored(cx, bufs)
     }
 }
 
