@@ -121,7 +121,7 @@ pub trait ImmutableStore: Send + Sync {
             None => return Ok(None),
             Some(r) => r.into_inner(),
         };
-        let mut v = vec![0u8; l as usize];
+        let mut v = Vec::with_capacity(l as usize);
         Box::pin(r)
             .read_to_end(&mut v)
             .await
