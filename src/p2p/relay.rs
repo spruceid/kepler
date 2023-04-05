@@ -54,6 +54,7 @@ enum Message {
     GetAddresses(oneshot::Sender<Vec<Multiaddr>>),
     ListenOn(Vec<Multiaddr>, oneshot::Sender<Result<(), Error>>),
     Dial(Multiaddr, oneshot::Sender<Result<(), Error>>),
+    GetConnectedPeers(oneshot::Sender<Vec<PeerId>>),
 }
 
 impl RelayNode {
@@ -81,6 +82,12 @@ impl RelayNode {
         let (s, r) = oneshot::channel();
         self.sender.send(Message::Dial(addr, s)).await?;
         r.await?
+    }
+
+    pub async fn connected_peers(&mut self) -> Result<Vec<PeerId>, Error> {
+        let (s, r) = oneshot::channel();
+        self.sender.send(Message::GetConnectedPeers(s)).await?;
+        Ok(r.await?)
     }
 }
 
@@ -235,6 +242,9 @@ async fn poll_swarm(
                     swarm.dial(addr)?;
                     s.send(Ok(())).map_err(|_| SwarmError::SendError)?
                 }
+                Message::GetConnectedPeers(s) => s
+                    .send(swarm.connected_peers().map(|p| p.to_owned()).collect())
+                    .map_err(|_| SwarmError::SendError)?,
             },
             Either::Right((Some(_), _)) => {
                 // process swarm event

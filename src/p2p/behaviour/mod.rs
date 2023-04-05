@@ -37,7 +37,7 @@ where
     autonat: AutoNat,
 }
 
-async fn poll_swarm<KS>(mut swarm: Swarm<Behaviour<KS>>) -> Result<(), ()>
+async fn poll_swarm<KS>(_swarm: Swarm<Behaviour<KS>>) -> Result<(), ()>
 where
     KS: RecordStore + Send + 'static,
 {
