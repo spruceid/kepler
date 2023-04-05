@@ -22,7 +22,6 @@ bs58 = "0.4"
 cached = "0.40"
 derive_builder = "0.11"
 either = "1.8"
-exchange-protocol = { path = "./exchange-protocol" }
 futures = { default-features = false, version = "0.3", features = ["alloc", "std"] }
 hex = "0.4"
 hyper = "0.14" # Prometheus server
@@ -63,8 +62,7 @@ path = "lib/"
 members = [
     "lib",
     "sdk-wasm",
-    "sdk",
-    "exchange-protocol"
+    "sdk"
 ]
 
 exclude = [
