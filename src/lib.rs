@@ -27,10 +27,10 @@ mod tracing;
 pub mod transport;
 
 use config::{BlockStorage, Config};
-use libp2p::{build_multiaddr, identity::ed25519::Keypair as Ed25519Keypair, PeerId};
+use libp2p::{build_multiaddr, identity::Keypair, PeerId};
 use orbit::ProviderUtils;
 use p2p::relay::Config as RelayConfig;
-use p2p::transport::{Both, DnsConfig, MemoryConfig, TcpConfig, WsConfig};
+use p2p::transport::{Both, MemoryConfig, TcpConfig};
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
@@ -104,7 +104,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

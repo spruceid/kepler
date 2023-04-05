@@ -13,11 +13,7 @@ use kepler_lib::libipld::cid::{
     Cid,
 };
 use kepler_lib::resource::OrbitId;
-use libp2p::{
-    core::Multiaddr,
-    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
-    PeerId,
-};
+use libp2p::{core::Multiaddr, identity::Keypair, PeerId};
 use rocket::tokio::task::JoinHandle;
 
 use cached::proc_macro::cached;
@@ -56,7 +52,7 @@ pub struct Orbit<B> {
 #[derive(Clone, Debug, Builder)]
 pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
     #[builder(setter(into))]
-    identity: Ed25519Keypair,
+    identity: Keypair,
     #[builder(setter(into))]
     manifest: Manifest,
     #[builder(setter(into, strip_option), default)]
@@ -78,7 +74,7 @@ where
         B::Error: 'static,
     {
         let id = config.manifest.id().get_cid();
-        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _local_peer_id = PeerId::from_public_key(&config.identity.public());
         let _relay = &config.relay;
 
         let blocks = match config.blocks.open(config.manifest.id()).await? {
@@ -106,7 +102,7 @@ where
         B::Error: 'static,
     {
         let id = config.manifest.id().get_cid();
-        let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
+        let _local_peer_id = PeerId::from_public_key(&config.identity.public());
         let _relay = &config.relay;
 
         let blocks = config.blocks.create(config.manifest.id()).await?;
@@ -129,9 +125,9 @@ where
 pub trait ProviderUtils {
     type Error: StdError;
     async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error>;
-    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error>;
-    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error>;
-    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error>;
+    async fn relay_key_pair(&self) -> Result<Keypair, Self::Error>;
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Keypair>, Self::Error>;
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Keypair) -> Result<(), Self::Error>;
 }
 
 // Using Option to distinguish when the orbit already exists from a hard error
@@ -140,7 +136,7 @@ pub async fn create_orbit(
     store_config: &BlockConfig,
     index_config: &config::IndexStorage,
     relay: (PeerId, Multiaddr),
-    kp: Ed25519Keypair,
+    kp: Keypair,
 ) -> Result<Option<Orbit<BlockStores>>> {
     match Manifest::resolve_dyn(id, None).await? {
         Some(_) => {}
@@ -254,7 +250,7 @@ mod tests {
         Ok((
             Orbit::create(
                 &OrbitPeerConfigBuilder::<BlockConfig, IndexStorage>::default()
-                    .identity(Ed25519Keypair::generate())
+                    .identity(Keypair::generate_ed25519())
                     .manifest(md)
                     .blocks(BlockConfig::B(FileSystemConfig::new(dir.path())))
                     .index(IndexStorage::Local(LocalIndexStorage {

@@ -53,6 +53,7 @@ macro_rules! write_with_multihash {
                 let (mut h, b) = hb.into_inner();
                 Ok((Code::$hashes.wrap(h.finalize())?, b))
             },)*
+            _ => Err(MultihashError::UnsupportedCode($code.into())),
         }
     };
 }

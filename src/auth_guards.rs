@@ -12,8 +12,9 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
 };
 use libp2p::{
-    core::{multiaddr::multiaddr, Multiaddr, PeerId},
-    identity::ed25519::Keypair as Ed25519Keypair,
+    core::{multiaddr::multiaddr, Multiaddr},
+    identity::Keypair,
+    PeerId,
 };
 use rocket::{
     futures::future::try_join_all,
@@ -156,17 +157,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                         .await,
                     ) {
                         (Some(p), Ok(None)) => {
-                            let keys = match req
-                                .rocket()
-                                .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
-                            {
-                                Some(k) => k,
-                                _ => {
-                                    return Err(internal_server_error(anyhow!(
-                                        "could not retrieve open key set"
-                                    )))
-                                }
-                            };
+                            let keys =
+                                match req.rocket().state::<RwLock<HashMap<PeerId, Keypair>>>() {
+                                    Some(k) => k,
+                                    _ => {
+                                        return Err(internal_server_error(anyhow!(
+                                            "could not retrieve open key set"
+                                        )))
+                                    }
+                                };
 
                             if let Err(e) = token
                                 .verify(
