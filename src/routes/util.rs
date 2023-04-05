@@ -50,10 +50,16 @@ where
     ) -> Poll<Result<usize, IoError>> {
         let this = self.project();
         // calculate the number of bytes that can be read
-        let max_remaining = (*this.limit - *this.written) as usize;
+        let max_remaining = if let Some(remaining) = (*this.limit).checked_sub(*this.written) {
+            // it's ok if remaining is 0 here, as writing 0 bytes won't change anything
+            remaining
+        } else {
+            // limit already exceeded somehow
+            return Poll::Ready(Err(IoError::new(ErrorKind::Other, LimitExceeded)));
+        };
 
         match this.inner.poll_read(cx, buf) {
-            Poll::Ready(Ok(n)) if n > max_remaining => {
+            Poll::Ready(Ok(n)) if n as u64 > max_remaining => {
                 Poll::Ready(Err(IoError::new(ErrorKind::Other, LimitExceeded)))
             }
             Poll::Ready(Ok(n)) => {
