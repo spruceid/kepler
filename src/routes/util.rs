@@ -64,3 +64,31 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::io::AsyncReadExt;
+
+    #[test]
+    async fn test_limit() {
+        let data = b"hello world";
+        let mut buf = Vec::with_capacity(data.len() + 10);
+
+        // use a reader with limit above len
+        let mut reader = LimitedReader::new(&data[..], data.len() as u64 + 1);
+
+        let n = reader.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(n, data.len());
+
+        // use a reader with limit equal to len
+        let mut reader = LimitedReader::new(&data[..], data.len() as u64);
+        let n = reader.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(n, data.len());
+
+        // use a reader with limit below data len
+        let mut reader = LimitedReader::new(&data[..], data.len() as u64 - 1);
+        let r = reader.read_to_end(&mut buf).await;
+        assert!(r.is_err());
+    }
+}
