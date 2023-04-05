@@ -36,6 +36,8 @@ use crate::{
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
 pub mod util;
+use util::LimitedReader;
+
 pub struct Metadata(pub BTreeMap<String, String>);
 
 #[async_trait]
@@ -225,27 +227,41 @@ where
         } => {
             let rm: [([u8; 0], _, _); 0] = [];
 
-            let size = orbit
-                .service
-                .store
-                .blocks()
-                .total_size()
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+            let data = data.open(1u8.gigabytes()).compat();
 
-            // get the remaining allocated space for the given orbit storage
-            let allowed_size = config
-                .storage
-                .limit
-                .map(|l| if l > size { l - size } else { 0.bytes() })
-                .unwrap_or(1u8.gigabytes());
+            let reader = if let Some(limit) = config.storage.limit {
+                let current_size = orbit
+                    .service
+                    .store
+                    .blocks()
+                    .total_size()
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+
+                // get the remaining allocated space for the given orbit storage
+                match limit.as_u64().checked_sub(current_size) {
+                    // the current size is already equal or greater than the limit
+                    None | Some(0) => {
+                        return Err((
+                            Status::PayloadTooLarge,
+                            "The data storage limit has been reached".into(),
+                        ))
+                    }
+                    Some(remaining) => {
+                        futures::future::Either::Right(LimitedReader::new(data, remaining))
+                    }
+                }
+            } else {
+                // no limit on storage, just use the data as is
+                futures::future::Either::Left(data)
+            };
 
             orbit
                 .service
                 .write(
                     [(
                         ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        data.open(allowed_size).compat(),
+                        reader,
                     )],
                     rm,
                 )
