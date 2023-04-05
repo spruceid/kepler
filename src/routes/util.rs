@@ -37,7 +37,7 @@ impl<R> LimitedReader<R> {
 
 #[derive(thiserror::Error, Debug)]
 #[error("limit exceeded")]
-pub struct LimitExceeded;
+struct LimitExceeded;
 
 impl<R> AsyncRead for LimitedReader<R>
 where
