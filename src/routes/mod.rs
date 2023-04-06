@@ -29,7 +29,7 @@ use crate::{
     authorization::{Capability, Delegation},
     kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
-    storage::ImmutableStore,
+    storage::{Content, ImmutableStore},
     tracing::TracingSpan,
     BlockStores,
 };
@@ -132,7 +132,8 @@ pub async fn invoke(
     i: InvokeAuthWrapper<BlockStores>,
     req_span: TracingSpan,
     data: Data<'_>,
-) -> Result<InvocationResponse<<BlockStores as ImmutableStore>::Readable>, (Status, String)> {
+) -> Result<InvocationResponse<Content<<BlockStores as ImmutableStore>::Readable>>, (Status, String)>
+{
     let action_label = i.prometheus_label().to_string();
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
     // Instrumenting async block to handle yielding properly
@@ -157,7 +158,7 @@ pub async fn invoke(
 pub async fn handle_kv_action<B>(
     action: KVAction<B>,
     data: Data<'_>,
-) -> Result<InvocationResponse<B::Readable>, (Status, String)>
+) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
     B: 'static + ImmutableStore,
 {
@@ -240,7 +241,7 @@ where
 pub async fn handle_cap_action<B>(
     action: CapAction<B>,
     _data: Data<'_>,
-) -> Result<InvocationResponse<B::Readable>, (Status, String)>
+) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
     B: 'static + ImmutableStore,
 {

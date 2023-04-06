@@ -27,7 +27,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::{
     orbit::ProviderUtils,
-    storage::{utils::copy_in, ImmutableStore, KeyedWriteError, StorageConfig},
+    storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
 };
 
 // TODO we could use the same struct for both the block store and the data
@@ -204,6 +204,8 @@ pub enum S3StoreError {
     Bytestream(#[from] ByteStreamError),
     #[error(transparent)]
     Multihash(#[from] MultihashError),
+    #[error(transparent)]
+    Length(#[from] std::num::TryFromIntError),
 }
 
 #[async_trait]
@@ -303,7 +305,7 @@ impl ImmutableStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         let res = self
             .client
             .get_object()
@@ -312,11 +314,12 @@ impl ImmutableStore for S3BlockStore {
             .send()
             .await;
         match res {
-            Ok(o) => Ok(Some(
+            Ok(o) => Ok(Some(Content::new(
+                o.content_length().try_into()?,
                 o.body
                     .map_err(convert as fn(ByteStreamError) -> IoError)
                     .into_async_read(),
-            )),
+            ))),
             Err(SdkError::ServiceError {
                 err:
                     GetObjectError {

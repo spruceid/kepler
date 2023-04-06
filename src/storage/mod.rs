@@ -4,6 +4,7 @@ use kepler_lib::libipld::cid::{
     Cid,
 };
 use kepler_lib::resource::OrbitId;
+use pin_project::pin_project;
 use std::{collections::HashMap, error::Error as StdError};
 
 pub mod either;
@@ -39,6 +40,55 @@ pub enum KeyedWriteError<E> {
     Store(#[from] E),
 }
 
+#[pin_project]
+#[derive(Debug)]
+pub struct Content<R> {
+    size: u64,
+    #[pin]
+    content: R,
+}
+
+impl<R> Content<R> {
+    pub fn new(size: u64, content: R) -> Self {
+        Self { size, content }
+    }
+
+    pub fn len(&self) -> u64 {
+        self.size
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn into_inner(self) -> (u64, R) {
+        (self.size, self.content)
+    }
+}
+
+impl<R> futures::io::AsyncRead for Content<R>
+where
+    R: futures::io::AsyncRead,
+{
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.project();
+        this.content.poll_read(cx, buf)
+    }
+
+    fn poll_read_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.project();
+        this.content.poll_read_vectored(cx, bufs)
+    }
+}
+
 /// A Store implementing content-addressed storage
 /// Content is address by [Multihash][libipld::cid::multihash::Multihash] and represented as an
 /// [AsyncRead][futures::io::AsyncRead]-implementing type.
@@ -58,7 +108,7 @@ pub trait ImmutableStore: Send + Sync {
         hash: &Multihash,
     ) -> Result<(), KeyedWriteError<Self::Error>>;
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error>;
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error>;
     async fn read_to_vec(
         &self,
         id: &Multihash,
@@ -67,11 +117,11 @@ pub trait ImmutableStore: Send + Sync {
         Self::Readable: Send,
     {
         use futures::io::AsyncReadExt;
-        let r = match self.read(id).await? {
+        let (l, r) = match self.read(id).await? {
             None => return Ok(None),
-            Some(r) => r,
+            Some(r) => r.into_inner(),
         };
-        let mut v = Vec::new();
+        let mut v = Vec::with_capacity(l as usize);
         Box::pin(r)
             .read_to_end(&mut v)
             .await
@@ -113,7 +163,7 @@ where
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
         self.remove(id).await
     }
-    async fn read(&self, id: &Multihash) -> Result<Option<Self::Readable>, Self::Error> {
+    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         self.read(id).await
     }
     async fn read_to_vec(

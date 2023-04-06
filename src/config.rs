@@ -24,8 +24,9 @@ pub struct Logging {
     pub tracing: Tracing,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub enum LoggingFormat {
+    #[default]
     Text,
     Json,
 }
@@ -95,12 +96,6 @@ impl Default for Tracing {
             enabled: false,
             traceheader: "Spruce-Trace-Id".to_string(),
         }
-    }
-}
-
-impl Default for LoggingFormat {
-    fn default() -> LoggingFormat {
-        LoggingFormat::Text
     }
 }
 
