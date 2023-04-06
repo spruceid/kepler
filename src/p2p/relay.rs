@@ -143,7 +143,7 @@ impl Config {
     fn build(self, pubkey: PublicKey) -> Behaviour {
         let peer_id = pubkey.to_peer_id();
         Behaviour {
-            identify: Identify::new(self.identify.to_config(pubkey)),
+            identify: Identify::new(self.identify.into_config(pubkey)),
             ping: Ping::new(self.ping),
             relay: Relay::new(peer_id, self.relay),
             autonat: AutoNat::new(peer_id, self.autonat),
@@ -236,7 +236,7 @@ async fn poll_swarm(
                     };
                 }
                 Message::GetAddresses(s) => s
-                    .send(swarm.listeners().map(|a| a.clone()).collect())
+                    .send(swarm.listeners().cloned().collect())
                     .map_err(|_| SwarmError::SendError)?,
                 Message::Dial(addr, s) => {
                     swarm.dial(addr)?;
@@ -257,7 +257,7 @@ async fn poll_swarm(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::p2p::transport::MemoryConfig;
+    use crate::p2p::transport::{Both, MemoryConfig, TcpConfig};
     use libp2p::build_multiaddr;
 
     #[test]
@@ -272,5 +272,50 @@ mod test {
         let listened = relay.get_addresses().await.unwrap();
 
         assert_eq!(listened, vec![addr]);
+    }
+
+    #[test]
+    async fn can_relay() {
+        let mut alice = Config::default()
+            .launch(Keypair::generate_ed25519(), MemoryConfig)
+            .unwrap();
+
+        let mut bob = Config::default()
+            .launch(
+                Keypair::generate_ed25519(),
+                Both::<MemoryConfig, TcpConfig>::default(),
+            )
+            .unwrap();
+
+        let mut charles = Config::default()
+            .launch(
+                Keypair::generate_ed25519(),
+                Both::<MemoryConfig, TcpConfig>::default(),
+            )
+            .unwrap();
+
+        alice
+            .listen_on([build_multiaddr!(Memory(0u8))])
+            .await
+            .unwrap();
+
+        bob.listen_on([build_multiaddr!(Memory(0u8))])
+            .await
+            .unwrap();
+
+        charles
+            .listen_on([build_multiaddr!(Tcp(0u8))])
+            .await
+            .unwrap();
+
+        let alice_addrs = alice.get_addresses().await.unwrap();
+        let bob_addrs = bob.get_addresses().await.unwrap();
+        let charles_addrs = charles.get_addresses().await.unwrap();
+
+        let charles_via_bob = bob_addrs[0].clone().with(Protocol::P2p(bob.id().into()));
+
+        let charles_via_bob = charles_addrs[0].with(Protocol::P2p(bob.id().into()));
+
+        alice.dial().await.unwrap();
     }
 }

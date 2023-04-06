@@ -86,7 +86,7 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
         config,
         req.rocket()
             .state::<RelayNode>()
-            .map(|r| (r.id().clone(), multiaddr!(Memory(port))))
+            .map(|r| (*r.id(), multiaddr!(Memory(port))))
             .ok_or_else(|| anyhow!("Could not retrieve relay node information"))?,
     ))
 }

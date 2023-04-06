@@ -6,7 +6,7 @@ pub mod behaviour;
 pub mod relay;
 pub mod transport;
 
-pub const PROTOCOL_VERSION: &'static str = "kepler/0.1.0";
+pub const PROTOCOL_VERSION: &str = "kepler/0.1.0";
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct IdentifyConfig {
@@ -53,7 +53,7 @@ impl Default for IdentifyConfig {
 }
 
 impl IdentifyConfig {
-    fn to_config(self, key: PublicKey) -> OIdentifyConfig {
+    fn into_config(self, key: PublicKey) -> OIdentifyConfig {
         OIdentifyConfig::new(self.protocol_version, key)
             .with_initial_delay(self.initial_delay)
             .with_interval(self.interval)

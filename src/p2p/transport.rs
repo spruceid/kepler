@@ -79,16 +79,11 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub enum DnsResolver {
+    #[default]
     System,
-    Custom(CustomDnsResolver),
-}
-
-impl Default for DnsResolver {
-    fn default() -> Self {
-        Self::System
-    }
+    Custom(Box<CustomDnsResolver>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

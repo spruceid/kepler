@@ -93,7 +93,7 @@ pub fn relay_addr(relay: &State<RelayNode>, config: &State<Config>) -> String {
     multiaddr!(
         Ip4([127, 0, 0, 1]),
         Tcp(config.relay.port),
-        P2p(relay.id().clone())
+        P2p(*relay.id())
     )
     .to_string()
 }

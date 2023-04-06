@@ -100,7 +100,7 @@ impl ProviderUtils for S3BlockConfig {
             .await
         {
             Ok(o) => Ok(Keypair::from_protobuf_encoding(
-                &mut o.body.collect().await?.into_bytes().to_vec(),
+                &o.body.collect().await?.into_bytes().to_vec(),
             )?),
             Err(SdkError::ServiceError {
                 err:
@@ -132,7 +132,7 @@ impl ProviderUtils for S3BlockConfig {
             .await
         {
             Ok(o) => Ok(Some(Keypair::from_protobuf_encoding(
-                &mut o.body.collect().await?.into_bytes().to_vec(),
+                &o.body.collect().await?.into_bytes().to_vec(),
             )?)),
             Err(SdkError::ServiceError {
                 err:

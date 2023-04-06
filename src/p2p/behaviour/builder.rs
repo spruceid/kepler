@@ -91,7 +91,7 @@ impl<KSC> BehaviourConfig<KSC> {
         let peer_id = keypair.public().to_peer_id();
         Ok(Behaviour {
             base: BaseBehaviour {
-                identify: Identify::new(self.identify.to_config(keypair.public())),
+                identify: Identify::new(self.identify.into_config(keypair.public())),
                 ping: Ping::new(self.ping),
                 gossipsub: Gossipsub::new(
                     MessageAuthenticity::Signed(keypair),
