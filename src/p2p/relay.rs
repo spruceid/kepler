@@ -273,4 +273,49 @@ mod test {
 
         assert_eq!(listened, vec![addr]);
     }
+
+    #[test]
+    async fn can_relay() {
+        let mut alice = Config::default()
+            .launch(Keypair::generate_ed25519(), MemoryConfig)
+            .unwrap();
+
+        let mut bob = Config::default()
+            .launch(
+                Keypair::generate_ed25519(),
+                Both::<MemoryConfig, TcpConfig>::default(),
+            )
+            .unwrap();
+
+        let mut charles = Config::default()
+            .launch(
+                Keypair::generate_ed25519(),
+                Both::<MemoryConfig, TcpConfig>::default(),
+            )
+            .unwrap();
+
+        alice
+            .listen_on([build_multiaddr!(Memory(0u8))])
+            .await
+            .unwrap();
+
+        bob.listen_on([build_multiaddr!(Memory(0u8))])
+            .await
+            .unwrap();
+
+        charles
+            .listen_on([build_multiaddr!(Tcp(0u8))])
+            .await
+            .unwrap();
+
+        let alice_addrs = alice.get_addresses().await.unwrap();
+        let bob_addrs = bob.get_addresses().await.unwrap();
+        let charles_addrs = charles.get_addresses().await.unwrap();
+
+        let charles_via_bob = bob_addrs[0].clone().with(Protocol::P2p(bob.id().into()));
+
+        let charles_via_bob = charles_addrs[0].with(Protocol::P2p(bob.id().into()));
+
+        alice.dial().await.unwrap();
+    }
 }
