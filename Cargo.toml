@@ -50,6 +50,7 @@ tracing = "0.1"
 tracing-log = "0.1"
 tracing-opentelemetry = "0.17.2"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter", "json"] }
+unsigned-varint = { version = "0.7", features = ["futures"] }
 urlencoding = "2.1"
 void = "1"
 uuid = "1"

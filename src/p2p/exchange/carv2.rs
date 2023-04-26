@@ -1,5 +1,5 @@
 use futures::{
-    io::{AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     TryStream,
 };
 use libipld::Cid;
@@ -70,18 +70,19 @@ impl Header {
 pub async fn write<W, S, R, E>(
     header: &Header,
     v1_header: &V1Header,
-    data: impl TryStream<Ok = DataSection<R>, Error = E>,
+    data: &mut S,
     index: Option<()>,
     writer: &mut W,
 ) -> Result<(), WriteError<S::Error>>
 where
     W: AsyncWrite + Unpin,
-    S: ImmutableStore,
+    S: TryStream<Ok = DataSection<R>, Error = E> + Unpin,
+    R: AsyncRead,
 {
     writer.write_all(&CAR_V2_PRAGMA).await?;
     header.write_to(writer).await?;
 
-    v1_write(v1_header, store, writer).await?;
+    v1_write(v1_header, data, writer).await?;
 
     // TODO write index if present
 
