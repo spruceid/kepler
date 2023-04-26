@@ -4,7 +4,7 @@ use kepler_lib::{
     authorization::{EncodingError, HeaderEncode},
     libipld::Cid,
 };
-use libp2p::{identity::Keypair, multiaddr::multiaddr, PeerId};
+use libp2p::{identity::Keypair, multiaddr::Protocol, PeerId};
 use rocket::{
     data::{Data, ToByteUnit},
     http::{Header, Status},
@@ -90,12 +90,12 @@ pub mod util_routes {
 
 #[get("/peer/relay")]
 pub fn relay_addr(relay: &State<RelayNode>, config: &State<Config>) -> String {
-    multiaddr!(
-        Ip4([127, 0, 0, 1]),
-        Tcp(config.relay.port),
-        P2p(*relay.id())
-    )
-    .to_string()
+    config
+        .relay
+        .address
+        .clone()
+        .with(Protocol::P2p(*relay.id().as_ref()))
+        .to_string()
 }
 
 #[get("/peer/generate")]

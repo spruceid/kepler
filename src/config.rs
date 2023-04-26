@@ -3,6 +3,7 @@ use crate::{
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
     BlockConfig,
 };
+use libp2p::{build_multiaddr, Multiaddr};
 use rocket::http::hyper::Uri;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr, FromInto};
@@ -81,8 +82,7 @@ pub struct DynamoStorage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Relay {
-    pub address: String,
-    pub port: u16,
+    pub address: Multiaddr,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -122,8 +122,7 @@ impl Default for LocalIndexStorage {
 impl Default for Relay {
     fn default() -> Self {
         Self {
-            address: "127.0.0.1".into(),
-            port: 8081,
+            address: build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(8081u16)),
         }
     }
 }

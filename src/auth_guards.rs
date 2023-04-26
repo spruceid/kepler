@@ -81,12 +81,11 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
         .state::<config::Config>()
         .cloned()
         .ok_or_else(|| anyhow!("Could not retrieve config"))?;
-    let port = config.relay.port;
     Ok((
         config,
         req.rocket()
             .state::<RelayNode>()
-            .map(|r| (*r.id(), multiaddr!(Memory(port))))
+            .map(|r| (*r.id(), multiaddr!(Memory(1u8))))
             .ok_or_else(|| anyhow!("Could not retrieve relay node information"))?,
     ))
 }
