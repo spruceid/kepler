@@ -4,11 +4,7 @@ use kepler_lib::{
     authorization::{EncodingError, HeaderEncode},
     libipld::Cid,
 };
-use libp2p::{
-    core::PeerId,
-    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
-    multiaddr::Protocol,
-};
+use libp2p::{identity::Keypair, multiaddr::Protocol, PeerId};
 use rocket::{
     data::{Data, ToByteUnit},
     http::{Header, Status},
@@ -27,8 +23,9 @@ use tracing::{info_span, Instrument};
 use crate::{
     auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
     authorization::{Capability, Delegation},
+    config::Config,
     kv::{ObjectBuilder, ReadResponse},
-    relay::RelayNode,
+    p2p::relay::RelayNode,
     storage::{Content, ImmutableStore},
     tracing::TracingSpan,
     BlockStores,
@@ -92,19 +89,23 @@ pub mod util_routes {
 }
 
 #[get("/peer/relay")]
-pub fn relay_addr(relay: &State<RelayNode>) -> String {
-    relay
-        .external()
-        .with(Protocol::P2p(relay.id.into()))
-        .to_string()
+pub fn relay_addr(relay: &State<RelayNode>, config: &State<Config>) -> String {
+    config
+        .relay
+        .addresses
+        .iter()
+        .cloned()
+        .map(|a| a.with(Protocol::P2p(*relay.id().as_ref())).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[get("/peer/generate")]
 pub fn open_host_key(
-    s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
+    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
-    let keypair = Ed25519Keypair::generate();
-    let id = PublicKey::Ed25519(keypair.public()).to_peer_id();
+    let keypair = Keypair::generate_ed25519();
+    let id = keypair.public().to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);

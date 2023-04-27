@@ -17,3 +17,6 @@
 [global.orbits]
 ## Orbit allow list api endpoint
 # allowlist = "http://localhost:10000"
+
+[global.relay]
+# addresses = ["/ip4/127.0.0.1/tcp/8081"]

@@ -14,26 +14,23 @@ pub mod allow_list;
 pub mod auth_guards;
 pub mod authorization;
 pub mod capabilities;
-pub mod cas;
 pub mod config;
 pub mod indexes;
 pub mod kv;
 pub mod manifest;
 pub mod orbit;
+pub mod p2p;
 pub mod prometheus;
-pub mod relay;
 pub mod routes;
 pub mod storage;
 mod tracing;
 pub mod transport;
 
 use config::{BlockStorage, Config};
-use libp2p::{
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    PeerId,
-};
+use libp2p::{build_multiaddr, identity::Keypair, PeerId};
 use orbit::ProviderUtils;
-use relay::RelayNode;
+use p2p::relay::Config as RelayConfig;
+use p2p::transport::{Both, MemoryConfig, TcpConfig};
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
@@ -76,9 +73,22 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     tracing::tracing_try_init(&kepler_config.log);
 
     storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
-    let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
+    let mut relay_node = RelayConfig::default().launch(
+        kepler_config.storage.blocks.relay_key_pair().await?,
+        Both::<MemoryConfig, TcpConfig>::default(),
+    )?;
+
+    relay_node
+        .listen_on(
+            kepler_config
+                .relay
+                .addresses
+                .iter()
+                .cloned()
+                .chain([build_multiaddr!(Memory(1u64))]),
+        )
+        .await?;
 
     let routes = routes![
         healthcheck,
@@ -96,7 +106,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

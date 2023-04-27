@@ -24,6 +24,7 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/kepler /usr/lo
 USER kepler
 COPY ./kepler.toml ./
 ENV ROCKET_ADDRESS=0.0.0.0
+ENV KEPLER_RELAY_ADDRESSES=[\"/ip4/0.0.0.0/tcp/8081\"]
 EXPOSE 8000
 EXPOSE 8001
 EXPOSE 8081

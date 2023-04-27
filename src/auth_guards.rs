@@ -2,7 +2,7 @@ use crate::authorization::{Delegation, Invocation, Verifiable};
 use crate::capabilities::store::{InvokeError, ToBlock, Updates};
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
-use crate::relay::RelayNode;
+use crate::p2p::relay::RelayNode;
 use crate::routes::Metadata;
 use crate::BlockStores;
 use anyhow::Result;
@@ -12,8 +12,9 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
 };
 use libp2p::{
-    core::{Multiaddr, PeerId},
-    identity::ed25519::Keypair as Ed25519Keypair,
+    core::{multiaddr::multiaddr, Multiaddr},
+    identity::Keypair,
+    PeerId,
 };
 use rocket::{
     futures::future::try_join_all,
@@ -75,14 +76,16 @@ pub fn check_orbit_and_service(
 }
 
 fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))> {
+    let config = req
+        .rocket()
+        .state::<config::Config>()
+        .cloned()
+        .ok_or_else(|| anyhow!("Could not retrieve config"))?;
     Ok((
-        req.rocket()
-            .state::<config::Config>()
-            .cloned()
-            .ok_or_else(|| anyhow!("Could not retrieve config"))?,
+        config,
         req.rocket()
             .state::<RelayNode>()
-            .map(|r| (r.id, r.internal()))
+            .map(|r| (*r.id(), multiaddr!(Memory(1u8))))
             .ok_or_else(|| anyhow!("Could not retrieve relay node information"))?,
     ))
 }
@@ -153,17 +156,15 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                         .await,
                     ) {
                         (Some(p), Ok(None)) => {
-                            let keys = match req
-                                .rocket()
-                                .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
-                            {
-                                Some(k) => k,
-                                _ => {
-                                    return Err(internal_server_error(anyhow!(
-                                        "could not retrieve open key set"
-                                    )))
-                                }
-                            };
+                            let keys =
+                                match req.rocket().state::<RwLock<HashMap<PeerId, Keypair>>>() {
+                                    Some(k) => k,
+                                    _ => {
+                                        return Err(internal_server_error(anyhow!(
+                                            "could not retrieve open key set"
+                                        )))
+                                    }
+                                };
 
                             if let Err(e) = token
                                 .verify(

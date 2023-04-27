@@ -40,14 +40,15 @@ Kepler instances are configured by the [kepler.toml](kepler.toml) configuration 
 
 The following common options are available:
 
-| Option               | env var                     | description                                                    |
-|:---------------------|:----------------------------|:---------------------------------------------------------------|
-| log_level            | KEPLER_LOG_LEVEL            | Set the level of logging output, options are "normal", "debug" |
-| address              | KEPLER_ADDRESS              | Set the listening address of the kepler instance               |
-| port                 | KEPLER_PORT                 | Set the listening TCP port for the kepler instance             |
-| storage.blocks.type  | KEPLER_STORAGE_BLOCKS_TYPE  | Set the mode of block storage, options are "Local" and "S3"    |
-| storage.indexes.type | KEPLER_STORAGE_INDEXES_TYPE | Set the type of the index store, options are "Local" and "DynamoDB" |
-| orbits.allowlist     | KEPLER_ORBITS_ALLOWLIST     | Set the URL of an allowlist service for gating the creation of Orbit Peers                                                               |
+| Option               | env var                     | description                                                                |
+|:---------------------|:----------------------------|:---------------------------------------------------------------------------|
+| log_level            | KEPLER_LOG_LEVEL            | Set the level of logging output, options are "normal", "debug"             |
+| address              | KEPLER_ADDRESS              | Set the listening address of the kepler instance                           |
+| port                 | KEPLER_PORT                 | Set the listening TCP port for the kepler instance                         |
+| storage.blocks.type  | KEPLER_STORAGE_BLOCKS_TYPE  | Set the mode of block storage, options are "Local" and "S3"                |
+| storage.indexes.type | KEPLER_STORAGE_INDEXES_TYPE | Set the type of the index store, options are "Local" and "DynamoDB"        |
+| orbits.allowlist     | KEPLER_ORBITS_ALLOWLIST     | Set the URL of an allowlist service for gating the creation of Orbit Peers |
+| relay.addresses      | KEPLER_RELAY_ADDRESSES      | Set the listening multiaddresses for the relay node                        |
 
 ### Storage Config
 
