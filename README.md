@@ -83,7 +83,7 @@ Additionally, the following environment variables must be present: `AWS_ACCESS_K
 Kepler instances can be started via command line, e.g.:
 
 ``` sh
-KEPLER_ADDRESS=/ip4/127.0.0.1/tcp/8001 kepler
+KEPLER_PORT=8001 kepler
 ```
 
 If the Kepler instance is not able to find or establish a connection to the configured storage, the instance will terminate.
