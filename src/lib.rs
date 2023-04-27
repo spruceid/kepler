@@ -80,7 +80,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     )?;
 
     relay_node
-        .listen_on([build_multiaddr!(Memory(1u64)), kepler_config.relay.address])
+        .listen_on(
+            kepler_config
+                .relay
+                .addresses
+                .iter()
+                .cloned()
+                .chain([build_multiaddr!(Memory(1u64))]),
+        )
         .await?;
 
     let routes = routes![

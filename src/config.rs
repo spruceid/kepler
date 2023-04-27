@@ -82,7 +82,7 @@ pub struct DynamoStorage {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Relay {
-    pub address: Multiaddr,
+    pub addresses: Vec<Multiaddr>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -122,7 +122,7 @@ impl Default for LocalIndexStorage {
 impl Default for Relay {
     fn default() -> Self {
         Self {
-            address: build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(8081u16)),
+            addresses: vec![build_multiaddr!(Ip4([127, 0, 0, 1]), Tcp(8081u16))],
         }
     }
 }

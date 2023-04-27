@@ -92,10 +92,12 @@ pub mod util_routes {
 pub fn relay_addr(relay: &State<RelayNode>, config: &State<Config>) -> String {
     config
         .relay
-        .address
-        .clone()
-        .with(Protocol::P2p(*relay.id().as_ref()))
-        .to_string()
+        .addresses
+        .iter()
+        .cloned()
+        .map(|a| a.with(Protocol::P2p(*relay.id().as_ref())).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[get("/peer/generate")]
