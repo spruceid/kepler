@@ -36,7 +36,7 @@ where
             Ok(Cid::new_v0(Code::Sha2_256.digest(&buf))?)
         }
         // CID v1
-        0x20 => {
+        0x1 => {
             let codec = aio::read_u64(&mut reader).await?;
             let mh_code =
                 Code::try_from(aio::read_u64(&mut reader).await?).map_err(CidError::from)?;
@@ -98,11 +98,11 @@ where
 
     let cid_len = buf[1];
 
-    println!("{:x?}", buf);
+    println!("buf: {:x?}", buf);
     let mut vec = Vec::with_capacity(cid_len as usize);
     // TODO wtf why doesnt this read anything
     reader.take(cid_len.into()).read_exact(&mut vec).await?;
-    println!("{:x?}", vec);
+    println!("cid bytes: {:x?}", vec);
     if vec.get(0) != Some(&0) {
         return Err(Error::Cid(CidError::InvalidCidVersion));
     }

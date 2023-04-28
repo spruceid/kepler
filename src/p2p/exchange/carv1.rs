@@ -94,6 +94,10 @@ impl<R> DataSection<R> {
     pub fn new(cid: Cid, block: Content<R>) -> Self {
         Self { cid, block }
     }
+
+    pub fn into_inner(self) -> (Cid, Content<R>) {
+        (self.cid, self.block)
+    }
 }
 
 impl<R> DataSection<R>
@@ -127,7 +131,7 @@ impl<E> From<IoError> for WriteError<E> {
     }
 }
 
-pub async fn write<W, S, R, E>(
+pub async fn write_carv1<W, S, R, E>(
     header: &Header,
     data: &mut S,
     mut writer: W,
@@ -168,11 +172,10 @@ impl From<CidReadError> for ReadError {
 }
 
 #[derive(Default)]
-#[pin_project(project = TakenReaderProj)]
 pub enum TakenReader<R> {
     #[default]
     Finished,
-    Unfinished(#[pin] Take<R>, Option<oneshot::Sender<R>>),
+    Unfinished(Take<R>, Option<oneshot::Sender<R>>),
 }
 
 impl<R> TakenReader<R>
@@ -205,6 +208,7 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
+        // boy I hope this doesnt need to be pinned in a better way
         match *self {
             TakenReader::Finished => Poll::Ready(Ok(0)),
             TakenReader::Unfinished(ref mut reader, _) => {
@@ -304,7 +308,6 @@ where
                 }
             }
         }
-
     };
     Ok((header, stream, final_rx))
 }
@@ -312,6 +315,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::StreamExt;
+    use libipld::{multihash::Code, raw::RawCodec, Block, DefaultParams};
 
     #[test]
     async fn header() {
@@ -328,5 +333,82 @@ mod tests {
         println!("{:x?}", buf);
         let deser = Header::read_from(&mut buf.as_slice()).await.unwrap();
         assert_eq!(header, deser);
+    }
+
+    #[test]
+    async fn reader() {
+        let header = Header {
+            version: 1,
+            roots: Vec::new(),
+        };
+
+        let (cid1, block1) =
+            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![0u8; 1024])
+                .expect("block encoding to work")
+                .into_inner();
+
+        let (cid2, block2) =
+            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![1u8; 1024])
+                .expect("block encoding to work")
+                .into_inner();
+
+        println!("{:?}", cid1);
+        println!("{:?}", cid2);
+        let cid_len = cid1.to_bytes().len() as u64;
+
+        let mut buf = Vec::with_capacity(2048);
+        header
+            .write_to(&mut buf)
+            .await
+            .expect("header write to work");
+
+        write_leb128(block1.len() as u64 + cid_len, &mut buf)
+            .await
+            .expect("leb128 write to work");
+        buf.extend_from_slice(cid1.to_bytes().as_slice());
+        buf.extend_from_slice(&block1);
+
+        write_leb128(block2.len() as u64 + cid_len, &mut buf)
+            .await
+            .expect("leb128 write to work");
+        buf.extend_from_slice(cid2.to_bytes().as_slice());
+        buf.extend_from_slice(&block2);
+
+        let (read_header, stream, final_rx) = stream_carv1(buf.as_slice())
+            .await
+            .expect("stream from buffer to work");
+        assert_eq!(read_header, header);
+
+        let mut s = Box::pin(stream);
+
+        let (rcid1, mut rblock1) = s
+            .next()
+            .await
+            .expect("no read error")
+            .expect("there should be a section")
+            .into_inner();
+        assert_eq!(rcid1, cid1);
+        let mut buf1 = Vec::new();
+        rblock1
+            .read_to_end(&mut buf1)
+            .await
+            .expect("there should be a block");
+        assert_eq!(buf1, block1);
+
+        let (rcid2, mut rblock2) = s
+            .next()
+            .await
+            .expect("no read error")
+            .expect("there should be a section")
+            .into_inner();
+        assert_eq!(rcid2, cid2);
+        let mut buf2 = Vec::new();
+        rblock2
+            .read_to_end(&mut buf2)
+            .await
+            .expect("there should be a block");
+        assert_eq!(buf2, block2);
+
+        assert_eq!(final_rx.await.unwrap(), buf);
     }
 }
