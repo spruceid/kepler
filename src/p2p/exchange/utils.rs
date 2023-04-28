@@ -1,9 +1,17 @@
-use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    Future,
+};
 use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid, Error as CidError,
 };
-use std::io::Error as IoError;
+use pin_project::pin_project;
+use std::{
+    io::{Error as IoError, ErrorKind as IoErrorKind},
+    pin::Pin,
+    task::Poll,
+};
 use unsigned_varint::aio;
 
 #[derive(thiserror::Error, Debug)]
@@ -12,16 +20,11 @@ pub enum Error {
     Io(#[from] IoError),
     #[error(transparent)]
     Cid(#[from] CidError),
-    #[error(transparent)]
-    VarInt(#[from] unsigned_varint::decode::Error),
 }
 
 impl From<unsigned_varint::io::ReadError> for Error {
     fn from(e: unsigned_varint::io::ReadError) -> Self {
-        match e {
-            unsigned_varint::io::ReadError::Io(e) => e.into(),
-            unsigned_varint::io::ReadError::Decode(e) => e.into(),
-        }
+        Self::Cid(e.into())
     }
 }
 
@@ -75,25 +78,94 @@ where
             .map_err(CidError::from)?;
             Ok(Cid::new_v1(codec, mh))
         }
-        _ => Err(Error::Cid(CidError::InvalidCidVersion)),
+        v => {
+            println!("{:x?}", v);
+            Err(Error::Cid(CidError::InvalidCidVersion))
+        }
     }
 }
 
-pub struct Leb128Reader(u64, u8);
+#[pin_project]
+pub enum Leb128Reader<R> {
+    Unfinished(u64, #[pin] R),
+    Finished,
+}
 
-impl Leb128Reader {
-    pub fn new() -> Self {
-        Self(0, 0)
+pub fn update_leb128(val: u64, byte: u8) -> u64 {
+    (val << 7) | (byte & 0x7f) as u64
+}
+
+impl<R> Leb128Reader<R> {
+    pub fn new(reader: R) -> Self {
+        Self::Unfinished(0, reader)
     }
 
-    pub fn read(&mut self, byte: u8) -> Option<u64> {
-        self.0 |= ((byte & 0x7f) as u64) << self.1;
-        self.1 += 7;
-        if byte & 0x80 == 0 {
-            return Some(self.0);
+    fn finish(&mut self) -> (u64, R) {
+        match self {
+            Self::Unfinished(val, reader) => (*val, reader),
+            Self::Finished => panic!("already finished"),
         }
-        None
     }
+}
+
+impl<R> Future for Leb128Reader<R>
+where
+    R: AsyncRead + Unpin,
+{
+    type Output = Result<(u64, R), IoError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        match *self {
+            Self::Unfinished(v, r) => {
+                let this = self.project();
+                let mut buf = [0u8; 1];
+
+                match this.1.poll_read(cx, &mut buf) {
+                    Poll::Ready(Ok(_)) => (),
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                };
+                let byte = buf[0];
+                *this.0 = update_leb128(*this.0, byte);
+                if byte & 0x80 == 0 {}
+            }
+            Self::Finished => return Poll::Ready(Err(IoError::from(IoErrorKind::UnexpectedEof))),
+        }
+        return Poll::Ready(Ok((*this.0, *this.1)));
+        Poll::Pending
+    }
+}
+
+pub async fn read_dag_cbor_cid<R>(mut reader: R) -> Result<Cid, Error>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buf = [0u8; 2];
+    reader.read_exact(&mut buf).await?;
+    // check cid tag (0xd8) is 42 (0x2a)
+    if buf != [0xd8, 0x2a] {
+        return Err(Error::Cid(CidError::InvalidCidVersion));
+    };
+
+    reader.read_exact(&mut buf).await?;
+    // check byte string tag
+    // tbh not sure what the extra bits in this byte are for
+    // so I'm ignoring them for now
+    if buf[0] >> 5 != 2 {
+        return Err(Error::Cid(CidError::InvalidCidVersion));
+    };
+
+    let cid_len = buf[1];
+
+    println!("{:x?}", buf);
+    let mut vec = Vec::with_capacity(cid_len as usize);
+    // TODO wtf why doesnt this read anything
+    reader.take(cid_len.into()).read_exact(&mut vec).await?;
+    println!("{:x?}", vec);
+    if vec.get(0) != Some(&0) {
+        return Err(Error::Cid(CidError::InvalidCidVersion));
+    }
+    Ok(Cid::read_bytes(&vec[0..])?)
 }
 
 pub async fn read_leb128<R>(mut reader: R) -> Result<u64, IoError>

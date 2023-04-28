@@ -1179,6 +1179,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbor4ii"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b544cf8c89359205f4f990d0e6f3828db42df85b5dac95d09157a250eb0749c4"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3295,6 +3304,7 @@ dependencies = [
  "reqwest",
  "rocket",
  "serde",
+ "serde_ipld_dagcbor",
  "serde_json",
  "serde_with 1.14.0",
  "sled",
@@ -6104,6 +6114,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.13",
+]
+
+[[package]]
+name = "serde_ipld_dagcbor"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2433e94ffb5977e67afbd75733abd6ada1c4f497125894a8c89b3fdc5fd6a058"
+dependencies = [
+ "cbor4ii",
+ "cid",
+ "scopeguard",
+ "serde",
 ]
 
 [[package]]
