@@ -1,17 +1,9 @@
-use futures::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    Future,
-};
+use futures::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libipld::cid::{
     multihash::{Code, MultihashDigest},
     Cid, Error as CidError,
 };
-use pin_project::pin_project;
-use std::{
-    io::{Error as IoError, ErrorKind as IoErrorKind},
-    pin::Pin,
-    task::Poll,
-};
+use std::io::Error as IoError;
 use unsigned_varint::aio;
 
 #[derive(thiserror::Error, Debug)]
@@ -82,57 +74,6 @@ where
             println!("{:x?}", v);
             Err(Error::Cid(CidError::InvalidCidVersion))
         }
-    }
-}
-
-#[pin_project]
-pub enum Leb128Reader<R> {
-    Unfinished(u64, #[pin] R),
-    Finished,
-}
-
-pub fn update_leb128(val: u64, byte: u8) -> u64 {
-    (val << 7) | (byte & 0x7f) as u64
-}
-
-impl<R> Leb128Reader<R> {
-    pub fn new(reader: R) -> Self {
-        Self::Unfinished(0, reader)
-    }
-
-    fn finish(&mut self) -> (u64, R) {
-        match self {
-            Self::Unfinished(val, reader) => (*val, reader),
-            Self::Finished => panic!("already finished"),
-        }
-    }
-}
-
-impl<R> Future for Leb128Reader<R>
-where
-    R: AsyncRead + Unpin,
-{
-    type Output = Result<(u64, R), IoError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        match *self {
-            Self::Unfinished(v, r) => {
-                let this = self.project();
-                let mut buf = [0u8; 1];
-
-                match this.1.poll_read(cx, &mut buf) {
-                    Poll::Ready(Ok(_)) => (),
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                };
-                let byte = buf[0];
-                *this.0 = update_leb128(*this.0, byte);
-                if byte & 0x80 == 0 {}
-            }
-            Self::Finished => return Poll::Ready(Err(IoError::from(IoErrorKind::UnexpectedEof))),
-        }
-        return Poll::Ready(Ok((*this.0, *this.1)));
-        Poll::Pending
     }
 }
 

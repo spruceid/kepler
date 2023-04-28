@@ -167,50 +167,10 @@ impl From<CidReadError> for ReadError {
     }
 }
 
-// pub struct CarBlockReader<R> {
-//     reader: DelimitedReader<R>,
-// }
-
-// enum DelimitedReaderState<R> {
-//     Waiting(Waiting<R>),
-//     Available(Available<R>),
-// }
-
-// #[pin_project]
-// struct Available<R> {
-//     #[pin]
-//     len: Leb128Reader<R>,
-// }
-
-// struct Waiting<R> {
-//     receiver: oneshot::Receiver<R>,
-// }
-
-// impl<R> Available<R> {
-//     fn new(reader: R) -> Self {
-//         Self {
-//             len: Leb128Reader::new(reader),
-//         }
-//     }
-// }
-
-// impl<R> Future for Available<R>
-// where
-//     R: AsyncRead + Unpin,
-// {
-//     type Output = Result<(Waiting<R>, TakenReader<R>), IoError>;
-
-//     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-//         let this = self.project();
-//         let (len, reader) = futures::ready!(this.len.poll(cx))?;
-//         // create a new reader
-//         let (reader, rx) = TakenReader::new(reader, len);
-//         Poll::Ready(Ok((Waiting { receiver: rx }, reader)))
-//     }
-// }
-
+#[derive(Default)]
 #[pin_project(project = TakenReaderProj)]
 pub enum TakenReader<R> {
+    #[default]
     Finished,
     Unfinished(#[pin] Take<R>, Option<oneshot::Sender<R>>),
 }
@@ -226,16 +186,11 @@ where
     }
 
     fn finish(&mut self) -> Result<(), oneshot::Canceled> {
-        match self {
-            Self::Finished => (),
-            Self::Unfinished(r, tx) => {
-                let sender = tx.take();
-                match sender {
-                    Some(sender) => sender.send(r.into_inner()).map_err(|_| oneshot::Canceled)?,
-                    None => (),
-                };
-                *self = Self::Finished;
+        match std::mem::take(self) {
+            Self::Unfinished(r, Some(tx)) => {
+                tx.send(r.into_inner()).map_err(|_| oneshot::Canceled)?;
             }
+            _ => (),
         };
         Ok(())
     }
@@ -250,21 +205,16 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        {
-            let mut this = self.project();
-            match this {
-                TakenReaderProj::Finished => return Poll::Ready(Ok(0)),
-                TakenReaderProj::Unfinished(ref mut reader, _) => {
-                    match Pin::new(reader).poll_read(cx, buf) {
-                        Poll::Ready(Ok(0)) => true,
-                        p => return p,
-                    }
+        match *self {
+            TakenReader::Finished => Poll::Ready(Ok(0)),
+            TakenReader::Unfinished(ref mut reader, _) => {
+                let poll = Pin::new(reader).poll_read(cx, buf);
+                if let Poll::Ready(Ok(0)) = poll {
+                    let _ = self.finish();
                 }
+                poll
             }
-        };
-        // we can only get here if we're finished but haven't sent yet
-        let _ = self.finish();
-        Poll::Ready(Ok(0))
+        }
     }
 
     fn poll_read_vectored(
@@ -272,87 +222,21 @@ where
         cx: &mut std::task::Context<'_>,
         bufs: &mut [std::io::IoSliceMut<'_>],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        {
-            let mut this = self.project();
-            match this {
-                TakenReaderProj::Finished => return Poll::Ready(Ok(0)),
-                TakenReaderProj::Unfinished(ref mut reader, _) => {
-                    match reader.poll_read_vectored(cx, bufs) {
-                        Poll::Ready(Ok(0)) => (),
-                        p => return p,
-                    }
+        match *self {
+            TakenReader::Finished => Poll::Ready(Ok(0)),
+            TakenReader::Unfinished(ref mut reader, _) => {
+                let poll = Pin::new(reader).poll_read_vectored(cx, bufs);
+                if let Poll::Ready(Ok(0)) = poll {
+                    let _ = self.finish();
                 }
+                poll
             }
-        };
-        // we can only get here if we're finished but haven't sent yet
-        let _ = self.finish();
-        Poll::Ready(Ok(0))
+        }
     }
 }
 
-// impl<R> DelimitedReaderState<R> {
-//     fn new(reader: R) -> Self {
-//         Self::Available(Available::new(reader))
-//     }
-// }
-
-// #[pin_project]
-// struct DelimitedReader<R> {
-//     reader: DelimitedReaderState<R>,
-// }
-
-// impl<R> DelimitedReader<R> {
-//     pub fn new(reader: R) -> Self {
-//         Self {
-//             reader: DelimitedReaderState::new(reader),
-//         }
-//     }
-// }
-
-// impl<R> Stream for DelimitedReader<R>
-// where
-//     R: AsyncRead + Unpin,
-// {
-//     type Item = Result<TakenReader<R>, ReadError>;
-//     fn poll_next(
-//         self: Pin<&mut Self>,
-//         context: &mut std::task::Context,
-//     ) -> Poll<Option<Self::Item>> {
-//         let p = self.project();
-//         match p.reader {
-//             DelimitedReaderState::Waiting(r) => {
-//                 // wait for receiver to be ready
-//                 let ar = match r.receiver.try_recv() {
-//                     Ok(Some(ar)) => ar,
-//                     Ok(None) => return Poll::Pending,
-//                     // if sender is dropped, should this return None?
-//                     Err(e) => return Poll::Ready(Some(Err(e.into()))),
-//                 };
-//                 *p.reader = DelimitedReaderState::new(ar);
-//                 // self.poll_next(context)
-//                 Poll::Pending
-//             }
-//             DelimitedReaderState::Available(a) => {
-//                 // read len
-//                 let (w, t) = futures::ready!(Pin::new(a).poll(context))?;
-//                 *p.reader = DelimitedReaderState::Waiting(w);
-//                 Poll::Ready(Some(Ok(t)))
-//             }
-//         }
-//     }
-// }
-
-// impl<R> CarBlockReader<R> {
-//     pub fn new(reader: R) -> Self {
-//         Self {
-//             reader: DelimitedReader::new(reader),
-//         }
-//     }
-// }
-
-enum ReaderState<R, F> {
+pub(crate) enum ReaderState<R, F> {
     Empty(R),
-    Error(ReadError),
     Element(DataSection<TakenReader<R>>, F),
 }
 
@@ -362,7 +246,17 @@ pub(crate) async fn read_section<R>(
 where
     R: AsyncRead + Unpin,
 {
-    let len = match read_leb128(&mut reader).await {
+    // check if reader is already empty (if it can't read 1 byte, it's empty)
+    let mut buf = [0u8; 1];
+    match reader.read_exact(&mut buf).await {
+        Ok(_) => (),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            return Ok(ReaderState::Empty(reader))
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let len = match read_leb128(buf.chain(&mut reader)).await {
         Ok(len) => len,
         Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(ReaderState::Empty(reader)),
         Err(e) => return Err(ReadError::Io(e)),
@@ -377,6 +271,9 @@ where
     ))
 }
 
+// this function should take a reader and stream out length-delimited cid-block pairs
+// until the reader is empty. once the reader is empty, the returned future should
+// resolve with the value of the reader
 pub async fn stream_carv1<R>(
     mut reader: R,
 ) -> Result<
@@ -390,18 +287,24 @@ pub async fn stream_carv1<R>(
 where
     R: AsyncRead + Unpin,
 {
+    // read the header
     let header = Header::read_from(&mut reader).await?;
+    // setup the channel for completion state
     let (final_tx, final_rx) = oneshot::channel();
     let stream = try_stream! {
-        while match read_section(reader).await? {
-            ReaderState::Empty(r) => {final_tx.send(r).map_err(|_| oneshot::Canceled)?; false},
-            ReaderState::Error(e) => {yield Err(e); false},
-            ReaderState::Element(ds, rx) => {
-                yield ds;
-                reader = rx.await?;
-                true
+        loop {
+            // try read a section
+            match read_section(reader).await? {
+                // section is empty, send reader to completion channel
+                ReaderState::Empty(r) => {final_tx.send(r).map_err(|_| oneshot::Canceled)?; break},
+                // reader is not empty, send section to stream
+                ReaderState::Element(ds, rx) => {
+                    yield ds;
+                    reader = rx.await?;
+                }
             }
-        } {}
+        }
+
     };
     Ok((header, stream, final_rx))
 }
