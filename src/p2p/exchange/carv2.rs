@@ -5,7 +5,7 @@ use futures::{
 use libipld::Cid;
 use std::io::Error as IoError;
 
-use super::carv1::{write as v1_write, DataSection, Header as V1Header, WriteError};
+use super::carv1::{write_carv1, DataSection, Header as V1Header, WriteError};
 use crate::storage::ImmutableStore;
 
 const CAR_V2_PRAGMA: [u8; 11] = [
@@ -67,7 +67,7 @@ impl Header {
     }
 }
 
-pub async fn write<W, S, R, E>(
+pub async fn write_carv2<W, S, R, E>(
     header: &Header,
     v1_header: &V1Header,
     data: &mut S,
@@ -82,7 +82,7 @@ where
     writer.write_all(&CAR_V2_PRAGMA).await?;
     header.write_to(writer).await?;
 
-    v1_write(v1_header, data, writer).await?;
+    write_carv1(v1_header, data, writer).await?;
 
     // TODO write index if present
 

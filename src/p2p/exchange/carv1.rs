@@ -260,11 +260,7 @@ where
         Err(e) => return Err(e.into()),
     };
 
-    let len = match read_leb128(buf.chain(&mut reader)).await {
-        Ok(len) => len,
-        Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(ReaderState::Empty(reader)),
-        Err(e) => return Err(ReadError::Io(e)),
-    };
+    let len = read_leb128(buf.chain(&mut reader)).await?;
     let cid = read_cid(&mut reader).await?;
     let cid_len = cid.to_bytes().len() as u64;
     let block_len = len - cid_len;
@@ -343,12 +339,12 @@ mod tests {
         };
 
         let (cid1, block1) =
-            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![0u8; 1024])
+            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![0u8; 10])
                 .expect("block encoding to work")
                 .into_inner();
 
         let (cid2, block2) =
-            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![1u8; 1024])
+            Block::<DefaultParams>::encode(RawCodec, Code::Sha3_256, &vec![1u8; 24])
                 .expect("block encoding to work")
                 .into_inner();
 
@@ -356,7 +352,7 @@ mod tests {
         println!("{:?}", cid2);
         let cid_len = cid1.to_bytes().len() as u64;
 
-        let mut buf = Vec::with_capacity(2048);
+        let mut buf = Vec::with_capacity(34);
         header
             .write_to(&mut buf)
             .await
