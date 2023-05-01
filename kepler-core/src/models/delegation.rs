@@ -14,21 +14,58 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_one = "super::actor::Entity")]
+    // inverse relation, delegations belong to delegators
+    #[sea_orm(
+        belongs_to = "super::actor::Entity",
+        from = "Column::Id",
+        to = "super::actor::Column::Id"
+    )]
     Delegator,
     #[sea_orm(has_one = "super::actor::Entity")]
     Delegatee,
-    #[sea_orm(has_one = "super::epoch::Entity")]
+    // inverse relation, delegations belong to epochs
+    #[sea_orm(
+        belongs_to = "super::epoch::Entity",
+        from = "Column::Id",
+        to = "super::epoch::Column::Id"
+    )]
     Epoch,
+    // inverse relation, delegations belong to their parent delegations
+    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
+    Parent,
     #[sea_orm(has_many = "super::invocation::Entity")]
     Invocation,
     #[sea_orm(has_many = "super::revocation::Entity")]
-    Recovation,
+    Revocation,
+}
+
+impl Related<super::actor::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Delegator.def()
+    }
 }
 
 impl Related<super::epoch::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Epoch.def()
+    }
+}
+
+impl Related<Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Parent.def()
+    }
+}
+
+impl Related<super::invocation::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Invocation.def()
+    }
+}
+
+impl Related<super::revocation::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Revocation.def()
     }
 }
 
