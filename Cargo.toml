@@ -62,7 +62,8 @@ path = "lib/"
 members = [
     "lib",
     "sdk-wasm",
-    "sdk"
+    "sdk",
+    "kepler-core"
 ]
 
 exclude = [
