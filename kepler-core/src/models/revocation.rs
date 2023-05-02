@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 #[sea_orm(table_name = "revocation")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub id: u64,
+    pub id: Vec<u8>,
     pub issued_at: OffsetDateTime,
     pub not_before: OffsetDateTime,
 }

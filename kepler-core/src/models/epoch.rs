@@ -9,12 +9,22 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
+    Parent,
+    #[sea_orm(has_many = "Entity")]
+    Child,
     #[sea_orm(has_many = "super::delegation::Entity")]
     Delegation,
     #[sea_orm(has_many = "super::invocation::Entity")]
     Invocation,
     #[sea_orm(has_many = "super::revocation::Entity")]
     Revocation,
+}
+
+impl Related<Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Child.def()
+    }
 }
 
 impl Related<super::delegation::Entity> for Entity {
