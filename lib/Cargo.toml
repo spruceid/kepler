@@ -30,7 +30,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dependencies.ssi]
-version = "0.5"
+version = "0.6"
 default-features = false
 features = ["ed25519", "rsa", "secp256k1"]
 
