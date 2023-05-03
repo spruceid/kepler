@@ -33,6 +33,8 @@ pub enum Relation {
     // inverse relation, delegations belong to their parent delegations
     #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
     Parent,
+    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
+    Child,
     #[sea_orm(has_many = "super::invocation::Entity")]
     Invocation,
     #[sea_orm(has_many = "super::revocation::Entity")]
