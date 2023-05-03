@@ -1184,20 +1184,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "capgrok"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17b1f49d14a68f6b30e935586d15bc1fae6444c8e42cd222d4b68cf16406eecb"
-dependencies = [
- "base64 0.12.3",
- "iri-string 0.6.0",
- "serde",
- "serde_json",
- "siwe",
- "thiserror",
-]
-
-[[package]]
 name = "cast5"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2207,13 +2193,13 @@ dependencies = [
 
 [[package]]
 name = "displaydoc"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bf95dc3f046b9da4f2d51833c0d3547d8564ef6910f5c1ed130306a75b92886"
+checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.15",
 ]
 
 [[package]]
@@ -3517,7 +3503,6 @@ dependencies = [
  "async-trait",
  "base64 0.13.1",
  "cacaos",
- "capgrok",
  "did-ethr",
  "did-method-key",
  "did-onion",
@@ -3531,6 +3516,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with 1.14.0",
+ "siwe-recap",
  "ssi",
  "thiserror",
  "tokio",

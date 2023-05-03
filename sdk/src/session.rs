@@ -6,7 +6,7 @@ use kepler_lib::{
         siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
     },
-    capgrok::Builder,
+    siwe_recap::Builder,
     libipld::Cid,
     resolver::DID_METHODS,
     resource::OrbitId,

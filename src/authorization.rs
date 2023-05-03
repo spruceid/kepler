@@ -8,7 +8,7 @@ use kepler_lib::{
         EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
     },
     cacaos::siwe::Message,
-    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
+    siwe_recap::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
     libipld::{multihash::Code, Cid},
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
@@ -181,7 +181,7 @@ pub enum DelegationError {
     #[error(transparent)]
     SiweConversion(#[from] kepler_lib::cacaos::siwe_cacao::SIWEPayloadConversionError),
     #[error(transparent)]
-    SiweCapError(#[from] kepler_lib::capgrok::Error),
+    SiweCapError(#[from] kepler_lib::siwe_recap::Error),
     #[error("Invalid Siwe Statement")]
     InvalidStatement,
 }
