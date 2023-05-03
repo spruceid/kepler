@@ -4,7 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+sqlite = ["sea-orm/sqlx-sqlite"]
+mysql = ["sea-orm/sqlx-mysql"]
+postgres = ["sea-orm/sqlx-postgres"]
+
+runtime-async-std = ["sea-orm/runtime-async-std-rustls"]
+runtime-tokio = ["sea-orm/runtime-tokio-rustls"]
+runtime-actix = ["sea-orm/runtime-actix-rustls"]
 
 [dependencies]
-sea-orm = { version = "^0", features = ["with-time"] }
+sea-orm = { version = "^0", default-features = false, features = ["macros", "with-time"] }
 time = "0.3"
+
+[dev-dependencies]
+sea-orm = { version = "^0", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }
+async-std = { version = "1", features = ["attributes"] }

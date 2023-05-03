@@ -1,4 +1,6 @@
-pub mod models;
+pub mod db;
+pub mod events;
+mod models;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
