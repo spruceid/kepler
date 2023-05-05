@@ -13,7 +13,7 @@ serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
 cacaos = "0.5"
-capgrok = "=0.3.0"
+siwe-recap = "0.1.0"
 lazy_static = "1.4"
 did-method-key = { default-features = false, version = "0.2" }
 did-tz = { default-features = false, version = "0.2" }
@@ -30,7 +30,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dependencies.ssi]
-version = "0.5"
+version = "0.6"
 default-features = false
 features = ["ed25519", "rsa", "secp256k1"]
 
