@@ -16,6 +16,9 @@ runtime-actix = ["sea-orm/runtime-actix-rustls"]
 [dependencies]
 sea-orm = { version = "^0", default-features = false, features = ["macros", "with-time"] }
 time = "0.3"
+kepler-lib = { version = "0.1", path = "../lib" }
+thiserror = "1"
+ssi = "0.6"
 
 [dev-dependencies]
 sea-orm = { version = "^0", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }

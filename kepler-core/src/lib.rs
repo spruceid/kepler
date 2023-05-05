@@ -1,6 +1,7 @@
 pub mod db;
 pub mod events;
 mod models;
+mod relationships;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

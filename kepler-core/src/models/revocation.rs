@@ -1,13 +1,11 @@
 use sea_orm::entity::prelude::*;
-use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "revocation")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Vec<u8>,
-    pub issued_at: OffsetDateTime,
-    pub not_before: OffsetDateTime,
+    pub serialized: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -6,10 +6,11 @@ use time::OffsetDateTime;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Vec<u8>,
+    pub delegator: String,
     pub expiry: OffsetDateTime,
     pub issued_at: OffsetDateTime,
     pub not_before: OffsetDateTime,
-    pub nonce: String,
+    pub serialized: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -17,7 +18,7 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "super::actor::Entity",
-        from = "Column::Id",
+        from = "Column::Delegator",
         to = "super::actor::Column::Id"
     )]
     Delegator,
@@ -30,11 +31,6 @@ pub enum Relation {
         to = "super::epoch::Column::Id"
     )]
     Epoch,
-    // inverse relation, delegations belong to their parent delegations
-    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
-    Parent,
-    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
-    Child,
     #[sea_orm(has_many = "super::invocation::Entity")]
     Invocation,
     #[sea_orm(has_many = "super::revocation::Entity")]
@@ -53,12 +49,6 @@ impl Related<super::epoch::Entity> for Entity {
     }
 }
 
-impl Related<Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Parent.def()
-    }
-}
-
 impl Related<super::invocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Invocation.def()
@@ -68,6 +58,40 @@ impl Related<super::invocation::Entity> for Entity {
 impl Related<super::revocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Revocation.def()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ParentToChild;
+
+impl Linked for ParentToChild {
+    type FromEntity = Entity;
+
+    type ToEntity = Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        use super::super::relationships::parent_delegations;
+        vec![
+            parent_delegations::Relation::Parent.def().rev(),
+            parent_delegations::Relation::Child.def(),
+        ]
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ChildToParent;
+
+impl Linked for ChildToParent {
+    type FromEntity = Entity;
+
+    type ToEntity = Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        use super::super::relationships::parent_delegations;
+        vec![
+            parent_delegations::Relation::Child.def().rev(),
+            parent_delegations::Relation::Parent.def(),
+        ]
     }
 }
 

@@ -1,12 +1,16 @@
 pub mod delegation;
-pub mod epoch;
 pub mod invocation;
 pub mod revocation;
+pub use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation};
 
-pub use delegation::Delegation;
-pub use epoch::Epoch;
-pub use invocation::Invocation;
-pub use revocation::Revocation;
+#[derive(Debug)]
+pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);
+
+#[derive(Debug)]
+pub struct Invocation(pub KeplerInvocation, pub Vec<u8>);
+
+#[derive(Debug)]
+pub struct Revocation(pub KeplerRevocation, pub Vec<u8>);
 
 #[derive(Debug)]
 pub enum Event {

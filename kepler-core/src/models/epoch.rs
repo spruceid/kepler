@@ -10,10 +10,6 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(belongs_to = "Entity", from = "Column::Id", to = "Column::Id")]
-    Parent,
-    // #[sea_orm(has_many = "Entity")]
-    // Child,
     #[sea_orm(has_many = "super::delegation::Entity")]
     Delegation,
     #[sea_orm(has_many = "super::invocation::Entity")]
@@ -21,12 +17,6 @@ pub enum Relation {
     #[sea_orm(has_many = "super::revocation::Entity")]
     Revocation,
 }
-
-// impl Related<Entity> for Entity {
-//     fn to() -> RelationDef {
-//         Relation::Child.def()
-//     }
-// }
 
 impl Related<super::delegation::Entity> for Entity {
     fn to() -> RelationDef {
@@ -43,6 +33,40 @@ impl Related<super::invocation::Entity> for Entity {
 impl Related<super::revocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Revocation.def()
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ParentToChild;
+
+impl Linked for ParentToChild {
+    type FromEntity = Entity;
+
+    type ToEntity = Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        use super::super::relationships::epochs;
+        vec![
+            epochs::Relation::Parent.def().rev(),
+            epochs::Relation::Child.def(),
+        ]
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ChildToParent;
+
+impl Linked for ChildToParent {
+    type FromEntity = Entity;
+
+    type ToEntity = Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        use super::super::relationships::epochs;
+        vec![
+            epochs::Relation::Child.def().rev(),
+            epochs::Relation::Parent.def(),
+        ]
     }
 }
 
