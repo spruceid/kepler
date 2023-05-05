@@ -6,10 +6,10 @@ use kepler_lib::{
         siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
     },
-    siwe_recap::Builder,
     libipld::Cid,
     resolver::DID_METHODS,
     resource::OrbitId,
+    siwe_recap::Builder,
     ssi::{did::Source, jwk::JWK, vc::get_verification_method},
 };
 use serde::{Deserialize, Serialize};
