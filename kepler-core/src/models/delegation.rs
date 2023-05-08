@@ -1,4 +1,11 @@
-use sea_orm::entity::prelude::*;
+use super::super::{events::Delegation, util::DelegationInfo};
+use crate::db::TxError;
+use kepler_lib::{
+    authorization::KeplerDelegation,
+    resolver::DID_METHODS,
+    resource::{KRIParseError, ResourceId},
+};
+use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -7,9 +14,9 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Vec<u8>,
     pub delegator: String,
-    pub expiry: OffsetDateTime,
-    pub issued_at: OffsetDateTime,
-    pub not_before: OffsetDateTime,
+    pub expiry: Option<OffsetDateTime>,
+    pub issued_at: Option<OffsetDateTime>,
+    pub not_before: Option<OffsetDateTime>,
     pub serialized: Vec<u8>,
 }
 
@@ -96,3 +103,57 @@ impl Linked for ChildToParent {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+pub async fn process<C: ConnectionTrait>(
+    root: &str,
+    db: &C,
+    delegation: Delegation,
+) -> Result<[u8; 32], TxError> {
+    let Delegation(d, ser) = delegation;
+    // verify signatures
+    match d {
+        KeplerDelegation::Ucan(ucan) => {
+            ucan.verify_signature(DID_METHODS.to_resolver()).await?;
+            ucan.payload.validate_time(None)?;
+        }
+        KeplerDelegation::Cacao(cacao) => {
+            cacao.verify().await?;
+            if !cacao.payload().valid_now() {
+                return Err(TxError::InvalidDelegation);
+            }
+        }
+    };
+    let d_info = DelegationInfo::try_from(d)?;
+    if !d_info.parents.is_empty() || !d_info.delegator.starts_with(root) {
+        let parents = Entity::find()
+            .filter(d_info.parents.iter().fold(Condition::any(), |cond, p| {
+                cond.add(Column::Id.eq(p.to_bytes()))
+            }))
+            .all(db)
+            .await?;
+        for parent in parents {
+            let delegatee = parent
+                .find_with_related(Relation::Delegatee)
+                .all(db)
+                .await?;
+            if delegatee != d_info.delegator {
+                return Err(TxError::InvalidDelegation);
+            };
+            if parent.expiry < d_info.expiry {
+                return Err(TxError::InvalidDelegation);
+            };
+            // parent nbf must come before child nbf, child nbf must exist if parent nbf does
+            if parent
+                .not_before
+                .map(|pnbf| d_info.not_before.map(|nbf| pnbf > nbf).unwrap_or(true))
+                .unwrap_or(false)
+            {
+                return Err(TxError::InvalidDelegation);
+            };
+            // TODO check attenuations
+        }
+    }
+
+    let hash = todo!();
+    Ok(hash)
+}

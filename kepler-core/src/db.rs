@@ -7,12 +7,26 @@ use sea_orm::{
 
 pub struct OrbitDatabase {
     conn: DatabaseConnection,
+    orbit: OrbitId,
+    root: String,
 }
 
 pub struct Commit {
     pub hash: [u8; 32],
     pub seq: u64,
     pub commited_events: Vec<[u8; 32]>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TxError {
+    #[error("database error: {0}")]
+    Db(#[from] DbErr),
+    #[error(transparent)]
+    Ucan(#[from] ssi::ucan::Error),
+    #[error(transparent)]
+    Cacao(#[from] kepler_lib::cacaos::siwe_cacao::VerificationError),
+    #[error("invalid delegation")]
+    InvalidDelegation,
 }
 
 impl OrbitDatabase {
@@ -57,7 +71,7 @@ impl OrbitDatabase {
         Ok(todo!("get unconsumed latest tx from db"))
     }
 
-    pub async fn transact(&self, events: Vec<Event>) -> Result<Commit, DbErr> {
+    pub async fn transact(&self, events: Vec<Event>) -> Result<Commit, TxError> {
         let tx = self
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
@@ -83,22 +97,15 @@ impl OrbitDatabase {
         &self,
         tx: &DatabaseTransaction,
         delegation: Delegation,
-    ) -> Result<[u8; 32], DbErr> {
-        let Delegation(d, ser) = delegation;
-
-        match d {
-            KeplerDelegation::Ucan(ucan) => {}
-            KeplerDelegation::Cacao(cacao) => {}
-        }
-
-        todo!()
+    ) -> Result<[u8; 32], TxError> {
+        delegation::process(tx, delegation).await
     }
 
     async fn invoke_tx(
         &self,
         tx: &DatabaseTransaction,
         invocation: Invocation,
-    ) -> Result<[u8; 32], DbErr> {
+    ) -> Result<[u8; 32], TxError> {
         todo!()
     }
 
@@ -106,8 +113,15 @@ impl OrbitDatabase {
         &self,
         tx: &DatabaseTransaction,
         revocation: Revocation,
-    ) -> Result<[u8; 32], DbErr> {
+    ) -> Result<[u8; 32], TxError> {
         todo!()
+    }
+
+    // to allow users to make custom read queries
+    async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
+        self.conn
+            .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
+            .await
     }
 }
 
