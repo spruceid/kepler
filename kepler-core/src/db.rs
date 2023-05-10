@@ -1,5 +1,6 @@
 use crate::events::{Delegation, Event, Invocation, Revocation};
 use crate::models::*;
+use kepler_lib::resource::OrbitId;
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
     Database, DatabaseConnection, DatabaseTransaction, Schema, TransactionTrait,
@@ -25,14 +26,16 @@ pub enum TxError {
     Ucan(#[from] ssi::ucan::Error),
     #[error(transparent)]
     Cacao(#[from] kepler_lib::cacaos::siwe_cacao::VerificationError),
-    #[error("invalid delegation")]
-    InvalidDelegation,
+    #[error(transparent)]
+    InvalidDelegation(#[from] delegation::DelegationError),
 }
 
 impl OrbitDatabase {
-    pub async fn new<C: Into<ConnectOptions>>(options: C) -> Result<Self, DbErr> {
+    pub async fn new<C: Into<ConnectOptions>>(options: C, orbit: OrbitId) -> Result<Self, DbErr> {
         Ok(Self {
             conn: Database::connect(options).await?,
+            root: orbit.did(),
+            orbit,
         })
     }
 
@@ -80,9 +83,9 @@ impl OrbitDatabase {
         for event in events {
             commited_events.push(match event {
                 // dropping tx rolls back changes, so fine to '?' here
-                Event::Delegation(d) => self.delegate_tx(&tx, d).await?,
-                Event::Invocation(i) => self.invoke_tx(&tx, i).await?,
-                Event::Revocation(r) => self.revoke_tx(&tx, r).await?,
+                Event::Delegation(d) => delegation::process(&self.root, &tx, d).await?,
+                Event::Invocation(i) => invocation::process(&self.root, &tx, i).await?,
+                Event::Revocation(r) => revocation::process(&self.root, &tx, r).await?,
             });
         }
         // TODO update epoch table
@@ -93,28 +96,16 @@ impl OrbitDatabase {
         todo!()
     }
 
-    async fn delegate_tx(
-        &self,
-        tx: &DatabaseTransaction,
-        delegation: Delegation,
-    ) -> Result<[u8; 32], TxError> {
-        delegation::process(tx, delegation).await
+    pub async fn delegate(&self, delegation: Delegation) -> Result<Commit, TxError> {
+        self.transact(vec![Event::Delegation(delegation)]).await
     }
 
-    async fn invoke_tx(
-        &self,
-        tx: &DatabaseTransaction,
-        invocation: Invocation,
-    ) -> Result<[u8; 32], TxError> {
-        todo!()
+    async fn invoke(&self, invocation: Invocation) -> Result<Commit, TxError> {
+        self.transact(vec![Event::Invocation(invocation)]).await
     }
 
-    async fn revoke_tx(
-        &self,
-        tx: &DatabaseTransaction,
-        revocation: Revocation,
-    ) -> Result<[u8; 32], TxError> {
-        todo!()
+    async fn revoke_tx(&self, revocation: Revocation) -> Result<Commit, TxError> {
+        self.transact(vec![Event::Revocation(revocation)]).await
     }
 
     // to allow users to make custom read queries
@@ -122,6 +113,15 @@ impl OrbitDatabase {
         self.conn
             .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
             .await
+    }
+}
+
+impl From<delegation::Error> for TxError {
+    fn from(e: delegation::Error) -> Self {
+        match e {
+            delegation::Error::InvalidDelegation(e) => Self::InvalidDelegation(e),
+            delegation::Error::Db(e) => Self::Db(e),
+        }
     }
 }
 

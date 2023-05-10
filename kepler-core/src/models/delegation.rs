@@ -1,5 +1,4 @@
-use super::super::{events::Delegation, util::DelegationInfo};
-use crate::db::TxError;
+use super::super::{events::Delegation, models::*, util};
 use kepler_lib::{
     authorization::KeplerDelegation,
     resolver::DID_METHODS,
@@ -24,47 +23,55 @@ pub struct Model {
 pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
-        belongs_to = "super::actor::Entity",
+        belongs_to = "actor::Entity",
         from = "Column::Delegator",
         to = "super::actor::Column::Id"
     )]
     Delegator,
-    #[sea_orm(has_one = "super::actor::Entity")]
+    #[sea_orm(has_one = "actor::Entity")]
     Delegatee,
     // inverse relation, delegations belong to epochs
     #[sea_orm(
-        belongs_to = "super::epoch::Entity",
+        belongs_to = "epoch::Entity",
         from = "Column::Id",
-        to = "super::epoch::Column::Id"
+        to = "epoch::Column::Id"
     )]
     Epoch,
     #[sea_orm(has_many = "super::invocation::Entity")]
     Invocation,
-    #[sea_orm(has_many = "super::revocation::Entity")]
+    #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
+    #[sea_orm(has_many = "abilities::Entity")]
+    Abilities,
 }
 
-impl Related<super::actor::Entity> for Entity {
+impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Delegator.def()
+        Relation::Delegatee.def()
     }
 }
 
-impl Related<super::epoch::Entity> for Entity {
+impl Related<epoch::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Epoch.def()
     }
 }
 
-impl Related<super::invocation::Entity> for Entity {
+impl Related<invocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Invocation.def()
     }
 }
 
-impl Related<super::revocation::Entity> for Entity {
+impl Related<revocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Revocation.def()
+    }
+}
+
+impl Related<abilities::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Abilities.def()
     }
 }
 
@@ -104,26 +111,57 @@ impl Linked for ChildToParent {
 
 impl ActiveModelBehavior for ActiveModel {}
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Db(#[from] DbErr),
+    #[error(transparent)]
+    InvalidDelegation(#[from] DelegationError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DelegationError {
+    #[error(transparent)]
+    ParameterExtraction(#[from] util::DelegationError),
+    #[error("Delegation expired or not yet valid")]
+    InvalidTime,
+    #[error("Failed to verify signature")]
+    InvalidSignature,
+    #[error("Unauthorized Delegator")]
+    UnauthorizedDelegator,
+    #[error("Unauthorized Capability")]
+    UnauthorizedCapability,
+    #[error("Cannot find parent delegation")]
+    MissingParents,
+}
+
 pub async fn process<C: ConnectionTrait>(
     root: &str,
     db: &C,
     delegation: Delegation,
-) -> Result<[u8; 32], TxError> {
+) -> Result<[u8; 32], Error> {
     let Delegation(d, ser) = delegation;
-    // verify signatures
+    // verify signatures and time
     match d {
-        KeplerDelegation::Ucan(ucan) => {
-            ucan.verify_signature(DID_METHODS.to_resolver()).await?;
-            ucan.payload.validate_time(None)?;
+        KeplerDelegation::Ucan(ref ucan) => {
+            ucan.verify_signature(DID_METHODS.to_resolver())
+                .await
+                .map_err(|_| DelegationError::InvalidSignature)?;
+            ucan.payload
+                .validate_time(None)
+                .map_err(|_| DelegationError::InvalidTime)?;
         }
-        KeplerDelegation::Cacao(cacao) => {
-            cacao.verify().await?;
+        KeplerDelegation::Cacao(ref cacao) => {
+            cacao
+                .verify()
+                .await
+                .map_err(|_| DelegationError::InvalidSignature)?;
             if !cacao.payload().valid_now() {
-                return Err(TxError::InvalidDelegation);
+                return Err(DelegationError::InvalidTime)?;
             }
         }
     };
-    let d_info = DelegationInfo::try_from(d)?;
+    let d_info = util::DelegationInfo::try_from(d).map_err(DelegationError::ParameterExtraction)?;
     if !d_info.parents.is_empty() || !d_info.delegator.starts_with(root) {
         let parents = Entity::find()
             .filter(d_info.parents.iter().fold(Condition::any(), |cond, p| {
@@ -131,16 +169,21 @@ pub async fn process<C: ConnectionTrait>(
             }))
             .all(db)
             .await?;
+        let mut parent_abilities = Vec::new();
         for parent in parents {
+            // get delegatee of parent
             let delegatee = parent
-                .find_with_related(Relation::Delegatee)
-                .all(db)
-                .await?;
-            if delegatee != d_info.delegator {
-                return Err(TxError::InvalidDelegation);
+                .find_related(actor::Entity)
+                .one(db)
+                .await?
+                .ok_or_else(|| DelegationError::MissingParents)?;
+            // check parent's delegatee is delegator of this one
+            if delegatee.id != d_info.delegator {
+                return Err(DelegationError::UnauthorizedDelegator)?;
             };
+            // check expiry of parent is not before this one
             if parent.expiry < d_info.expiry {
-                return Err(TxError::InvalidDelegation);
+                return Err(DelegationError::InvalidTime)?;
             };
             // parent nbf must come before child nbf, child nbf must exist if parent nbf does
             if parent
@@ -148,12 +191,60 @@ pub async fn process<C: ConnectionTrait>(
                 .map(|pnbf| d_info.not_before.map(|nbf| pnbf > nbf).unwrap_or(true))
                 .unwrap_or(false)
             {
-                return Err(TxError::InvalidDelegation);
+                return Err(DelegationError::InvalidTime)?;
             };
-            // TODO check attenuations
+            parent_abilities.extend(parent.find_related(abilities::Entity).all(db).await?);
         }
+        for ab in d_info.capabilities.iter() {
+            if !parent_abilities
+                .iter()
+                .any(|pab| ab.resource.starts_with(&pab.resource) && ab.action == pab.action)
+            {
+                return Err(DelegationError::UnauthorizedCapability)?;
+            }
+        }
+    };
+
+    // save delegator actor
+    actor::ActiveModel::from(actor::Model {
+        id: d_info.delegator.clone(),
+    })
+    .save(db)
+    .await?;
+
+    // save delegatee actor
+    actor::ActiveModel::from(actor::Model {
+        id: d_info.delegate,
+    })
+    .save(db)
+    .await?;
+
+    let hash: [u8; 32] = blake3::hash(&ser).into();
+
+    // save delegation
+    ActiveModel::from(Model {
+        id: hash.clone().into(),
+        delegator: d_info.delegator,
+        expiry: d_info.expiry,
+        issued_at: d_info.issued_at,
+        not_before: d_info.not_before,
+        serialized: ser,
+    })
+    .save(db)
+    .await?;
+
+    for ab in d_info.capabilities {
+        // save ability
+        abilities::ActiveModel::from(abilities::Model {
+            delegation: hash.clone().into(),
+            resource: ab.resource,
+            action_namespace: "".to_string(),
+            action: ab.action,
+            caveats: None,
+        })
+        .save(db)
+        .await?;
     }
 
-    let hash = todo!();
     Ok(hash)
 }

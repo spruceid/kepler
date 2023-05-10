@@ -1,3 +1,4 @@
+pub mod abilities;
 pub mod actor;
 pub mod delegation;
 pub mod epoch;

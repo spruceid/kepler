@@ -1017,6 +1017,7 @@ dependencies = [
  "cc",
  "cfg-if",
  "constant_time_eq 0.2.5",
+ "digest 0.10.6",
 ]
 
 [[package]]
@@ -3726,6 +3727,7 @@ name = "kepler-core"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "blake3",
  "kepler-lib",
  "sea-orm",
  "serde",
