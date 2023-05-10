@@ -1,16 +1,12 @@
 use super::super::{events::Delegation, models::*, util};
-use kepler_lib::{
-    authorization::KeplerDelegation,
-    resolver::DID_METHODS,
-    resource::{KRIParseError, ResourceId},
-};
+use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Vec<u8>,
     pub delegator: String,
     pub expiry: Option<OffsetDateTime>,
@@ -127,10 +123,10 @@ pub enum DelegationError {
     InvalidTime,
     #[error("Failed to verify signature")]
     InvalidSignature,
-    #[error("Unauthorized Delegator")]
-    UnauthorizedDelegator,
-    #[error("Unauthorized Capability")]
-    UnauthorizedCapability,
+    #[error("Unauthorized Delegator: {0}")]
+    UnauthorizedDelegator(String),
+    #[error("Unauthorized Capability: {0}/{1}")]
+    UnauthorizedCapability(String, String),
     #[error("Cannot find parent delegation")]
     MissingParents,
 }
@@ -169,6 +165,10 @@ pub async fn process<C: ConnectionTrait>(
             }))
             .all(db)
             .await?;
+        if parents.len() != d_info.parents.len() {
+            return Err(DelegationError::MissingParents)?;
+        };
+
         let mut parent_abilities = Vec::new();
         for parent in parents {
             // get delegatee of parent
@@ -179,7 +179,7 @@ pub async fn process<C: ConnectionTrait>(
                 .ok_or_else(|| DelegationError::MissingParents)?;
             // check parent's delegatee is delegator of this one
             if delegatee.id != d_info.delegator {
-                return Err(DelegationError::UnauthorizedDelegator)?;
+                return Err(DelegationError::UnauthorizedDelegator(d_info.delegator))?;
             };
             // check expiry of parent is not before this one
             if parent.expiry < d_info.expiry {
@@ -200,19 +200,16 @@ pub async fn process<C: ConnectionTrait>(
                 .iter()
                 .any(|pab| ab.resource.starts_with(&pab.resource) && ab.action == pab.action)
             {
-                return Err(DelegationError::UnauthorizedCapability)?;
+                return Err(DelegationError::UnauthorizedCapability(
+                    ab.resource.clone(),
+                    ab.action.clone(),
+                ))?;
             }
         }
     };
 
-    // save delegator actor
-    actor::ActiveModel::from(actor::Model {
-        id: d_info.delegator.clone(),
-    })
-    .save(db)
-    .await?;
-
     // save delegatee actor
+    // no need to save delegator, should already exist
     actor::ActiveModel::from(actor::Model {
         id: d_info.delegate,
     })
@@ -233,8 +230,8 @@ pub async fn process<C: ConnectionTrait>(
     .save(db)
     .await?;
 
+    // save abilities
     for ab in d_info.capabilities {
-        // save ability
         abilities::ActiveModel::from(abilities::Model {
             delegation: hash.clone().into(),
             resource: ab.resource,

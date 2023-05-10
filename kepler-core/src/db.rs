@@ -28,6 +28,8 @@ pub enum TxError {
     Cacao(#[from] kepler_lib::cacaos::siwe_cacao::VerificationError),
     #[error(transparent)]
     InvalidDelegation(#[from] delegation::DelegationError),
+    #[error(transparent)]
+    InvalidInvocation(#[from] invocation::InvocationError),
 }
 
 impl OrbitDatabase {
@@ -61,17 +63,11 @@ impl OrbitDatabase {
     }
 
     pub async fn get_max_seq(&self) -> Result<u64, DbErr> {
-        Ok(epoch::Entity::find()
-            .select_only()
-            .column_as(epoch::Column::Seq.max(), "seq")
-            .into_tuple()
-            .one(&self.conn)
-            .await?
-            .unwrap_or(0))
+        max_seq(&self.conn).await
     }
 
     pub async fn get_most_recent(&self) -> Result<Vec<[u8; 32]>, DbErr> {
-        Ok(todo!("get unconsumed latest tx from db"))
+        most_recent(&self.conn).await
     }
 
     pub async fn transact(&self, events: Vec<Event>) -> Result<Commit, TxError> {
@@ -89,8 +85,8 @@ impl OrbitDatabase {
             });
         }
         // TODO update epoch table
-        let seq = self.get_max_seq().await? + 1;
-        let parents = self.get_most_recent().await?;
+        let seq = max_seq(&tx).await? + 1;
+        let parents = most_recent(&tx).await?;
 
         tx.commit().await?;
         todo!()
@@ -116,11 +112,34 @@ impl OrbitDatabase {
     }
 }
 
+async fn max_seq<C: ConnectionTrait>(db: &C) -> Result<u64, DbErr> {
+    Ok(epoch::Entity::find()
+        .select_only()
+        .column_as(epoch::Column::Seq.max(), "seq")
+        .into_tuple()
+        .one(db)
+        .await?
+        .unwrap_or(0))
+}
+
+async fn most_recent<C: ConnectionTrait>(db: &C) -> Result<Vec<[u8; 32]>, DbErr> {
+    Ok(todo!("get unconsumed latest tx from db"))
+}
+
 impl From<delegation::Error> for TxError {
     fn from(e: delegation::Error) -> Self {
         match e {
             delegation::Error::InvalidDelegation(e) => Self::InvalidDelegation(e),
             delegation::Error::Db(e) => Self::Db(e),
+        }
+    }
+}
+
+impl From<invocation::Error> for TxError {
+    fn from(e: invocation::Error) -> Self {
+        match e {
+            invocation::Error::InvalidInvocation(e) => Self::InvalidInvocation(e),
+            invocation::Error::Db(e) => Self::Db(e),
         }
     }
 }
