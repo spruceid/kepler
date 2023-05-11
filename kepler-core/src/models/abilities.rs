@@ -8,9 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub resource: String,
     #[sea_orm(primary_key)]
-    pub action_namespace: String,
-    #[sea_orm(primary_key)]
-    pub action: String,
+    pub ability: String,
     #[sea_orm(primary_key)]
     pub delegation: Vec<u8>,
     pub caveats: Option<Value>,

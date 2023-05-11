@@ -7,7 +7,13 @@ pub use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation, KeplerRe
 pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);
 
 #[derive(Debug)]
-pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Vec<u8>);
+pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Option<Operation>);
+
+#[derive(Debug)]
+pub enum Operation {
+    KvWrite { key: Vec<u8>, value: Vec<u8> },
+    KvDelete { key: Vec<u8> },
+}
 
 #[derive(Debug)]
 pub struct Revocation(pub KeplerRevocation, pub Vec<u8>);

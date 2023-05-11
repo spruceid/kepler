@@ -9,9 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     resource: String,
     #[sea_orm(primary_key)]
-    action_namespace: String,
-    #[sea_orm(primary_key)]
-    action: String,
+    ability: String,
     #[sea_orm(primary_key)]
     delegation: Vec<u8>,
 }
@@ -27,8 +25,8 @@ pub enum Relation {
     Invocation,
     #[sea_orm(
         belongs_to = "abilities::Entity",
-        from = "(Column::Resource, Column::ActionNamespace, Column::Action, Column::Delegation)",
-        to = "(abilities::Column::Resource, abilities::Column::ActionNamespace, abilities::Column::Action, abilities::Column::Delegation)"
+        from = "(Column::Resource, Column::Ability, Column::Delegation)",
+        to = "(abilities::Column::Resource, abilities::Column::Ability, abilities::Column::Delegation)"
     )]
     Ability,
 }

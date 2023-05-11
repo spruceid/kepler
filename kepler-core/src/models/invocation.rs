@@ -1,4 +1,8 @@
-use super::super::{events::Invocation, models::*, util};
+use super::super::{
+    events::{Invocation, Operation},
+    models::*,
+    util,
+};
 use kepler_lib::resolver::DID_METHODS;
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
 use time::OffsetDateTime;
@@ -13,7 +17,6 @@ pub struct Model {
     pub resource: String,
     pub action_namespace: String,
     pub action: String,
-    pub parameters: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -137,7 +140,7 @@ pub async fn process<C: ConnectionTrait>(
         }
         if !parent_abilities.iter().any(|pab| {
             i_info.capability.resource.starts_with(&pab.resource)
-                && i_info.capability.action == pab.action
+                && i_info.capability.action == pab.ability
         }) {
             return Err(InvocationError::UnauthorizedCapability(
                 i_info.capability.resource.clone(),
@@ -155,10 +158,19 @@ pub async fn process<C: ConnectionTrait>(
         resource: i_info.capability.resource,
         action_namespace: "".to_string(),
         action: i_info.capability.action,
-        parameters,
     })
     .save(db)
     .await?;
+
+    if let Some(Operation::KvWrite { key, value }) = parameters {
+        kv::ActiveModel::from(kv::Model {
+            key,
+            value,
+            invocation_id: hash.clone().into(),
+        })
+        .save(db)
+        .await?;
+    }
 
     Ok(hash)
 }
