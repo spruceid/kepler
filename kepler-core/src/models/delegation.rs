@@ -198,7 +198,7 @@ pub async fn process<C: ConnectionTrait>(
         for ab in d_info.capabilities.iter() {
             if !parent_abilities
                 .iter()
-                .any(|pab| ab.resource.starts_with(&pab.resource) && ab.action == pab.action)
+                .any(|pab| ab.resource.starts_with(&pab.resource) && ab.action == pab.ability)
             {
                 return Err(DelegationError::UnauthorizedCapability(
                     ab.resource.clone(),
@@ -235,8 +235,7 @@ pub async fn process<C: ConnectionTrait>(
         abilities::ActiveModel::from(abilities::Model {
             delegation: hash.clone().into(),
             resource: ab.resource,
-            action_namespace: "".to_string(),
-            action: ab.action,
+            ability: ab.action,
             caveats: None,
         })
         .save(db)

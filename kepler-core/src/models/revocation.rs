@@ -1,3 +1,4 @@
+use super::super::{events::Revocation, models::*, util};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -11,41 +12,71 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::actor::Entity",
+        belongs_to = "actor::Entity",
         from = "Column::Id",
-        to = "super::actor::Column::Id"
+        to = "actor::Column::Id"
     )]
     Revoker,
     #[sea_orm(
-        belongs_to = "super::epoch::Entity",
+        belongs_to = "epoch::Entity",
         from = "Column::Id",
-        to = "super::epoch::Column::Id"
+        to = "epoch::Column::Id"
     )]
     Epoch,
     #[sea_orm(
-        belongs_to = "super::delegation::Entity",
+        belongs_to = "delegation::Entity",
         from = "Column::Id",
-        to = "super::delegation::Column::Id"
+        to = "delegation::Column::Id"
     )]
     Delegation,
 }
 
-impl Related<super::actor::Entity> for Entity {
+impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Revoker.def()
     }
 }
 
-impl Related<super::epoch::Entity> for Entity {
+impl Related<epoch::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Epoch.def()
     }
 }
 
-impl Related<super::delegation::Entity> for Entity {
+impl Related<delegation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Delegation.def()
     }
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Db(#[from] DbErr),
+    #[error(transparent)]
+    InvalidRevocation(#[from] RevocationError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RevocationError {
+    #[error(transparent)]
+    ParameterExtraction(#[from] util::RevocationError),
+    #[error("Invocation expired or not yet valid")]
+    InvalidTime,
+    #[error("Failed to verify signature")]
+    InvalidSignature,
+    #[error("Unauthorized Revoker")]
+    UnauthorizedRevoker(String),
+    #[error("Cannot find parent delegation")]
+    MissingParents,
+}
+
+pub async fn process<C: ConnectionTrait>(
+    root: &str,
+    db: &C,
+    revocation: Revocation,
+) -> Result<[u8; 32], Error> {
+    todo!()
+}

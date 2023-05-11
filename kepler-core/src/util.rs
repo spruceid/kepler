@@ -1,7 +1,5 @@
 use kepler_lib::{
-    authorization::{
-        EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
-    },
+    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
     capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
     libipld::{multihash::Code, Cid},

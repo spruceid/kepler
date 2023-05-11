@@ -1,19 +1,23 @@
+use super::migrations::Migrator;
 use crate::events::{Delegation, Event, Invocation, Revocation};
 use crate::models::*;
 use kepler_lib::resource::OrbitId;
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
-    Database, DatabaseConnection, DatabaseTransaction, Schema, TransactionTrait,
+    Database, DatabaseConnection, DatabaseTransaction, TransactionTrait,
 };
+use sea_orm_migration::MigratorTrait;
 
+#[derive(Debug, Clone)]
 pub struct OrbitDatabase {
     conn: DatabaseConnection,
     orbit: OrbitId,
     root: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct Commit {
-    pub hash: [u8; 32],
+    pub rev: [u8; 32],
     pub seq: u64,
     pub commited_events: Vec<[u8; 32]>,
 }
@@ -30,36 +34,20 @@ pub enum TxError {
     InvalidDelegation(#[from] delegation::DelegationError),
     #[error(transparent)]
     InvalidInvocation(#[from] invocation::InvocationError),
+    #[error(transparent)]
+    InvalidRevocation(#[from] revocation::RevocationError),
 }
 
 impl OrbitDatabase {
     pub async fn new<C: Into<ConnectOptions>>(options: C, orbit: OrbitId) -> Result<Self, DbErr> {
+        let conn = Database::connect(options).await?;
+        Migrator::up(&conn, None).await?;
+
         Ok(Self {
-            conn: Database::connect(options).await?,
+            conn,
             root: orbit.did(),
             orbit,
         })
-    }
-
-    pub async fn setup_tables(&self) -> Result<(), DbErr> {
-        let db_backend = self.conn.get_database_backend();
-        let schema = Schema::new(db_backend);
-        self.conn
-            .execute(db_backend.build(&schema.create_table_from_entity(epoch::Entity)))
-            .await?;
-        self.conn
-            .execute(db_backend.build(&schema.create_table_from_entity(delegation::Entity)))
-            .await?;
-        self.conn
-            .execute(db_backend.build(&schema.create_table_from_entity(invocation::Entity)))
-            .await?;
-        self.conn
-            .execute(db_backend.build(&schema.create_table_from_entity(revocation::Entity)))
-            .await?;
-        self.conn
-            .execute(db_backend.build(&schema.create_table_from_entity(actor::Entity)))
-            .await?;
-        Ok(())
     }
 
     pub async fn get_max_seq(&self) -> Result<u64, DbErr> {
@@ -96,16 +84,16 @@ impl OrbitDatabase {
         self.transact(vec![Event::Delegation(delegation)]).await
     }
 
-    async fn invoke(&self, invocation: Invocation) -> Result<Commit, TxError> {
+    pub async fn invoke(&self, invocation: Invocation) -> Result<Commit, TxError> {
         self.transact(vec![Event::Invocation(invocation)]).await
     }
 
-    async fn revoke_tx(&self, revocation: Revocation) -> Result<Commit, TxError> {
+    pub async fn revoke_tx(&self, revocation: Revocation) -> Result<Commit, TxError> {
         self.transact(vec![Event::Revocation(revocation)]).await
     }
 
     // to allow users to make custom read queries
-    async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
+    pub async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
         self.conn
             .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
             .await
@@ -140,6 +128,15 @@ impl From<invocation::Error> for TxError {
         match e {
             invocation::Error::InvalidInvocation(e) => Self::InvalidInvocation(e),
             invocation::Error::Db(e) => Self::Db(e),
+        }
+    }
+}
+
+impl From<revocation::Error> for TxError {
+    fn from(e: revocation::Error) -> Self {
+        match e {
+            revocation::Error::InvalidRevocation(e) => Self::InvalidRevocation(e),
+            revocation::Error::Db(e) => Self::Db(e),
         }
     }
 }
