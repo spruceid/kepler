@@ -2,9 +2,8 @@ use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
     capgrok::{extract_capabilities, verify_statement, Capability as SiweCap},
-    libipld::{multihash::Code, Cid},
-    resolver::DID_METHODS,
-    resource::{KRIParseError, ResourceId},
+    libipld::Cid,
+    resource::KRIParseError,
     ssi::ucan::Capability as UcanCap,
 };
 use serde::{Deserialize, Serialize};
@@ -191,6 +190,7 @@ impl TryFrom<KeplerInvocation> for InvocationInfo {
 
 #[derive(Debug, Clone)]
 pub struct RevocationInfo {
+    // TODO THESE SHOULD BE HASH
     pub parents: Vec<Cid>,
     pub revoked: Cid,
     pub revoker: String,
