@@ -1,7 +1,7 @@
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
-    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap, Set},
+    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap},
     libipld::{multihash::Code, Cid},
     resolver::DID_METHODS,
     resource::{KRIParseError, ResourceId},
@@ -158,7 +158,7 @@ pub struct InvocationInfo {
     pub capability: Capability,
     pub invoker: String,
     pub parents: Vec<Cid>,
-    invocation: KeplerInvocation,
+    pub invocation: KeplerInvocation,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -194,7 +194,7 @@ pub struct RevocationInfo {
     pub parents: Vec<Cid>,
     pub revoked: Cid,
     pub revoker: String,
-    revocation: KeplerRevocation,
+    pub revocation: KeplerRevocation,
 }
 
 #[derive(thiserror::Error, Debug)]

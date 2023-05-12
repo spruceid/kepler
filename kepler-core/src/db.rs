@@ -1,6 +1,8 @@
 use super::migrations::Migrator;
-use crate::events::{Delegation, Event, Invocation, Revocation};
+use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Revocation};
+use crate::hash::Hash;
 use crate::models::*;
+use crate::relationships::*;
 use kepler_lib::resource::OrbitId;
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
@@ -17,9 +19,10 @@ pub struct OrbitDatabase {
 
 #[derive(Debug, Clone)]
 pub struct Commit {
-    pub rev: [u8; 32],
+    pub rev: Hash,
     pub seq: u64,
-    pub commited_events: Vec<[u8; 32]>,
+    pub commited_events: Vec<Hash>,
+    pub consumed_epochs: Vec<Hash>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +39,8 @@ pub enum TxError {
     InvalidInvocation(#[from] invocation::InvocationError),
     #[error(transparent)]
     InvalidRevocation(#[from] revocation::RevocationError),
+    #[error("Epoch Hashing Err")]
+    EpochHashingErr(#[from] HashError),
 }
 
 impl OrbitDatabase {
@@ -54,7 +59,7 @@ impl OrbitDatabase {
         max_seq(&self.conn).await
     }
 
-    pub async fn get_most_recent(&self) -> Result<Vec<[u8; 32]>, DbErr> {
+    pub async fn get_most_recent(&self) -> Result<Vec<Hash>, DbErr> {
         most_recent(&self.conn).await
     }
 
@@ -63,18 +68,24 @@ impl OrbitDatabase {
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
-        let mut commited_events = Vec::new();
-        for event in events {
-            commited_events.push(match event {
-                // dropping tx rolls back changes, so fine to '?' here
-                Event::Delegation(d) => delegation::process(&self.root, &tx, d).await?,
-                Event::Invocation(i) => invocation::process(&self.root, &tx, i).await?,
-                Event::Revocation(r) => revocation::process(&self.root, &tx, r).await?,
-            });
-        }
-        // TODO update epoch table
         let seq = max_seq(&tx).await? + 1;
         let parents = most_recent(&tx).await?;
+        let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
+        for (epoch_seq, event) in events.into_iter().enumerate() {
+            match event {
+                // dropping tx rolls back changes, so fine to '?' here
+                Event::Delegation(d) => {
+                    delegation::process(&self.root, &tx, d, seq, epoch_id, epoch_seq as u64).await?
+                }
+                Event::Invocation(i) => {
+                    invocation::process(&self.root, &tx, i, seq, epoch_id, epoch_seq as u64).await?
+                }
+                Event::Revocation(r) => {
+                    revocation::process(&self.root, &tx, r, seq, epoch_id, epoch_seq as u64).await?
+                }
+            };
+        }
+        // TODO update epoch table
 
         tx.commit().await?;
         todo!()
@@ -110,8 +121,16 @@ async fn max_seq<C: ConnectionTrait>(db: &C) -> Result<u64, DbErr> {
         .unwrap_or(0))
 }
 
-async fn most_recent<C: ConnectionTrait>(db: &C) -> Result<Vec<[u8; 32]>, DbErr> {
-    Ok(todo!("get unconsumed latest tx from db"))
+async fn most_recent<C: ConnectionTrait>(db: &C) -> Result<Vec<Hash>, DbErr> {
+    // Ok(epoch::Entity::find()
+    //     .select_only()
+    //     .column_as(epoch::Column::Id, "id")
+    //     .left_join(epochs::Entity)
+    //     .column_as(epochs::Column::Parent.def().is_null(), "parent")
+    //     .into_tuple()
+    //     .all(db)
+    // .await?)
+    todo!()
 }
 
 impl From<delegation::Error> for TxError {

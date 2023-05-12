@@ -1,4 +1,5 @@
 use super::super::{events::Revocation, models::*, util};
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -77,6 +78,9 @@ pub async fn process<C: ConnectionTrait>(
     root: &str,
     db: &C,
     revocation: Revocation,
-) -> Result<[u8; 32], Error> {
+    seq: u64,
+    epoch: Hash,
+    epoch_seq: u64,
+) -> Result<Hash, Error> {
     todo!()
 }

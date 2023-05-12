@@ -3,20 +3,28 @@ use super::super::{
     models::*,
     util,
 };
-use kepler_lib::resolver::DID_METHODS;
+use crate::hash::Hash;
+use kepler_lib::{authorization::KeplerInvocation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invocation")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false, unique)]
+    #[sea_orm(primary_key)]
+    pub seq: u64,
+    #[sea_orm(primary_key)]
+    pub epoch_id: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub epoch_seq: u64,
+    #[sea_orm(primary_key, unique)]
     pub id: Vec<u8>,
+
+    pub invoker: String,
     pub issued_at: OffsetDateTime,
-    pub serialized: Vec<u8>,
+    pub serialization: Vec<u8>,
     pub resource: String,
-    pub action_namespace: String,
-    pub action: String,
+    pub ability: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -31,14 +39,14 @@ pub enum Relation {
     // inverse relation, invocations belong to invokers
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "Column::Id",
+        from = "Column::Invoker",
         to = "actor::Column::Id"
     )]
     Invoker,
     // inverse relation, invocations belong to epochs
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::Id",
+        from = "Column::EpochId",
         to = "epoch::Column::Id"
     )]
     Epoch,
@@ -92,26 +100,58 @@ pub async fn process<C: ConnectionTrait>(
     root: &str,
     db: &C,
     invocation: Invocation,
-) -> Result<[u8; 32], Error> {
+    seq: u64,
+    epoch: Hash,
+    epoch_seq: u64,
+) -> Result<Hash, Error> {
     let Invocation(i, serialized, parameters) = invocation;
-    i.verify_signature(DID_METHODS.to_resolver())
-        .await
-        .map_err(|_| InvocationError::InvalidSignature)?;
-    i.payload
-        .validate_time(None)
-        .map_err(|_| InvocationError::InvalidTime)?;
+    verify(&i).await?;
 
     let i_info = util::InvocationInfo::try_from(i).map_err(InvocationError::ParameterExtraction)?;
-
     let now = OffsetDateTime::now_utc();
-    if !i_info.parents.is_empty() || i_info.invoker.starts_with(root) {
+    validate(db, root, &i_info, Some(now)).await?;
+
+    save(
+        db,
+        i_info,
+        Some(now),
+        serialized,
+        seq,
+        epoch,
+        epoch_seq,
+        parameters,
+    )
+    .await
+}
+
+async fn verify(invocation: &KeplerInvocation) -> Result<(), Error> {
+    invocation
+        .verify_signature(DID_METHODS.to_resolver())
+        .await
+        .map_err(|_| InvocationError::InvalidSignature)?;
+    invocation
+        .payload
+        .validate_time(None)
+        .map_err(|_| InvocationError::InvalidTime)?;
+    Ok(())
+}
+
+// verify parenthood and authorization
+async fn validate<C: ConnectionTrait>(
+    db: &C,
+    root: &str,
+    invocation: &util::InvocationInfo,
+    time: Option<OffsetDateTime>,
+) -> Result<(), Error> {
+    let now = time.unwrap_or_else(|| OffsetDateTime::now_utc());
+    if !invocation.parents.is_empty() || invocation.invoker.starts_with(root) {
         let parents = delegation::Entity::find()
-            .filter(i_info.parents.iter().fold(Condition::any(), |cond, p| {
+            .filter(invocation.parents.iter().fold(Condition::any(), |cond, p| {
                 cond.add(Column::Id.eq(p.to_bytes()))
             }))
             .all(db)
             .await?;
-        if parents.len() != i_info.parents.len() {
+        if parents.len() != invocation.parents.len() {
             return Err(InvocationError::MissingParents)?;
         };
 
@@ -124,8 +164,10 @@ pub async fn process<C: ConnectionTrait>(
                 .await?
                 .ok_or_else(|| InvocationError::MissingParents)?;
             // check parent's delegatee is invoker
-            if delegatee.id != i_info.invoker {
-                return Err(InvocationError::UnauthorizedInvoker(i_info.invoker))?;
+            if delegatee.id != invocation.invoker {
+                return Err(InvocationError::UnauthorizedInvoker(
+                    invocation.invoker.clone(),
+                ))?;
             };
             // check expiry of parent
             if parent.expiry < Some(now) {
@@ -139,25 +181,42 @@ pub async fn process<C: ConnectionTrait>(
             parent_abilities.extend(parent.find_related(abilities::Entity).all(db).await?);
         }
         if !parent_abilities.iter().any(|pab| {
-            i_info.capability.resource.starts_with(&pab.resource)
-                && i_info.capability.action == pab.ability
+            invocation.capability.resource.starts_with(&pab.resource)
+                && invocation.capability.action == pab.ability
         }) {
             return Err(InvocationError::UnauthorizedCapability(
-                i_info.capability.resource.clone(),
-                i_info.capability.action.clone(),
+                invocation.capability.resource.clone(),
+                invocation.capability.action.clone(),
             ))?;
         }
     }
 
-    let hash: [u8; 32] = blake3::hash(&serialized).into();
+    Ok(())
+}
+
+async fn save<C: ConnectionTrait>(
+    db: &C,
+    invocation: util::InvocationInfo,
+    time: Option<OffsetDateTime>,
+    serialization: Vec<u8>,
+    seq: u64,
+    epoch: Hash,
+    epoch_seq: u64,
+    parameters: Option<Operation>,
+) -> Result<Hash, Error> {
+    let hash = crate::hash::hash(&serialization);
+    let issued_at = time.unwrap_or_else(|| OffsetDateTime::now_utc());
 
     ActiveModel::from(Model {
-        id: hash.clone().into(),
-        issued_at: now,
-        serialized,
-        resource: i_info.capability.resource,
-        action_namespace: "".to_string(),
-        action: i_info.capability.action,
+        seq,
+        epoch_id: epoch.into(),
+        epoch_seq,
+        id: hash.into(),
+        issued_at,
+        serialization,
+        invoker: invocation.invoker,
+        resource: invocation.capability.resource,
+        ability: invocation.capability.action,
     })
     .save(db)
     .await?;
@@ -166,7 +225,9 @@ pub async fn process<C: ConnectionTrait>(
         kv::ActiveModel::from(kv::Model {
             key,
             value,
-            invocation_id: hash.clone().into(),
+            seq,
+            epoch_id: epoch.into(),
+            invocation_id: hash.into(),
         })
         .save(db)
         .await?;

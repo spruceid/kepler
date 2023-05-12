@@ -8,6 +8,10 @@ pub struct Model {
     pub invocation_id: Vec<u8>,
     #[sea_orm(primary_key)]
     pub key: Vec<u8>,
+
+    pub seq: u64,
+    pub epoch_id: Vec<u8>,
+
     pub value: Vec<u8>,
 }
 
