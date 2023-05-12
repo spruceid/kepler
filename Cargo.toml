@@ -54,6 +54,9 @@ void = "1"
 uuid = "1"
 percent-encoding = "2.1"
 
+[dependencies.kepler-core]
+path = "kepler-core/"
+
 [dependencies.kepler-lib]
 path = "lib/"
 

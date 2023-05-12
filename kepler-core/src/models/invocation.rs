@@ -11,14 +11,12 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invocation")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub seq: u64,
-    #[sea_orm(primary_key)]
-    pub epoch_id: Vec<u8>,
-    #[sea_orm(primary_key)]
-    pub epoch_seq: u64,
-    #[sea_orm(primary_key, unique)]
+    #[sea_orm(primary_key, unique, auto_increment = false)]
     pub id: Vec<u8>,
+
+    pub seq: u64,
+    pub epoch_id: Vec<u8>,
+    pub epoch_seq: u64,
 
     pub invoker: String,
     pub issued_at: OffsetDateTime,

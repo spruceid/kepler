@@ -13,7 +13,7 @@ use sea_orm_migration::MigratorTrait;
 #[derive(Debug, Clone)]
 pub struct OrbitDatabase {
     conn: DatabaseConnection,
-    orbit: OrbitId,
+    pub orbit: OrbitId,
     root: String,
 }
 

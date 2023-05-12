@@ -5,7 +5,7 @@ mod migrations;
 pub mod models;
 pub mod relationships;
 pub mod storage;
-mod util;
+pub mod util;
 
 pub use db::OrbitDatabase;
 pub use sea_orm;

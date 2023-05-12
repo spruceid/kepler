@@ -17,8 +17,8 @@ pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Option<Operation>);
 
 #[derive(Debug)]
 pub enum Operation {
-    KvWrite { key: Vec<u8>, value: Vec<u8> },
-    KvDelete { key: Vec<u8> },
+    KvWrite { key: String, value: Vec<u8> },
+    KvDelete { key: String },
 }
 
 #[derive(Debug)]
