@@ -7,28 +7,25 @@ use aws_sdk_s3::{
     Error as S3Error,
 };
 use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
-use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
-use kepler_lib::{
-    libipld::cid::{
-        multibase::{encode, Base},
-        multihash::{Code, Error as MultihashError, Multihash},
-        Cid,
-    },
-    resource::OrbitId,
+use aws_types::sdk_config::SdkConfig;
+use futures::{
+    executor::block_on,
+    stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
+use kepler_core::{hash::Hash, storage::*};
+use kepler_lib::resource::OrbitId;
 use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::io::Error as IoError;
-use tempfile::NamedTempFile;
-use tokio::fs::File;
-use tokio_util::compat::TokioAsyncReadCompatExt;
 
-use crate::{
-    orbit::ProviderUtils,
-    storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
-};
+use super::file_system;
+use crate::orbit::ProviderUtils;
+
+fn aws_config() -> SdkConfig {
+    block_on(async { aws_config::from_env().load().await })
+}
 
 // TODO we could use the same struct for both the block store and the data
 // (pin) store, but we need to remember that for now it will be two different
@@ -166,7 +163,7 @@ impl ProviderUtils for S3BlockConfig {
 }
 
 pub fn new_client(config: &S3BlockConfig) -> Client {
-    let general_config = super::utils::aws_config();
+    let general_config = aws_config();
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
     let sdk_config = match &config.endpoint {
         Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e.clone())),
@@ -177,16 +174,20 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
 }
 
 impl S3BlockStore {
-    pub fn new_(config: &S3BlockConfig, orbit: Cid) -> Self {
+    pub fn new_(config: &S3BlockConfig, orbit: &OrbitId) -> Self {
         S3BlockStore {
             client: new_client(config),
             bucket: config.bucket.clone(),
-            orbit: orbit.to_string(),
+            orbit: orbit.get_cid().to_string(),
         }
     }
 
-    fn key(&self, id: &Multihash) -> String {
-        format!("{}/{}", self.orbit, encode(Base::Base64Url, id.to_bytes()))
+    fn key(&self, id: &Hash) -> String {
+        format!(
+            "{}/{}",
+            self.orbit,
+            base64::encode_config(id.as_ref(), base64::URL_SAFE)
+        )
     }
 }
 
@@ -203,16 +204,14 @@ pub enum S3StoreError {
     #[error(transparent)]
     Bytestream(#[from] ByteStreamError),
     #[error(transparent)]
-    Multihash(#[from] MultihashError),
-    #[error(transparent)]
     Length(#[from] std::num::TryFromIntError),
 }
 
 #[async_trait]
-impl ImmutableStore for S3BlockStore {
+impl ImmutableReadStore for S3BlockStore {
     type Error = S3StoreError;
     type Readable = IntoAsyncRead<MapErr<ByteStream, fn(ByteStreamError) -> IoError>>;
-    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
+    async fn contains(&self, id: &Hash) -> Result<bool, Self::Error> {
         match self
             .client
             .head_object()
@@ -233,79 +232,7 @@ impl ImmutableStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-    async fn write(
-        &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash_type: Code,
-    ) -> Result<Multihash, Self::Error> {
-        // TODO find a way to do this without filesystem access
-        let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
-
-        if !self.contains(&multihash).await? {
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.key(&multihash))
-                .body(ByteStream::from_path(&path).await?)
-                .send()
-                .await
-                .map_err(S3Error::from)?;
-        }
-        Ok(multihash)
-    }
-    async fn write_keyed(
-        &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash: &Multihash,
-    ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if self.contains(hash).await? {
-            return Ok(());
-        }
-        let hash_type = hash
-            .code()
-            .try_into()
-            .map_err(KeyedWriteError::InvalidCode)?;
-        let (file, path) = NamedTempFile::new()
-            .map_err(S3StoreError::from)?
-            .into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
-            .await
-            .map_err(S3StoreError::from)?;
-
-        if &multihash != hash {
-            return Err(KeyedWriteError::IncorrectHash);
-        };
-
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(self.key(&multihash))
-            .body(
-                ByteStream::from_path(&path)
-                    .await
-                    .map_err(S3StoreError::from)?,
-            )
-            .send()
-            .await
-            .map_err(|e| KeyedWriteError::Store(S3StoreError::from(S3Error::from(e))))?;
-        Ok(())
-    }
-    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        match self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(self.key(id))
-            .send()
-            .await
-        {
-            Ok(_) => Ok(Some(())),
-            // TODO does this distinguish between object missing and object present?
-            Err(e) => Err(S3Error::from(e).into()),
-        }
-    }
-    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+    async fn read(&self, id: &Hash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         let res = self
             .client
             .get_object()
@@ -328,6 +255,142 @@ impl ImmutableStore for S3BlockStore {
                     },
                 ..
             }) => Ok(None),
+            Err(e) => Err(S3Error::from(e).into()),
+        }
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        staged: HashBuffer<memory::MemoryStaging::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (h, f) = staged.into_inner();
+        let (path, _file) = f.into_parts();
+
+        if !self.contains(&h).await? {
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(&h))
+                .body(ByteStream::from_path(&path).await?)
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+        }
+        Ok(h)
+    }
+    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(Some(())),
+            // TODO does this distinguish between object missing and object present?
+            Err(e) => Err(S3Error::from(e).into()),
+        }
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        staged: HashBuffer<file_system::TempFileSystemStage::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (h, f) = staged.into_inner();
+
+        if !self.contains(&h).await? {
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(&h))
+                .body(ByteStream::from(f).await?)
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+        }
+        Ok(h)
+    }
+    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(Some(())),
+            // TODO does this distinguish between object missing and object present?
+            Err(e) => Err(S3Error::from(e).into()),
+        }
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging>>
+    for S3BlockStore
+{
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        staged: HashBuffer<
+            either::Either<file_system::TempFileSystemStage, memory::MemoryStaging>::Writable,
+        >,
+    ) -> Result<Hash, Self::Error> {
+        let (h, f) = staged.into_inner();
+
+        if !self.contains(&h).await? {
+            match f {
+                either::Either::A(t_file) => {
+                    let (path, _file) = t_file.into_parts();
+                    self.client
+                        .put_object()
+                        .bucket(&self.bucket)
+                        .key(self.key(&h))
+                        .body(ByteStream::from_path(&path).await?)
+                        .send()
+                        .await
+                        .map_err(S3Error::from)?;
+                }
+                either::Either::B(b) => {
+                    self.client
+                        .put_object()
+                        .bucket(&self.bucket)
+                        .key(self.key(&h))
+                        .body(ByteStream::from(b).await?)
+                        .send()
+                        .await
+                        .map_err(S3Error::from)?;
+                }
+            }
+        };
+        Ok(h)
+    }
+}
+
+#[async_trait]
+impl ImmutableDeleteStore for S3BlockStore {
+    type Error = S3StoreError;
+    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(id))
+            .send()
+            .await
+        {
+            Ok(_) => Ok(Some(())),
+            // TODO does this distinguish between object missing and object present?
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
