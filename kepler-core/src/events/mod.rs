@@ -7,7 +7,7 @@ pub use kepler_lib::{
     },
 };
 use serde::{Deserialize, Serialize};
-use serde_ipld_dagcbor::{to_vec, EncodeError};
+use serde_ipld_dagcbor::EncodeError;
 
 #[derive(Debug)]
 pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);

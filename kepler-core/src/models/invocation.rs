@@ -11,8 +11,10 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invocation")]
 pub struct Model {
-    #[sea_orm(primary_key, unique, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub id: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 
     pub seq: u64,
     pub epoch_id: Vec<u8>,
@@ -37,15 +39,15 @@ pub enum Relation {
     // inverse relation, invocations belong to invokers
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "Column::Invoker",
-        to = "actor::Column::Id"
+        from = "(Column::Invoker, Column::Orbit)",
+        to = "(actor::Column::Id, actor::Column::Orbit)"
     )]
     Invoker,
     // inverse relation, invocations belong to epochs
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::EpochId",
-        to = "epoch::Column::Id"
+        from = "(Column::EpochId, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
 }
@@ -96,6 +98,7 @@ pub enum InvocationError {
 
 pub async fn process<C: ConnectionTrait>(
     root: &str,
+    orbit: &str,
     db: &C,
     invocation: Invocation,
     seq: u64,
@@ -107,10 +110,11 @@ pub async fn process<C: ConnectionTrait>(
 
     let i_info = util::InvocationInfo::try_from(i).map_err(InvocationError::ParameterExtraction)?;
     let now = OffsetDateTime::now_utc();
-    validate(db, root, &i_info, Some(now)).await?;
+    validate(db, root, orbit, &i_info, Some(now)).await?;
 
     save(
         db,
+        orbit,
         i_info,
         Some(now),
         serialized,
@@ -138,12 +142,14 @@ async fn verify(invocation: &KeplerInvocation) -> Result<(), Error> {
 async fn validate<C: ConnectionTrait>(
     db: &C,
     root: &str,
+    orbit: &str,
     invocation: &util::InvocationInfo,
     time: Option<OffsetDateTime>,
 ) -> Result<(), Error> {
     let now = time.unwrap_or_else(|| OffsetDateTime::now_utc());
     if !invocation.parents.is_empty() || invocation.invoker.starts_with(root) {
         let parents = delegation::Entity::find()
+            .filter(Column::Orbit.eq(orbit))
             .filter(invocation.parents.iter().fold(Condition::any(), |cond, p| {
                 cond.add(Column::Id.eq(p.to_bytes()))
             }))
@@ -194,6 +200,7 @@ async fn validate<C: ConnectionTrait>(
 
 async fn save<C: ConnectionTrait>(
     db: &C,
+    orbit: &str,
     invocation: util::InvocationInfo,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
@@ -215,6 +222,7 @@ async fn save<C: ConnectionTrait>(
         invoker: invocation.invoker,
         resource: invocation.capability.resource,
         ability: invocation.capability.action,
+        orbit: orbit.to_string(),
     })
     .save(db)
     .await?;
@@ -226,6 +234,7 @@ async fn save<C: ConnectionTrait>(
             seq,
             epoch_id: epoch.into(),
             invocation_id: hash.into(),
+            orbit: orbit.to_string(),
         })
         .save(db)
         .await?;

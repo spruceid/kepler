@@ -4,12 +4,15 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "epoch")]
 pub struct Model {
-    /// Sequence number
-    #[sea_orm(primary_key)]
-    pub seq: u64,
     /// Hash-based ID
     #[sea_orm(primary_key, unique)]
     pub id: Vec<u8>,
+    /// Orbit
+    #[sea_orm(primary_key)]
+    pub orbit: String,
+
+    /// Sequence number
+    pub seq: u64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

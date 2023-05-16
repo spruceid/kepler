@@ -5,13 +5,15 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "invoked_abilities")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    invocation: Vec<u8>,
+    pub invocation: Vec<u8>,
     #[sea_orm(primary_key)]
-    resource: String,
+    pub resource: String,
     #[sea_orm(primary_key)]
-    ability: String,
+    pub ability: String,
     #[sea_orm(primary_key)]
-    delegation: Vec<u8>,
+    pub delegation: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -19,8 +21,8 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "invocation::Entity",
-        from = "Column::Invocation",
-        to = "invocation::Column::Id"
+        from = "(Column::Invocation, Column::Orbit)",
+        to = "(invocation::Column::Id, invocation::Column::Orbit)"
     )]
     Invocation,
     #[sea_orm(

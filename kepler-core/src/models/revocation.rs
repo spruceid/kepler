@@ -7,8 +7,10 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "revocation")]
 pub struct Model {
-    #[sea_orm(primary_key, unique, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub id: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 
     pub seq: u64,
     pub epoch_id: Vec<u8>,
@@ -23,20 +25,20 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "Column::Revoker",
-        to = "actor::Column::Id"
+        from = "(Column::Revoker, Column::Orbit)",
+        to = "(actor::Column::Id, actor::Column::Orbit)"
     )]
     Revoker,
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::EpochId",
-        to = "epoch::Column::Id"
+        from = "(Column::EpochId, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "Column::Revoked",
-        to = "delegation::Column::Id"
+        from = "(Column::Revoked, Column::Orbit)",
+        to = "(delegation::Column::Id, delegation::Column::Orbit)"
     )]
     Delegation,
 }
@@ -85,6 +87,7 @@ pub enum RevocationError {
 
 pub async fn process<C: ConnectionTrait>(
     root: &str,
+    orbit: &str,
     db: &C,
     revocation: Revocation,
     seq: u64,
@@ -144,6 +147,7 @@ pub async fn process<C: ConnectionTrait>(
         serialization,
         revoker: r_info.revoker,
         revoked: r_info.revoked.into(),
+        orbit: orbit.to_string(),
     })
     .save(db)
     .await?;

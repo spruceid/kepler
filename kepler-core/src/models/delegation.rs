@@ -7,8 +7,10 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
 pub struct Model {
-    #[sea_orm(primary_key, unique, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub id: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 
     pub seq: u64,
     pub epoch_id: Vec<u8>,
@@ -26,8 +28,8 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "Column::Delegator",
-        to = "super::actor::Column::Id"
+        from = "(Column::Delegator, Column::Orbit)",
+        to = "(actor::Column::Id, actor::Column::Orbit)"
     )]
     Delegator,
     #[sea_orm(has_one = "actor::Entity")]
@@ -35,11 +37,11 @@ pub enum Relation {
     // inverse relation, delegations belong to epochs
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::Id",
-        to = "epoch::Column::Id"
+        from = "(Column::EpochId, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
-    #[sea_orm(has_many = "super::invocation::Entity")]
+    #[sea_orm(has_many = "invocation::Entity")]
     Invocation,
     #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
@@ -139,6 +141,7 @@ pub enum DelegationError {
 
 pub async fn process<C: ConnectionTrait>(
     root: &str,
+    orbit: &str,
     db: &C,
     delegation: Delegation,
     seq: u64,
@@ -149,9 +152,11 @@ pub async fn process<C: ConnectionTrait>(
     verify(&d).await?;
 
     let d_info = util::DelegationInfo::try_from(d).map_err(DelegationError::ParameterExtraction)?;
-    validate(db, root, &d_info).await?;
+    validate(db, root, orbit, &d_info).await?;
 
-    Ok(save(db, d_info, ser, seq, epoch, epoch_seq).await?.into())
+    Ok(save(db, orbit, d_info, ser, seq, epoch, epoch_seq)
+        .await?
+        .into())
 }
 
 // verify signatures and time
@@ -182,10 +187,12 @@ async fn verify(delegation: &KeplerDelegation) -> Result<(), Error> {
 async fn validate<C: ConnectionTrait>(
     db: &C,
     root: &str,
+    orbit: &str,
     delegation: &util::DelegationInfo,
 ) -> Result<(), Error> {
     if !delegation.parents.is_empty() || !delegation.delegator.starts_with(root) {
         let parents = Entity::find()
+            .filter(Column::Orbit.eq(orbit))
             .filter(delegation.parents.iter().fold(Condition::any(), |cond, p| {
                 cond.add(Column::Id.eq(p.to_bytes()))
             }))
@@ -240,6 +247,7 @@ async fn validate<C: ConnectionTrait>(
 
 async fn save<C: ConnectionTrait>(
     db: &C,
+    orbit: &str,
     delegation: util::DelegationInfo,
     serialization: Vec<u8>,
     seq: u64,
@@ -250,6 +258,7 @@ async fn save<C: ConnectionTrait>(
     // no need to save delegator, should already exist
     actor::ActiveModel::from(actor::Model {
         id: delegation.delegate,
+        orbit: orbit.to_string(),
     })
     .save(db)
     .await?;
@@ -267,6 +276,7 @@ async fn save<C: ConnectionTrait>(
         issued_at: delegation.issued_at,
         not_before: delegation.not_before,
         serialization,
+        orbit: orbit.to_string(),
     })
     .save(db)
     .await?;
@@ -278,6 +288,7 @@ async fn save<C: ConnectionTrait>(
             resource: ab.resource,
             ability: ab.action,
             caveats: None,
+            orbit: orbit.to_string(),
         })
         .save(db)
         .await?;

@@ -2,7 +2,6 @@ use super::migrations::Migrator;
 use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Revocation};
 use crate::hash::Hash;
 use crate::models::*;
-use crate::relationships::*;
 use kepler_lib::resource::OrbitId;
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
@@ -56,11 +55,11 @@ impl OrbitDatabase {
     }
 
     pub async fn get_max_seq(&self) -> Result<u64, DbErr> {
-        max_seq(&self.conn).await
+        max_seq(&self.conn, &self.orbit.to_string()).await
     }
 
     pub async fn get_most_recent(&self) -> Result<Vec<Hash>, DbErr> {
-        most_recent(&self.conn).await
+        most_recent(&self.conn, &self.orbit.to_string()).await
     }
 
     pub async fn transact(&self, events: Vec<Event>) -> Result<Commit, TxError> {
@@ -68,20 +67,26 @@ impl OrbitDatabase {
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
-        let seq = max_seq(&tx).await? + 1;
-        let parents = most_recent(&tx).await?;
-        let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
+        let orbit = self.orbit.to_string();
+
+        let seq = max_seq(&tx, &orbit).await? + 1;
+        let parents = most_recent(&tx, &orbit).await?;
+
+        let (epoch_id, _event_ids) = epoch_hash(seq, &events, &parents)?;
         for (epoch_seq, event) in events.into_iter().enumerate() {
             match event {
                 // dropping tx rolls back changes, so fine to '?' here
                 Event::Delegation(d) => {
-                    delegation::process(&self.root, &tx, d, seq, epoch_id, epoch_seq as u64).await?
+                    delegation::process(&self.root, &orbit, &tx, d, seq, epoch_id, epoch_seq as u64)
+                        .await?
                 }
                 Event::Invocation(i) => {
-                    invocation::process(&self.root, &tx, i, seq, epoch_id, epoch_seq as u64).await?
+                    invocation::process(&self.root, &orbit, &tx, i, seq, epoch_id, epoch_seq as u64)
+                        .await?
                 }
                 Event::Revocation(r) => {
-                    revocation::process(&self.root, &tx, r, seq, epoch_id, epoch_seq as u64).await?
+                    revocation::process(&self.root, &orbit, &tx, r, seq, epoch_id, epoch_seq as u64)
+                        .await?
                 }
             };
         }
@@ -111,28 +116,6 @@ impl OrbitDatabase {
     }
 }
 
-async fn max_seq<C: ConnectionTrait>(db: &C) -> Result<u64, DbErr> {
-    Ok(epoch::Entity::find()
-        .select_only()
-        .column_as(epoch::Column::Seq.max(), "seq")
-        .into_tuple()
-        .one(db)
-        .await?
-        .unwrap_or(0))
-}
-
-async fn most_recent<C: ConnectionTrait>(db: &C) -> Result<Vec<Hash>, DbErr> {
-    // Ok(epoch::Entity::find()
-    //     .select_only()
-    //     .column_as(epoch::Column::Id, "id")
-    //     .left_join(epochs::Entity)
-    //     .column_as(epochs::Column::Parent.def().is_null(), "parent")
-    //     .into_tuple()
-    //     .all(db)
-    // .await?)
-    todo!()
-}
-
 impl From<delegation::Error> for TxError {
     fn from(e: delegation::Error) -> Self {
         match e {
@@ -158,6 +141,29 @@ impl From<revocation::Error> for TxError {
             revocation::Error::Db(e) => Self::Db(e),
         }
     }
+}
+
+async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u64, DbErr> {
+    Ok(epoch::Entity::find()
+        .filter(epoch::Column::Orbit.eq(orbit_id))
+        .select_only()
+        .column_as(epoch::Column::Seq.max(), "seq")
+        .into_tuple()
+        .one(db)
+        .await?
+        .unwrap_or(0))
+}
+
+async fn most_recent<C: ConnectionTrait>(_db: &C, _orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
+    // Ok(epoch::Entity::find()
+    //     .select_only()
+    //     .column_as(epoch::Column::Id, "id")
+    //     .left_join(epochs::Entity)
+    //     .column_as(epochs::Column::Parent.def().is_null(), "parent")
+    //     .into_tuple()
+    //     .all(db)
+    // .await?)
+    todo!()
 }
 
 #[cfg(test)]

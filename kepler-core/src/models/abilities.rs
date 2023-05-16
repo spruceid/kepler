@@ -11,6 +11,9 @@ pub struct Model {
     pub ability: String,
     #[sea_orm(primary_key)]
     pub delegation: Vec<u8>,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
+
     pub caveats: Option<Value>,
 }
 
@@ -18,8 +21,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "Column::Delegation",
-        to = "delegation::Column::Id"
+        from = "(Column::Delegation, Column::Orbit)",
+        to = "(delegation::Column::Id, delegation::Column::Orbit)"
     )]
     Delegation,
 }

@@ -8,6 +8,8 @@ pub struct Model {
     pub invocation_id: Vec<u8>,
     #[sea_orm(primary_key)]
     pub key: String,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 
     pub seq: u64,
     pub epoch_id: Vec<u8>,
@@ -19,8 +21,8 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "invocation::Entity",
-        from = "Column::InvocationId",
-        to = "invocation::Column::Id"
+        from = "(Column::InvocationId, Column::Orbit)",
+        to = "(invocation::Column::Id, invocation::Column::Orbit)"
     )]
     Invocation,
 }

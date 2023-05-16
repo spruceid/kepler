@@ -1,41 +1,44 @@
+use super::super::models::*;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "actor")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
+    #[sea_orm(primary_key)]
     pub id: String,
+    #[sea_orm(primary_key)]
+    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::delegation::Entity")]
+    #[sea_orm(has_many = "delegation::Entity")]
     DelegatorOf,
     #[sea_orm(
-        belongs_to = "super::delegation::Entity",
-        from = "Column::Id",
-        to = "super::delegation::Column::Id"
+        belongs_to = "delegation::Entity",
+        from = "(Column::Id, Column::Orbit)",
+        to = "(delegation::Column::Id, delegation::Column::Orbit)"
     )]
     DelegatedBy,
-    #[sea_orm(has_many = "super::invocation::Entity")]
+    #[sea_orm(has_many = "invocation::Entity")]
     InvokerOf,
-    #[sea_orm(has_many = "super::revocation::Entity")]
+    #[sea_orm(has_many = "revocation::Entity")]
     RevokerOf,
 }
 
-impl Related<super::invocation::Entity> for Entity {
+impl Related<invocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::InvokerOf.def()
     }
 }
 
-impl Related<super::revocation::Entity> for Entity {
+impl Related<revocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::RevokerOf.def()
     }
 }
 
-impl Related<super::delegation::Entity> for Entity {
+impl Related<delegation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::DelegatorOf.def()
     }
