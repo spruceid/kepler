@@ -1,4 +1,5 @@
-use crate::storage::ImmutableStaging;
+use crate::storage::{ImmutableStaging, StorageConfig};
+use kepler_lib::resource::OrbitId;
 use sea_orm_migration::async_trait::async_trait;
 
 pub struct MemoryStaging;
@@ -9,5 +10,16 @@ impl ImmutableStaging for MemoryStaging {
     type Error = std::io::Error;
     async fn get_staging_buffer(&self) -> Result<Self::Writable, Self::Error> {
         Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl StorageConfig<MemoryStaging> for MemoryStaging {
+    type Error = std::convert::Infallible;
+    async fn open(&self, _: &OrbitId) -> Result<Option<MemoryStaging>, Self::Error> {
+        Ok(Some(Self))
+    }
+    async fn create(&self, _: &OrbitId) -> Result<MemoryStaging, Self::Error> {
+        Ok(Self)
     }
 }

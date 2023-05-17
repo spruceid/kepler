@@ -7,5 +7,5 @@ pub mod relationships;
 pub mod storage;
 pub mod util;
 
-pub use db::OrbitDatabase;
+pub use db::{OrbitDatabase, TxError};
 pub use sea_orm;

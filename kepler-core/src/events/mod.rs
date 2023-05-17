@@ -8,6 +8,7 @@ pub use kepler_lib::{
 };
 use serde::{Deserialize, Serialize};
 use serde_ipld_dagcbor::EncodeError;
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);
@@ -17,8 +18,14 @@ pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Option<Operation>);
 
 #[derive(Debug)]
 pub enum Operation {
-    KvWrite { key: String, value: Vec<u8> },
-    KvDelete { key: String },
+    KvWrite {
+        key: String,
+        value: Vec<u8>,
+        metadata: BTreeMap<String, String>,
+    },
+    KvDelete {
+        key: String,
+    },
 }
 
 #[derive(Debug)]

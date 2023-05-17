@@ -115,6 +115,7 @@ pub async fn process<C: ConnectionTrait>(
     let hash: Hash = crate::hash::hash(&serialization);
     if !r_info.parents.is_empty() && !r_info.revoker.starts_with(root) {
         let parents = delegation::Entity::find()
+            .filter(Column::Orbit.eq(orbit))
             .filter(r_info.parents.iter().fold(Condition::any(), |cond, p| {
                 cond.add(Column::Id.eq(p.to_bytes()))
             }))

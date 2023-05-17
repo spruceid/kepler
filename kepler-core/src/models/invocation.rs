@@ -227,7 +227,12 @@ async fn save<C: ConnectionTrait>(
     .save(db)
     .await?;
 
-    if let Some(Operation::KvWrite { key, value }) = parameters {
+    if let Some(Operation::KvWrite {
+        key,
+        value,
+        metadata,
+    }) = parameters
+    {
         kv::ActiveModel::from(kv::Model {
             key,
             value,
@@ -235,6 +240,7 @@ async fn save<C: ConnectionTrait>(
             epoch_id: epoch.into(),
             invocation_id: hash.into(),
             orbit: orbit.to_string(),
+            metadata: kv::Metadata(metadata),
         })
         .save(db)
         .await?;

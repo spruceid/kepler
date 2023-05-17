@@ -12,7 +12,7 @@ use sea_orm_migration::MigratorTrait;
 #[derive(Debug, Clone)]
 pub struct OrbitDatabase {
     conn: DatabaseConnection,
-    pub orbit: OrbitId,
+    orbit: OrbitId,
     root: String,
 }
 
@@ -154,16 +154,21 @@ async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u64, DbEr
         .unwrap_or(0))
 }
 
-async fn most_recent<C: ConnectionTrait>(_db: &C, _orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
-    // Ok(epoch::Entity::find()
-    //     .select_only()
-    //     .column_as(epoch::Column::Id, "id")
-    //     .left_join(epochs::Entity)
-    //     .column_as(epochs::Column::Parent.def().is_null(), "parent")
-    //     .into_tuple()
-    //     .all(db)
-    // .await?)
-    todo!()
+async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
+    use crate::hash::ConvertErr;
+    use crate::relationships::epochs;
+    // find epochs which do not appear in the parent column of the parent_epochs junction table
+    Ok(epoch::Entity::find()
+        .filter(epoch::Column::Orbit.eq(orbit_id))
+        .find_also_linked(epoch::ParentToChild)
+        .filter(epochs::Column::Child.is_null())
+        .select_only()
+        .column(epoch::Column::Id)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|(e, _)| e.id.try_into())
+        .collect::<Result<Vec<Hash>, ConvertErr>>()?)
 }
 
 #[cfg(test)]
