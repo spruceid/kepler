@@ -180,13 +180,6 @@ impl ImmutableWriteStore<TempFileSystemStage> for FileSystemStore {
         }
         Ok(h)
     }
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
-        match remove_file(self.get_path(id)).await {
-            Ok(()) => Ok(Some(())),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
 }
 
 #[async_trait]
@@ -203,13 +196,6 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
             writer.write_all(&v).await?;
         }
         Ok(h)
-    }
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
-        match remove_file(self.get_path(id)).await {
-            Ok(()) => Ok(Some(())),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
     }
 }
 
@@ -250,5 +236,16 @@ impl ImmutableDeleteStore for FileSystemStore {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+#[async_trait]
+impl StorageConfig<TempFileSystemStage> for TempFileSystemStage {
+    type Error = std::convert::Infallible;
+    async fn open(&self, _: &OrbitId) -> Result<Option<TempFileSystemStage>, Self::Error> {
+        Ok(Some(Self))
+    }
+    async fn create(&self, _: &OrbitId) -> Result<TempFileSystemStage, Self::Error> {
+        Ok(Self)
     }
 }

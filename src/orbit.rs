@@ -1,16 +1,12 @@
-use crate::{
-    capabilities::{store::Store as CapStore, Service as CapService},
-    config,
-    kv::{Service as KVService, Store},
-    manifest::Manifest,
-    storage::{ImmutableStore, StorageConfig},
-    BlockConfig, BlockStores,
-};
+use crate::{manifest::Manifest, BlockConfig, BlockStage, BlockStores};
 use anyhow::{anyhow, Result};
 use derive_builder::Builder;
-use kepler_lib::libipld::cid::{
-    multihash::{Code, MultihashDigest},
-    Cid,
+use kepler_core::{
+    hash::Hash,
+    models::kv::Metadata,
+    sea_orm,
+    storage::{Content, ImmutableReadStore, StorageConfig},
+    OrbitDatabase,
 };
 use kepler_lib::resource::OrbitId;
 use libp2p::{
@@ -19,9 +15,10 @@ use libp2p::{
     PeerId,
 };
 use rocket::tokio::task::JoinHandle;
+use sea_orm::query::Condition;
 
 use cached::proc_macro::cached;
-use std::{convert::TryFrom, error::Error as StdError, ops::Deref};
+use std::{error::Error as StdError, ops::Deref};
 
 #[derive(Debug)]
 pub struct AbortOnDrop<T>(JoinHandle<T>);
@@ -47,14 +44,15 @@ impl<T> Deref for AbortOnDrop<T> {
 }
 
 #[derive(Clone)]
-pub struct Orbit<B> {
-    pub service: KVService<B>,
+pub struct Orbit<B, S> {
     pub manifest: Manifest,
-    pub capabilities: CapService<B>,
+    pub capabilities: OrbitDatabase,
+    pub store: B,
+    pub staging: S,
 }
 
 #[derive(Clone, Debug, Builder)]
-pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
+pub struct OrbitPeerConfig<B, S> {
     #[builder(setter(into))]
     identity: Ed25519Keypair,
     #[builder(setter(into))]
@@ -62,66 +60,107 @@ pub struct OrbitPeerConfig<B, I = config::IndexStorage> {
     #[builder(setter(into, strip_option), default)]
     relay: Option<(PeerId, Multiaddr)>,
     #[builder(setter(into))]
-    blocks: B,
+    store: B,
     #[builder(setter(into))]
-    index: I,
+    staging: S,
+    #[builder(setter(into))]
+    db: sea_orm::ConnectOptions,
 }
 
-impl<B> Orbit<B>
-where
-    B: ImmutableStore + Clone,
-{
-    async fn open<C>(config: &OrbitPeerConfig<C>) -> anyhow::Result<Option<Self>>
+impl<B, S> Orbit<B, S> {
+    async fn open<CB, CS>(config: &OrbitPeerConfig<CB, CS>) -> anyhow::Result<Option<Self>>
     where
-        C: StorageConfig<B>,
-        C::Error: 'static + Sync + Send,
-        B::Error: 'static,
+        CB: StorageConfig<B>,
+        CB::Error: 'static + Sync + Send,
+        CS: StorageConfig<S>,
+        CS::Error: 'static + Sync + Send,
     {
         let id = config.manifest.id().get_cid();
         let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
         let _relay = &config.relay;
 
-        let blocks = match config.blocks.open(config.manifest.id()).await? {
+        let store = match config.store.open(config.manifest.id()).await? {
             Some(b) => b,
             None => return Ok(None),
         };
-        let service_store = Store::new(id, blocks.clone(), config.index.clone()).await?;
-        let service = KVService::start(service_store).await?;
+        let staging = match config.staging.open(config.manifest.id()).await? {
+            Some(b) => b,
+            None => return Ok(None),
+        };
 
-        let cap_store =
-            CapStore::new(config.manifest.id(), blocks.clone(), config.index.clone()).await?;
-        let capabilities = CapService::start(cap_store).await?;
+        let capabilities =
+            OrbitDatabase::new(config.db.clone(), config.manifest.id().clone()).await?;
 
         Ok(Some(Orbit {
-            service,
             manifest: config.manifest.clone(),
             capabilities,
+            store,
+            staging,
         }))
     }
 
-    async fn create<C>(config: &OrbitPeerConfig<C>) -> anyhow::Result<Self>
+    async fn create<CB, CS>(config: &OrbitPeerConfig<CS, CB>) -> anyhow::Result<Self>
     where
-        C: StorageConfig<B>,
-        C::Error: 'static + Sync + Send,
-        B::Error: 'static,
+        CB: StorageConfig<B>,
+        CB::Error: 'static + Sync + Send,
+        CS: StorageConfig<S>,
+        CS::Error: 'static + Sync + Send,
     {
         let id = config.manifest.id().get_cid();
         let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
         let _relay = &config.relay;
 
-        let blocks = config.blocks.create(config.manifest.id()).await?;
-        let service_store = Store::new(id, blocks.clone(), config.index.clone()).await?;
-        let service = KVService::start(service_store).await?;
+        let store = config.blocks.create(config.manifest.id()).await?;
+        let staging = config.staging.create(config.manifest.id()).await?;
 
-        let cap_store =
-            CapStore::new(config.manifest.id(), blocks.clone(), config.index.clone()).await?;
-        let capabilities = CapService::start(cap_store).await?;
+        let capabilities =
+            OrbitDatabase::new(config.db.clone(), config.manifest.id().clone()).await?;
 
         Ok(Orbit {
-            service,
             manifest: config.manifest.clone(),
             capabilities,
+            store,
+            staging,
         })
+    }
+}
+
+impl<B, S> Orbit<B, S>
+where
+    B: ImmutableReadStore,
+{
+    async fn get(
+        &self,
+        key: &str,
+        version: Option<(u64, Hash)>,
+    ) -> anyhow::Result<Option<(Content<B::Readable>, Metadata)>> {
+        use kepler_core::models::*;
+        // get content id for key from db
+        let (key_hash, md): Hash = kv::Entity::find()
+            .filter(Condition::all().add(kv::Column::Key.eq(key)))
+            .order_by_desc(kv::Column::Seq)
+            .order_by_desc(kv::Column::EpochId)
+            .one(self.capabilities.readable())
+            .await?
+            .try_into()?;
+
+        Ok((self.store.read(&key_hash).await?, md))
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        version: Option<(u64, Hash)>,
+    ) -> anyhow::Result<Vec<String>> {
+        use kepler_core::models::*;
+        // get content id for key from db
+        Ok(kv::Entity::find()
+            .filter(Condition::all().add(kv::Column::Key.like(format!("{prefix}%"))))
+            .order_by_desc(kv::Column::Seq)
+            .order_by_desc(kv::Column::EpochId)
+            .one(self.capabilities.readable())
+            .await?
+            .dedup())
     }
 }
 
@@ -138,10 +177,11 @@ pub trait ProviderUtils {
 pub async fn create_orbit(
     id: &OrbitId,
     store_config: &BlockConfig,
-    index_config: &config::IndexStorage,
+    staging_config: &BlockStage,
+    db: &str,
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
-) -> Result<Option<Orbit<BlockStores>>> {
+) -> Result<Option<Orbit<BlockStores, BlockStores>>> {
     match Manifest::resolve_dyn(id, None).await? {
         Some(_) => {}
         _ => return Ok(None),
@@ -152,10 +192,11 @@ pub async fn create_orbit(
         return Ok(None);
     }
 
+    // TODO allow using sql db as peer identity store
     store_config.setup_orbit(id, &kp).await?;
 
     Orbit::create(
-        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+        &OrbitPeerConfigBuilder::<BlockConfig>::default()
             .manifest(
                 Manifest::resolve_dyn(id, None)
                     .await?
@@ -168,14 +209,15 @@ pub async fn create_orbit(
                     .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
             )
             .blocks(store_config.clone())
-            .index(index_config.clone())
+            .staging(staging_config.clone())
+            .db(db)
             .relay(relay.clone())
             .build()?,
     )
     .await?;
 
     Ok(Some(
-        load_orbit(id.clone(), store_config, index_config, relay)
+        load_orbit(id.clone(), store_config, staging_config, db, relay)
             .await
             .map(|o| o.ok_or_else(|| anyhow!("Couldn't find newly created orbit")))??,
     ))
@@ -184,15 +226,22 @@ pub async fn create_orbit(
 pub async fn load_orbit(
     orbit: OrbitId,
     store_config: &BlockConfig,
-    index_config: &config::IndexStorage,
+    stage_config: &BlockStage,
+    db: &str,
     relay: (PeerId, Multiaddr),
-) -> Result<Option<Orbit<BlockStores>>> {
+) -> Result<Option<Orbit<BlockStores, BlockStage>>> {
     if !store_config.exists(&orbit).await? {
         return Ok(None);
     }
-    load_orbit_inner(orbit, store_config.clone(), index_config.clone(), relay)
-        .await
-        .map(Some)
+    load_orbit_inner(
+        orbit,
+        store_config.clone(),
+        stage_config.clone(),
+        db.to_string(),
+        relay,
+    )
+    .await
+    .map(Some)
 }
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
@@ -201,37 +250,33 @@ pub async fn load_orbit(
 async fn load_orbit_inner(
     orbit: OrbitId,
     store_config: BlockConfig,
-    index_config: config::IndexStorage,
+    staging: BlockStage,
+    db: String,
     relay: (PeerId, Multiaddr),
-) -> Result<Orbit<BlockStores>> {
+) -> Result<Orbit<BlockStores, BlockStage>> {
     debug!("loading orbit {}", &orbit);
     Orbit::open(
-        &OrbitPeerConfigBuilder::<BlockConfig, config::IndexStorage>::default()
+        &OrbitPeerConfigBuilder::<BlockConfig, BlockStage>::default()
             .manifest(
                 Manifest::resolve_dyn(&orbit, None)
                     .await?
                     .ok_or_else(|| anyhow!("Orbit DID Document not resolvable"))?,
             )
             .identity(
+                // TODO allow using sql db as peer identity store
                 store_config
                     .key_pair(&orbit)
                     .await?
                     .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
             )
-            .blocks(store_config)
-            .index(index_config)
+            .store(store_config)
+            .staging(staging)
+            .db(db)
             .relay(relay)
             .build()?,
     )
     .await?
     .ok_or_else(|| anyhow!("Orbit could not be opened: not found"))
-}
-
-pub fn hash_same<B: AsRef<[u8]>>(c: &Cid, b: B) -> Result<Cid> {
-    Ok(Cid::new_v1(
-        c.codec(),
-        Code::try_from(c.hash().code())?.digest(b.as_ref()),
-    ))
 }
 
 #[cfg(test)]

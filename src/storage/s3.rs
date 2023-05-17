@@ -282,20 +282,6 @@ impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
         }
         Ok(h)
     }
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
-        match self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(self.key(id))
-            .send()
-            .await
-        {
-            Ok(_) => Ok(Some(())),
-            // TODO does this distinguish between object missing and object present?
-            Err(e) => Err(S3Error::from(e).into()),
-        }
-    }
 }
 
 #[async_trait]
@@ -318,20 +304,6 @@ impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
                 .map_err(S3Error::from)?;
         }
         Ok(h)
-    }
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
-        match self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(self.key(id))
-            .send()
-            .await
-        {
-            Ok(_) => Ok(Some(())),
-            // TODO does this distinguish between object missing and object present?
-            Err(e) => Err(S3Error::from(e).into()),
-        }
     }
 }
 

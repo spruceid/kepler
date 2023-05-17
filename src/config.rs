@@ -1,12 +1,10 @@
 use crate::{
     allow_list::OrbitAllowListService,
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
-    BlockConfig,
+    BlockConfig, BlockStage,
 };
-use rocket::http::hyper::Uri;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr, FromInto};
-use std::path::PathBuf;
+use serde_with::{serde_as, FromInto};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
@@ -48,7 +46,14 @@ pub struct OrbitsConfig {
 pub struct Storage {
     #[serde_as(as = "FromInto<BlockStorage>")]
     pub blocks: BlockConfig,
-    pub indexes: IndexStorage,
+    #[serde_as(as = "FromInto<StagingStorage>")]
+    pub staging: BlockStage,
+    #[serde(default = "memory_db")]
+    pub database: String,
+}
+
+fn memory_db() -> String {
+    "sqlite:memory:".to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -58,25 +63,12 @@ pub enum BlockStorage {
     S3(S3BlockConfig),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq, Default)]
 #[serde(tag = "type")]
-pub enum IndexStorage {
-    Local(LocalIndexStorage),
-    DynamoDB(DynamoStorage),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct LocalIndexStorage {
-    pub path: PathBuf,
-}
-
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct DynamoStorage {
-    pub table: String,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[serde(default)]
-    pub endpoint: Option<Uri>,
+pub enum StagingStorage {
+    FileSystem,
+    #[default]
+    Memory,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -102,20 +94,6 @@ impl Default for Tracing {
 impl Default for BlockStorage {
     fn default() -> BlockStorage {
         BlockStorage::Local(FileSystemConfig::default())
-    }
-}
-
-impl Default for IndexStorage {
-    fn default() -> IndexStorage {
-        IndexStorage::Local(LocalIndexStorage::default())
-    }
-}
-
-impl Default for LocalIndexStorage {
-    fn default() -> LocalIndexStorage {
-        LocalIndexStorage {
-            path: PathBuf::from(r"/tmp/kepler/indexes"),
-        }
     }
 }
 
