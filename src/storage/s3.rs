@@ -10,6 +10,7 @@ use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endp
 use aws_types::sdk_config::SdkConfig;
 use futures::{
     executor::block_on,
+    future::Either as AsyncEither,
     stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
 use kepler_core::{hash::Hash, storage::*};
@@ -52,10 +53,10 @@ pub struct S3BlockConfig {
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = std::convert::Infallible;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
-        Ok(Some(S3BlockStore::new_(self, orbit.get_cid())))
+        Ok(Some(S3BlockStore::new_(self, orbit)))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
-        Ok(S3BlockStore::new_(self, orbit.get_cid()))
+        Ok(S3BlockStore::new_(self, orbit))
     }
 }
 
@@ -265,22 +266,22 @@ impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
     type Error = S3StoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<memory::MemoryStaging::Writable>,
+        staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, f) = staged.into_inner();
-        let (path, _file) = f.into_parts();
+        let hash = h.finalize();
 
-        if !self.contains(&h).await? {
+        if !self.contains(&hash).await? {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(self.key(&h))
-                .body(ByteStream::from_path(&path).await?)
+                .key(self.key(&hash))
+                .body(ByteStream::from(f))
                 .send()
                 .await
                 .map_err(S3Error::from)?;
         }
-        Ok(h)
+        Ok(hash)
     }
 }
 
@@ -289,21 +290,23 @@ impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
     type Error = S3StoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<file_system::TempFileSystemStage::Writable>,
+        staged: HashBuffer<<file_system::TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, f) = staged.into_inner();
+        let hash = h.finalize();
+        let (_file, path) = f.into_inner();
 
-        if !self.contains(&h).await? {
+        if !self.contains(&hash).await? {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(self.key(&h))
-                .body(ByteStream::from(f).await?)
+                .key(self.key(&hash))
+                .body(ByteStream::from_path(&path).await?)
                 .send()
                 .await
                 .map_err(S3Error::from)?;
         }
-        Ok(h)
+        Ok(hash)
     }
 }
 
@@ -314,38 +317,37 @@ impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory
     type Error = S3StoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<
-            either::Either<file_system::TempFileSystemStage, memory::MemoryStaging>::Writable,
-        >,
+        staged: HashBuffer<<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, f) = staged.into_inner();
+        let hash = h.finalize();
 
-        if !self.contains(&h).await? {
+        if !self.contains(&hash).await? {
             match f {
-                either::Either::A(t_file) => {
-                    let (path, _file) = t_file.into_parts();
+                AsyncEither::Left(t_file) => {
+                    let (_file, path) = t_file.into_inner();
                     self.client
                         .put_object()
                         .bucket(&self.bucket)
-                        .key(self.key(&h))
+                        .key(self.key(&hash))
                         .body(ByteStream::from_path(&path).await?)
                         .send()
                         .await
                         .map_err(S3Error::from)?;
                 }
-                either::Either::B(b) => {
+                AsyncEither::Right(b) => {
                     self.client
                         .put_object()
                         .bucket(&self.bucket)
-                        .key(self.key(&h))
-                        .body(ByteStream::from(b).await?)
+                        .key(self.key(&hash))
+                        .body(ByteStream::from(b))
                         .send()
                         .await
                         .map_err(S3Error::from)?;
                 }
             }
         };
-        Ok(h)
+        Ok(hash)
     }
 }
 

@@ -44,17 +44,11 @@ pub type BlockStores = Either<S3BlockStore, FileSystemStore>;
 pub type BlockConfig = Either<S3BlockConfig, FileSystemConfig>;
 pub type BlockStage = Either<TempFileSystemStage, MemoryStaging>;
 
-impl Default for BlockConfig {
-    fn default() -> Self {
-        Self::B(FileSystemConfig::default())
-    }
-}
-
-impl From<BlockStorage> for BlockConfig {
-    fn from(c: BlockStorage) -> Self {
-        match c {
-            BlockStorage::S3(s) => Self::A(s),
-            BlockStorage::Local(l) => Self::B(l),
+impl Into<BlockConfig> for BlockStorage {
+    fn into(self) -> BlockConfig {
+        match self {
+            Self::S3(s) => BlockConfig::A(s),
+            Self::Local(l) => BlockConfig::B(l),
         }
     }
 }
@@ -72,7 +66,7 @@ impl From<StagingStorage> for BlockStage {
     fn from(c: StagingStorage) -> Self {
         match c {
             StagingStorage::Memory => Self::B(MemoryStaging::default()),
-            StagingStorage::TempFileSystem => Self::A(TempFileSystemStage::default()),
+            StagingStorage::FileSystem => Self::A(TempFileSystemStage::default()),
         }
     }
 }
@@ -80,8 +74,8 @@ impl From<StagingStorage> for BlockStage {
 impl From<BlockStage> for StagingStorage {
     fn from(c: BlockStage) -> Self {
         match c {
-            BlockStage::B(_) => Self::MemoryStaging,
-            BlockStage::A(_) => Self::TempFileSystemStage,
+            BlockStage::B(_) => Self::Memory,
+            BlockStage::A(_) => Self::FileSystem,
         }
     }
 }

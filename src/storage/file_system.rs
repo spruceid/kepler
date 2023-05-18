@@ -1,7 +1,14 @@
 use crate::orbit::ProviderUtils;
+use core::pin::Pin;
+use futures::{
+    future::Either as AsyncEither,
+    io::{AsyncWrite, AsyncWriteExt},
+    task::{Context, Poll},
+};
 use kepler_core::{hash::Hash, storage::*};
 use kepler_lib::resource::OrbitId;
 use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Error as IoError, ErrorKind},
@@ -142,17 +149,35 @@ impl ImmutableReadStore for FileSystemStore {
     }
 }
 
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TempFileSystemStage;
 
-pub struct TempFileStage(Compat<File>, tempfile::TempPath);
+#[pin_project]
+pub struct TempFileStage(#[pin] Compat<File>, tempfile::TempPath);
 
-impl TempFileSystemStage {
-    fn new(file: NamedTempFile) -> Self {
+impl TempFileStage {
+    pub fn new(file: NamedTempFile) -> Self {
         let (f, p) = file.into_parts();
-        Self(f.compat(), p)
+        Self(File::from_std(f).compat(), p)
     }
-    fn into_inner(self) -> (Compat<File>, tempfile::TempPath) {
+    pub fn into_inner(self) -> (Compat<File>, tempfile::TempPath) {
         (self.0, self.1)
+    }
+}
+
+impl AsyncWrite for TempFileStage {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, IoError>> {
+        self.project().0.poll_write(cx, buf)
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        self.project().0.poll_flush(cx)
+    }
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        self.project().0.poll_close(cx)
     }
 }
 
@@ -170,15 +195,16 @@ impl ImmutableWriteStore<TempFileSystemStage> for FileSystemStore {
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<TempFileSystemStage::Writable>,
+        staged: HashBuffer<<TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, f) = staged.into_inner();
         let (_, path) = f.into_inner();
 
-        if !self.contains(&h).await? {
-            path.persist(self.get_path(&h))?;
+        let hash = h.finalize();
+        if !self.contains(&hash).await? {
+            path.persist(self.get_path(&hash))?;
         }
-        Ok(h)
+        Ok(hash)
     }
 }
 
@@ -187,15 +213,16 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<memory::MemoryStaging::Writable>,
+        staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, v) = staged.into_inner();
-        if !self.contains(&h).await? {
-            let file = File::open(self.get_path(h)).await?;
-            let mut writer = futures::io::BufWriter::new(file);
+        let hash = h.finalize();
+        if !self.contains(&hash).await? {
+            let file = File::open(self.get_path(&hash)).await?;
+            let mut writer = futures::io::BufWriter::new(file.compat());
             writer.write_all(&v).await?;
         }
-        Ok(h)
+        Ok(hash)
     }
 }
 
@@ -206,24 +233,25 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
-        staged: HashBuffer<either::Either<TempFileSystemStage, memory::MemoryStaging>::Writable>,
+        staged: HashBuffer<<either::Either<TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (h, f) = staged.into_inner();
+        let hash = h.finalize();
 
-        if !self.contains(&h).await? {
+        if !self.contains(&hash).await? {
             match f {
-                either::Either::A(t_file) => {
-                    let (_, path) = f.into_inner();
-                    path.persist(self.get_path(&h))?;
+                AsyncEither::Left(t_file) => {
+                    let (_, path) = t_file.into_inner();
+                    path.persist(self.get_path(&hash))?;
                 }
-                either::Either::B(v) => {
-                    let file = File::open(self.get_path(h)).await?;
-                    let mut writer = futures::io::BufWriter::new(file);
+                AsyncEither::Right(v) => {
+                    let file = File::open(self.get_path(&hash)).await?;
+                    let mut writer = futures::io::BufWriter::new(file.compat());
                     writer.write_all(&v).await?;
                 }
             }
         };
-        Ok(h)
+        Ok(hash)
     }
 }
 
