@@ -5,11 +5,11 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "parent_epochs")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    parent: Vec<u8>,
+    pub parent: Vec<u8>,
     #[sea_orm(primary_key)]
-    child: Vec<u8>,
+    pub child: Vec<u8>,
     #[sea_orm(primary_key)]
-    orbit: String,
+    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

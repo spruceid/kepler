@@ -2,6 +2,7 @@ use super::migrations::Migrator;
 use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Revocation};
 use crate::hash::Hash;
 use crate::models::*;
+use crate::relationships::*;
 use kepler_lib::resource::OrbitId;
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
@@ -45,6 +46,10 @@ pub enum TxError {
 impl OrbitDatabase {
     pub async fn new<C: Into<ConnectOptions>>(options: C, orbit: OrbitId) -> Result<Self, DbErr> {
         let conn = Database::connect(options).await?;
+        Self::wrap(conn, orbit).await
+    }
+
+    pub async fn wrap(conn: DatabaseConnection, orbit: OrbitId) -> Result<Self, DbErr> {
         Migrator::up(&conn, None).await?;
 
         Ok(Self {
@@ -72,7 +77,7 @@ impl OrbitDatabase {
         let seq = max_seq(&tx, &orbit).await? + 1;
         let parents = most_recent(&tx, &orbit).await?;
 
-        let (epoch_id, _event_ids) = epoch_hash(seq, &events, &parents)?;
+        let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
         for (epoch_seq, event) in events.into_iter().enumerate() {
             match event {
                 // dropping tx rolls back changes, so fine to '?' here
@@ -90,10 +95,33 @@ impl OrbitDatabase {
                 }
             };
         }
-        // TODO update epoch table
+
+        for parent in parents.iter() {
+            epochs::ActiveModel::from(epochs::Model {
+                parent: parent.clone().into(),
+                child: epoch_id.clone().into(),
+                orbit: orbit.clone(),
+            })
+            .save(&tx)
+            .await?;
+        }
+
+        epoch::ActiveModel::from(epoch::Model {
+            id: epoch_id.clone().into(),
+            seq,
+            orbit,
+        })
+        .save(&tx)
+        .await?;
 
         tx.commit().await?;
-        todo!()
+
+        Ok(Commit {
+            rev: epoch_id,
+            seq,
+            commited_events: event_ids,
+            consumed_epochs: parents,
+        })
     }
 
     pub async fn delegate(&self, delegation: Delegation) -> Result<Commit, TxError> {
@@ -167,7 +195,7 @@ async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<H
         .all(db)
         .await?
         .into_iter()
-        .map(|(e, _)| e.id.try_into())
+        .filter_map(|(e, j)| j.map(|_| e.id.try_into()))
         .collect::<Result<Vec<Hash>, ConvertErr>>()?)
 }
 
@@ -176,12 +204,17 @@ mod test {
     use super::*;
     use async_std::test;
 
-    async fn get_db() -> Result<OrbitDatabase, DbErr> {
-        OrbitDatabase::new("sqlite::memory:").await
+    async fn get_db(o: OrbitId) -> Result<OrbitDatabase, DbErr> {
+        OrbitDatabase::new("sqlite::memory:", o).await
     }
 
     #[test]
     async fn basic() {
-        let db = get_db().await.unwrap();
+        let db = get_db(OrbitId::new(
+            "example:alice".to_string(),
+            "default".to_string(),
+        ))
+        .await
+        .unwrap();
     }
 }

@@ -1,4 +1,7 @@
-use crate::hash::{hash, Hash};
+use crate::{
+    hash::{hash, Hash},
+    models::kv::Metadata,
+};
 pub use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     libipld::cid::{
@@ -8,7 +11,6 @@ pub use kepler_lib::{
 };
 use serde::{Deserialize, Serialize};
 use serde_ipld_dagcbor::EncodeError;
-use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);
@@ -21,7 +23,7 @@ pub enum Operation {
     KvWrite {
         key: String,
         value: Vec<u8>,
-        metadata: BTreeMap<String, String>,
+        metadata: Metadata,
     },
     KvDelete {
         key: String,
