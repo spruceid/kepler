@@ -15,7 +15,6 @@ use libp2p::{
     PeerId,
 };
 use rocket::tokio::task::JoinHandle;
-use sea_orm::query::Condition;
 
 use cached::proc_macro::cached;
 use std::{error::Error as StdError, ops::Deref};
@@ -99,7 +98,7 @@ impl<B, S> Orbit<B, S> {
         }))
     }
 
-    async fn create<CB, CS>(config: &OrbitPeerConfig<CS, CB>) -> anyhow::Result<Self>
+    async fn create<CB, CS>(config: &OrbitPeerConfig<CB, CS>) -> anyhow::Result<Self>
     where
         CB: StorageConfig<B>,
         CB::Error: 'static + Sync + Send,
@@ -110,7 +109,7 @@ impl<B, S> Orbit<B, S> {
         let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
         let _relay = &config.relay;
 
-        let store = config.blocks.create(config.manifest.id()).await?;
+        let store = config.store.create(config.manifest.id()).await?;
         let staging = config.staging.create(config.manifest.id()).await?;
 
         let capabilities =
@@ -123,44 +122,72 @@ impl<B, S> Orbit<B, S> {
             staging,
         })
     }
+
+    pub async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        use kepler_core::models::*;
+        use sea_orm::{entity::prelude::*, query::*};
+        // get content id for key from db
+        let mut list = kv::Entity::find()
+            .filter(Condition::all().add(kv::Column::Key.like(&format!("{prefix}%"))))
+            .order_by_desc(kv::Column::Seq)
+            .order_by_desc(kv::Column::EpochId)
+            .all(&self.capabilities.readable().await?)
+            .await?
+            .into_iter()
+            .map(|kv| kv.key)
+            .collect::<Vec<String>>();
+        list.dedup();
+        Ok(list)
+    }
+
+    pub async fn metadata(
+        &self,
+        key: &str,
+        version: Option<(u64, Hash)>,
+    ) -> anyhow::Result<Option<Metadata>> {
+        use kepler_core::models::*;
+        use sea_orm::{entity::prelude::*, query::*};
+        match kv::Entity::find()
+            .filter(Condition::all().add(kv::Column::Key.eq(key)))
+            .order_by_desc(kv::Column::Seq)
+            .order_by_desc(kv::Column::EpochId)
+            .one(&self.capabilities.readable().await?)
+            .await?
+        {
+            Some(entry) => Ok(Some(entry.metadata)),
+            None => return Ok(None),
+        }
+    }
 }
 
 impl<B, S> Orbit<B, S>
 where
     B: ImmutableReadStore,
+    B::Error: 'static,
 {
-    async fn get(
+    pub async fn get(
         &self,
         key: &str,
         version: Option<(u64, Hash)>,
     ) -> anyhow::Result<Option<(Content<B::Readable>, Metadata)>> {
         use kepler_core::models::*;
+        use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
-        let (key_hash, md): Hash = kv::Entity::find()
+        let entry = match kv::Entity::find()
             .filter(Condition::all().add(kv::Column::Key.eq(key)))
             .order_by_desc(kv::Column::Seq)
             .order_by_desc(kv::Column::EpochId)
-            .one(self.capabilities.readable())
+            .one(&self.capabilities.readable().await?)
             .await?
-            .try_into()?;
-
-        Ok((self.store.read(&key_hash).await?, md))
-    }
-
-    async fn list(
-        &self,
-        prefix: &str,
-        version: Option<(u64, Hash)>,
-    ) -> anyhow::Result<Vec<String>> {
-        use kepler_core::models::*;
-        // get content id for key from db
-        Ok(kv::Entity::find()
-            .filter(Condition::all().add(kv::Column::Key.like(format!("{prefix}%"))))
-            .order_by_desc(kv::Column::Seq)
-            .order_by_desc(kv::Column::EpochId)
-            .one(self.capabilities.readable())
-            .await?
-            .dedup())
+        {
+            Some(entry) => entry,
+            None => return Ok(None),
+        };
+        let content = match self.store.read(&entry.value.try_into()?).await? {
+            Some(content) => content,
+            None => return Err(anyhow!("content indexed but not found")),
+        };
+        Ok(Some((content, entry.metadata)))
     }
 }
 
@@ -181,7 +208,7 @@ pub async fn create_orbit(
     db: &str,
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
-) -> Result<Option<Orbit<BlockStores, BlockStores>>> {
+) -> Result<Option<Orbit<BlockStores, BlockStage>>> {
     match Manifest::resolve_dyn(id, None).await? {
         Some(_) => {}
         _ => return Ok(None),
@@ -196,7 +223,7 @@ pub async fn create_orbit(
     store_config.setup_orbit(id, &kp).await?;
 
     Orbit::create(
-        &OrbitPeerConfigBuilder::<BlockConfig>::default()
+        &OrbitPeerConfigBuilder::<BlockConfig, BlockStage>::default()
             .manifest(
                 Manifest::resolve_dyn(id, None)
                     .await?
@@ -208,7 +235,7 @@ pub async fn create_orbit(
                     .await?
                     .ok_or_else(|| anyhow!("Peer Identity key could not be found"))?,
             )
-            .blocks(store_config.clone())
+            .store(store_config.clone())
             .staging(staging_config.clone())
             .db(db)
             .relay(relay.clone())
