@@ -1,15 +1,19 @@
+use kepler_lib::libipld::cid::{
+    multihash::{Blake3_256, Code, Hasher as MHasher, Multihash, MultihashDigest},
+    Cid,
+};
 use sea_orm::DbErr;
 
 pub fn hash(data: &[u8]) -> Hash {
     Hasher::new().update(data).finalize()
 }
 
-#[derive(Debug, Clone)]
-pub struct Hasher(blake3::Hasher);
+#[derive(Debug, Default)]
+pub struct Hasher(Blake3_256);
 
 impl Hasher {
     pub fn new() -> Self {
-        Self(blake3::Hasher::new())
+        Self(Blake3_256::default())
     }
 
     pub fn update(&mut self, data: &[u8]) -> &mut Self {
@@ -17,17 +21,23 @@ impl Hasher {
         self
     }
 
-    pub fn finalize(&self) -> Hash {
-        Hash(self.0.finalize())
+    pub fn finalize(&mut self) -> Hash {
+        Hash(Code::Blake3_256.wrap(self.0.finalize()).unwrap())
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Hash(blake3::Hash);
+pub struct Hash(Multihash);
+
+impl Hash {
+    pub fn to_cid(self, codec: u64) -> Cid {
+        Cid::new_v1(codec, self.0)
+    }
+}
 
 impl std::cmp::Ord for Hash {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.as_bytes().cmp(other.0.as_bytes())
+        self.0.digest().cmp(other.0.digest())
     }
 }
 
@@ -38,7 +48,7 @@ impl std::cmp::PartialOrd for Hash {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("invalid hash len, expected 32, got {0}")]
+#[error("invalid hash len, expected 34, got {0}")]
 pub struct ConvertErr(usize);
 
 impl From<ConvertErr> for DbErr {
@@ -54,20 +64,20 @@ impl From<ConvertErr> for DbErr {
 impl TryFrom<Vec<u8>> for Hash {
     type Error = ConvertErr;
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let b: [u8; 32] = value.try_into().map_err(|b: Vec<u8>| ConvertErr(b.len()))?;
-        Ok(Hash(blake3::Hash::from(b)))
+        Ok(Hash(
+            Multihash::from_bytes(&value).map_err(|_| ConvertErr(value.len()))?,
+        ))
     }
 }
 
 impl From<Hash> for Vec<u8> {
     fn from(hash: Hash) -> Self {
-        let h: [u8; 32] = hash.0.into();
-        h.to_vec()
+        hash.0.to_bytes()
     }
 }
 
-impl AsRef<[u8; 32]> for Hash {
-    fn as_ref(&self) -> &[u8; 32] {
-        self.0.as_bytes()
+impl AsRef<[u8]> for Hash {
+    fn as_ref(&self) -> &[u8] {
+        self.0.digest()
     }
 }

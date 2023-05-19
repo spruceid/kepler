@@ -117,7 +117,7 @@ pub async fn process<C: ConnectionTrait>(
         let parents = delegation::Entity::find()
             .filter(Column::Orbit.eq(orbit))
             .filter(r_info.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.to_bytes()))
+                cond.add(Column::Id.eq(p.hash().to_bytes()))
             }))
             .all(db)
             .await?;

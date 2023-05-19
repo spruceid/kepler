@@ -78,10 +78,10 @@ where
     async fn persist(&self, staged: HashBuffer<S::Writable>) -> Result<Hash, Self::Error>;
     async fn persist_keyed(
         &self,
-        staged: HashBuffer<S::Writable>,
+        mut staged: HashBuffer<S::Writable>,
         hash: &Hash,
     ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if hash != &staged.hasher().finalize() {
+        if hash != &staged.hash() {
             return Err(KeyedWriteError::IncorrectHash);
         };
         self.persist(staged).await?;

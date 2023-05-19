@@ -268,7 +268,7 @@ impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
         &self,
         staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, f) = staged.into_inner();
+        let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
         if !self.contains(&hash).await? {
@@ -292,7 +292,7 @@ impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
         &self,
         staged: HashBuffer<<file_system::TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, f) = staged.into_inner();
+        let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
         let (_file, path) = f.into_inner();
 
@@ -319,7 +319,7 @@ impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory
         &self,
         staged: HashBuffer<<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, f) = staged.into_inner();
+        let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
         if !self.contains(&hash).await? {

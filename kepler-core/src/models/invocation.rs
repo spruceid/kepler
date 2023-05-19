@@ -151,7 +151,7 @@ async fn validate<C: ConnectionTrait>(
         let parents = delegation::Entity::find()
             .filter(Column::Orbit.eq(orbit))
             .filter(invocation.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.to_bytes()))
+                cond.add(Column::Id.eq(p.hash().to_bytes()))
             }))
             .all(db)
             .await?;
@@ -240,7 +240,7 @@ async fn save<C: ConnectionTrait>(
             epoch_id: epoch.into(),
             invocation_id: hash.into(),
             orbit: orbit.to_string(),
-            metadata: kv::Metadata(metadata),
+            metadata,
         })
         .save(db)
         .await?;

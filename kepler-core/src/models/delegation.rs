@@ -194,7 +194,7 @@ async fn validate<C: ConnectionTrait>(
         let parents = Entity::find()
             .filter(Column::Orbit.eq(orbit))
             .filter(delegation.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.to_bytes()))
+                cond.add(Column::Id.eq(p.hash().to_bytes()))
             }))
             .all(db)
             .await?;

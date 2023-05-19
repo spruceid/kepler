@@ -1,4 +1,4 @@
-use crate::hash::Hasher;
+use crate::hash::{Hash, Hasher};
 use core::pin::Pin;
 use futures::{
     io::AsyncWrite,
@@ -8,7 +8,7 @@ use pin_project::pin_project;
 use std::io::Error as IoError;
 
 #[pin_project]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HashBuffer<B> {
     #[pin]
     buffer: B,
@@ -21,6 +21,9 @@ impl<B> HashBuffer<B> {
     }
     pub fn hasher(&self) -> &Hasher {
         &self.hasher
+    }
+    pub fn hash(&mut self) -> Hash {
+        self.hasher.finalize()
     }
 }
 

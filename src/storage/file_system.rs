@@ -197,7 +197,7 @@ impl ImmutableWriteStore<TempFileSystemStage> for FileSystemStore {
         &self,
         staged: HashBuffer<<TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, f) = staged.into_inner();
+        let (mut h, f) = staged.into_inner();
         let (_, path) = f.into_inner();
 
         let hash = h.finalize();
@@ -215,7 +215,7 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
         &self,
         staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, v) = staged.into_inner();
+        let (mut h, v) = staged.into_inner();
         let hash = h.finalize();
         if !self.contains(&hash).await? {
             let file = File::open(self.get_path(&hash)).await?;
@@ -235,7 +235,7 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
         &self,
         staged: HashBuffer<<either::Either<TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
-        let (h, f) = staged.into_inner();
+        let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
         if !self.contains(&hash).await? {
