@@ -121,6 +121,10 @@ impl ResourceId {
         }
     }
 
+    pub fn into_inner(self) -> (OrbitId, Option<String>, Option<String>, Option<String>) {
+        (self.orbit, self.service, self.path, self.fragment)
+    }
+
     pub fn get_cid(&self) -> Cid {
         Cid::new_v1(
             0x55, // raw codec

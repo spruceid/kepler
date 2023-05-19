@@ -1,14 +1,22 @@
-use crate::authorization::{Delegation, Invocation, Verifiable};
-use crate::capabilities::store::{InvokeError, ToBlock, Updates};
+use crate::authorization::AuthHeaderGetter;
 use crate::config;
 use crate::orbit::{create_orbit, load_orbit, Orbit};
 use crate::relay::RelayNode;
-use crate::routes::Metadata;
-use crate::BlockStores;
+use crate::routes::ObjectHeaders;
+use crate::{BlockStage, BlockStores};
 use anyhow::Result;
+use kepler_core::{
+    events::{Delegation, Invocation, Operation, Revocation},
+    hash::{hash, Hash},
+    models::kv::Metadata,
+    storage::ImmutableStaging,
+    util::{DelegationInfo, InvocationInfo, RevocationInfo},
+    Commit, TxError,
+};
 use kepler_lib::{
-    authorization::CapabilitiesQuery,
+    authorization::{CapabilitiesQuery, KeplerDelegation},
     libipld::Cid,
+    resolver::DID_METHODS,
     resource::{OrbitId, ResourceId},
 };
 use libp2p::{
@@ -89,7 +97,7 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
 
 pub enum DelegateAuthWrapper {
     OrbitCreation(OrbitId),
-    Delegation(Cid),
+    Delegation(Hash),
 }
 
 #[async_trait]
@@ -102,8 +110,8 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             Err(e) => return internal_server_error(e),
         };
 
-        let token = match Delegation::from_request(req).await {
-            Outcome::Success(t) => t,
+        let (ser, token) = match AuthHeaderGetter::<DelegationInfo>::from_request(req).await {
+            Outcome::Success(AuthHeaderGetter(s, t)) => (s, t),
             Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
             Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
         };
@@ -117,25 +125,19 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
             .capabilities
             .iter()
             .fold(HashMap::new(), |mut o, cap| {
-                let r = &cap.resource;
-                let peers = o.entry(r.orbit()).or_insert(None);
-                if let (None, None, None, Some(peer), None, "host") = (
-                    r.fragment(),
-                    r.path(),
-                    r.service(),
-                    p,
-                    &peers,
-                    cap.action.as_str(),
-                ) {
-                    *peers = Some(peer);
-                };
+                if let Ok(r) = cap.resource.parse::<ResourceId>() {
+                    let (orbit, service, path, fragment) = r.into_inner();
+                    let peers = o.entry(orbit).or_insert(None);
+                    if let (None, None, None, Some(peer), None, "host") =
+                        (fragment, path, service, p, &peers, cap.action.as_str())
+                    {
+                        *peers = Some(peer);
+                    };
+                }
                 o
             });
 
-        let cid = match token.to_block() {
-            Ok(b) => *b.cid(),
-            Err(e) => return internal_server_error(e),
-        };
+        let cid = hash(&ser);
         // load or create orbits
         let orbits = match try_join_all(
             orbit_ids
@@ -147,7 +149,8 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                         load_orbit(
                             (*orbit_id).clone(),
                             &config.storage.blocks,
-                            &config.storage.indexes,
+                            &config.storage.staging,
+                            &config.storage.database,
                             relay.clone(),
                         )
                         .await,
@@ -165,17 +168,22 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                                 }
                             };
 
-                            if let Err(e) = token
-                                .verify(
-                                    &crate::authorization::EmptyCollection,
-                                    None,
-                                    &orbit_id.did(),
-                                )
-                                .await
-                            {
-                                // TODO should match on the error, an Invalid JWS should return a 400
-                                return Err(unauthorized(e));
-                            };
+                            match token.delegation {
+                                KeplerDelegation::Ucan(ref ucan) => {
+                                    ucan.verify_signature(DID_METHODS.to_resolver())
+                                        .await
+                                        .map_err(unauthorized)?;
+                                    ucan.payload.validate_time(None).map_err(unauthorized)?;
+                                }
+                                KeplerDelegation::Cacao(ref cacao) => {
+                                    cacao.verify().await.map_err(unauthorized)?;
+                                    if !cacao.payload().valid_now() {
+                                        return Err(unauthorized(anyhow!(
+                                            "Delegation not currently valid"
+                                        )))?;
+                                    }
+                                }
+                            }
 
                             let kp = match keys.write() {
                                 Ok(mut keys) => match keys.remove(p) {
@@ -192,7 +200,8 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                             match create_orbit(
                                 orbit_id,
                                 &config.storage.blocks,
-                                &config.storage.indexes,
+                                &config.storage.staging,
+                                &config.storage.database,
                                 relay.clone(),
                                 kp,
                             )
@@ -218,9 +227,12 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
         if let Err(e) = try_join_all(
             orbits
                 .into_iter()
-                .zip(std::iter::repeat(token.clone()))
-                .map(|(orbit, t)| async move {
-                    orbit.capabilities.transact(Updates::new([t], [])).await
+                .zip(std::iter::repeat((token.clone(), ser.clone())))
+                .map(|(orbit, (t, s))| async move {
+                    orbit
+                        .capabilities
+                        .delegate(Delegation(t.delegation, s))
+                        .await
                 }),
         )
         .await
@@ -232,13 +244,13 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
     }
 }
 
-pub enum InvokeAuthWrapper<B> {
-    KV(Box<KVAction<B>>),
+pub enum InvokeAuthWrapper<B, S> {
+    KV(Box<KVAction<B, S>>),
     Revocation,
-    CapabilityQuery(Box<CapAction<B>>),
+    CapabilityQuery(Box<CapAction<B, S>>),
 }
 
-impl<B> InvokeAuthWrapper<B> {
+impl<B, S> InvokeAuthWrapper<B, S> {
     pub fn prometheus_label(&self) -> &str {
         match self {
             InvokeAuthWrapper::Revocation => "revoke_delegation",
@@ -248,33 +260,33 @@ impl<B> InvokeAuthWrapper<B> {
     }
 }
 
-pub enum KVAction<B> {
+pub enum KVAction<B, S> {
     Delete {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
         key: String,
-        auth_ref: Cid,
     },
     Get {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
         key: String,
     },
     List {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
         prefix: String,
     },
     Metadata {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
         key: String,
     },
     Put {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
+        inv: InvocationInfo,
         key: String,
+        ser: Vec<u8>,
         metadata: Metadata,
-        auth_ref: Cid,
     },
 }
 
-impl<B> KVAction<B> {
+impl<B, S> KVAction<B, S> {
     pub fn prometheus_label(&self) -> &str {
         match self {
             KVAction::Delete { .. } => "kv_delete",
@@ -286,24 +298,28 @@ impl<B> KVAction<B> {
     }
 }
 
-pub enum CapAction<B> {
+pub enum CapAction<B, S> {
     Query {
-        orbit: Orbit<B>,
+        orbit: Orbit<B, S>,
         query: CapabilitiesQuery,
         invoker: String,
     },
 }
 
 async fn invoke(
-    token: Invocation,
+    orbit: OrbitId,
+    token: InvocationInfo,
+    serialized: Vec<u8>,
+    op: Option<Operation>,
     config: &config::Config,
     relay: (PeerId, Multiaddr),
-) -> Outcome<(Orbit<BlockStores>, Cid), anyhow::Error> {
+) -> Outcome<(Orbit<BlockStores, BlockStage>, Commit), anyhow::Error> {
     let target = &token.capability;
     let orbit = match load_orbit(
-        target.resource.orbit().clone(),
-        &config.storage.blocks,
-        &config.storage.indexes,
+        orbit,
+        &config.storage.blocks.clone().into(),
+        &config.storage.staging.clone().into(),
+        &config.storage.database,
         relay,
     )
     .await
@@ -312,34 +328,28 @@ async fn invoke(
         Ok(None) => return not_found(anyhow!("No Orbit found")),
         Err(e) => return internal_server_error(e),
     };
-    let auth_ref = match orbit.capabilities.invoke([token]).await {
+    let auth_ref = match orbit
+        .capabilities
+        .invoke(Invocation(token.invocation, serialized, op))
+        .await
+    {
         Ok(c) => c,
-        Err(InvokeError::Unauthorized(e)) => return unauthorized(e),
-        Err(InvokeError::Other(e)) => {
+        Err(TxError::Db(e)) => {
             warn!("Invoke error: {}", e);
-            match e.downcast_ref::<aws_sdk_dynamodb::Error>() {
-                Some(aws_sdk_dynamodb::Error::TransactionCanceledException(
-                    aws_sdk_dynamodb::error::TransactionCanceledException {
-                        cancellation_reasons: Some(reasons),
-                        ..
-                    },
-                )) => {
-                    for reason in reasons {
-                        if reason.code == Some("ThrottlingError".to_string()) {
-                            return Outcome::Failure((Status::ServiceUnavailable, e));
-                        }
-                    }
-                    return internal_server_error(e);
+            match e {
+                kepler_core::sea_orm::DbErr::Conn(e) => {
+                    return Outcome::Failure((Status::ServiceUnavailable, e.into()));
                 }
-                _ => return internal_server_error(e),
-            };
+                e => return internal_server_error(e),
+            }
         }
+        Err(e) => return unauthorized(e),
     };
     Outcome::Success((orbit, auth_ref))
 }
 
 #[async_trait]
-impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
+impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {
@@ -359,19 +369,27 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
                 Err(e) => return internal_server_error(e),
             };
 
-            let token = match Invocation::from_request(req).await {
-                Outcome::Success(t) => t,
+            let (ser, token) = match AuthHeaderGetter::<InvocationInfo>::from_request(req).await {
+                Outcome::Success(AuthHeaderGetter(s, t)) => (s, t),
                 Outcome::Failure((s, e)) => return Outcome::Failure((s, e.into())),
-                Outcome::Forward(_) => return bad_request(anyhow!("missing invocation token")),
+                Outcome::Forward(_) => return unauthorized(anyhow!("no delegation found")),
             };
 
             let target = &token.capability;
             let invoker = token.invoker.clone();
 
-            let res = match target.resource.service() {
-                None => bad_request(anyhow!("missing service in invocation target")),
-                Some("capabilities") => match target.action.as_str() {
-                    "read" => invoke(token, &config, relay)
+            let res = if let Ok(resource) = target.resource.parse::<ResourceId>() {
+                match resource.service() {
+                    None => bad_request(anyhow!("missing service in invocation target")),
+                    Some("capabilities") => match target.action.as_str() {
+                        "read" => invoke(
+                            resource.orbit().clone(),
+                            token,
+                            ser.into(),
+                            None,
+                            &config,
+                            relay,
+                        )
                         .await
                         .map(|(orbit, _auth_ref)| {
                             Self::CapabilityQuery(Box::new(CapAction::Query {
@@ -380,54 +398,100 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores> {
                                 invoker,
                             }))
                         }),
-                    a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
-                },
-                Some("kv") => {
-                    let key = match target.resource.path() {
-                        Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
-                        None => return bad_request(anyhow!("missing path in invocation target")),
-                    };
-                    match target.action.as_str() {
-                        "del" => invoke(token, &config, relay)
+                        a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
+                    },
+                    Some("kv") => {
+                        let key = match resource.path() {
+                            Some(path) => path.strip_prefix('/').unwrap_or(path).to_string(),
+                            None => {
+                                return bad_request(anyhow!("missing path in invocation target"))
+                            }
+                        };
+                        match target.action.as_str() {
+                            "del" => invoke(
+                                resource.orbit().clone(),
+                                token,
+                                ser.into(),
+                                Some(Operation::KvDelete { key: key.clone() }),
+                                &config,
+                                relay,
+                            )
                             .await
-                            .map(|(orbit, auth_ref)| {
-                                Self::KV(Box::new(KVAction::Delete {
-                                    orbit,
-                                    key,
-                                    auth_ref,
-                                }))
-                            }),
-                        "get" => invoke(token, &config, relay)
+                            .map(|(orbit, _)| Self::KV(Box::new(KVAction::Delete { orbit, key }))),
+                            "get" => invoke(
+                                resource.orbit().clone(),
+                                token,
+                                ser.into(),
+                                None,
+                                &config,
+                                relay,
+                            )
                             .await
                             .map(|(orbit, _)| Self::KV(Box::new(KVAction::Get { orbit, key }))),
-                        "list" => invoke(token, &config, relay).await.map(|(orbit, _)| {
-                            Self::KV(Box::new(KVAction::List { orbit, prefix: key }))
-                        }),
-                        "metadata" => invoke(token, &config, relay).await.map(|(orbit, _)| {
-                            Self::KV(Box::new(KVAction::Metadata { orbit, key }))
-                        }),
-                        "put" => {
-                            match Metadata::from_request(req).await {
-                                Outcome::Success(metadata) => invoke(token, &config, relay)
+                            "list" => invoke(
+                                resource.orbit().clone(),
+                                token,
+                                ser.into(),
+                                None,
+                                &config,
+                                relay,
+                            )
+                            .await
+                            .map(|(orbit, _)| {
+                                Self::KV(Box::new(KVAction::List { orbit, prefix: key }))
+                            }),
+                            "metadata" => invoke(
+                                resource.orbit().clone(),
+                                token,
+                                ser.into(),
+                                None,
+                                &config,
+                                relay,
+                            )
+                            .await
+                            .map(|(orbit, _)| {
+                                Self::KV(Box::new(KVAction::Metadata { orbit, key }))
+                            }),
+                            "put" => match ObjectHeaders::from_request(req).await {
+                                Outcome::Success(ObjectHeaders(metadata)) => {
+                                    let orbit = match load_orbit(
+                                        resource.orbit().clone(),
+                                        &config.storage.blocks.clone().into(),
+                                        &config.storage.staging.clone().into(),
+                                        &config.storage.database,
+                                        relay,
+                                    )
                                     .await
-                                    .map(|(orbit, auth_ref)| {
-                                        Self::KV(Box::new(KVAction::Put {
-                                            orbit,
-                                            key,
-                                            metadata,
-                                            auth_ref,
-                                        }))
-                                    }),
+                                    {
+                                        Ok(Some(o)) => o,
+                                        Ok(None) => return not_found(anyhow!("No Orbit found")),
+                                        Err(e) => return internal_server_error(e),
+                                    };
+                                    Outcome::Success(Self::KV(Box::new(KVAction::Put {
+                                        orbit,
+                                        inv: token,
+                                        key,
+                                        ser: ser.into(),
+                                        metadata,
+                                    })))
+                                }
                                 Outcome::Failure(e) => Outcome::Failure(e),
                                 Outcome::Forward(_) => internal_server_error(anyhow!(
                                     "unable to parse metadata from request"
                                 )),
-                            }
+                            },
+                            a => bad_request(anyhow!(
+                                "unsupported action in invocation target {}",
+                                a
+                            )),
                         }
-                        a => bad_request(anyhow!("unsupported action in invocation target {}", a)),
+                    }
+                    Some(s) => {
+                        bad_request(anyhow!("unsupported service in invocation target {}", s))
                     }
                 }
-                Some(s) => bad_request(anyhow!("unsupported service in invocation target {}", s)),
+            } else {
+                bad_request(anyhow!("invalid invocation target"))
             };
 
             timer.observe_duration();
@@ -446,7 +510,7 @@ fn conflict<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
     Outcome::Failure((Status::Conflict, e.into()))
 }
 
-fn internal_server_error<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
+pub fn internal_server_error<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
     Outcome::Failure((Status::InternalServerError, e.into()))
 }
 

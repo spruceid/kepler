@@ -31,10 +31,11 @@ use crate::{
     BlockStage, BlockStores,
 };
 use kepler_core::{
-    events::Delegation,
+    events::{Invocation, Operation},
     models::kv::Metadata,
     storage::{Content, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore},
     util::Capability,
+    util::DelegationInfo,
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
@@ -125,7 +126,7 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
             DelegateAuthWrapper::OrbitCreation(orbit_id) => {
                 orbit_id.to_string().respond_to(request)
             }
-            DelegateAuthWrapper::Delegation(c) => c.to_string().respond_to(request),
+            DelegateAuthWrapper::Delegation(c) => c.to_cid(0x55).to_string().respond_to(request),
         }
     }
 }
@@ -165,25 +166,13 @@ pub async fn handle_kv_action<B, S>(
     data: Data<'_>,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
-    B: 'static + ImmutableReadStore,
+    B: 'static + ImmutableReadStore + ImmutableWriteStore<S>,
+    S: 'static + ImmutableStaging,
+    S::Writable: Unpin,
 {
     match action {
-        KVAction::Delete {
-            orbit,
-            key,
-            auth_ref,
-        } => {
-            let add: Vec<(&[u8], Cid)> = vec![];
-            orbit
-                .service
-                .index(add, vec![(key, None, auth_ref)])
-                .await
-                .map_err(|e| {
-                    (
-                        Status::InternalServerError,
-                        format!("Failed to delete content: {e}"),
-                    )
-                })?;
+        KVAction::Delete { .. } => {
+            // TODO deletion works?
             Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::Get { orbit, key } => match orbit.get(&key, None).await {
@@ -204,18 +193,41 @@ where
         },
         KVAction::Put {
             orbit,
+            inv,
+            ser,
             key,
             metadata,
-            auth_ref,
-            staged,
         } => {
-            let rm: [([u8; 0], _, _); 0] = [];
-
-            let buf = orbit.staging.stage().await?;
-            futures::io::copy(data.open(1u8.gigabytes()), &mut buf.clone()).await?;
-            // TODO invoke here instead
-
-            orbit.store.persist(buf).await?;
+            let mut stage = orbit
+                .staging
+                .stage()
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+            let d = data.open(1u8.gigabytes()).compat();
+            futures::io::copy(d, &mut stage).await.map_err(|e| {
+                (
+                    Status::InternalServerError,
+                    format!("failed to copy data to staging: {}", e),
+                )
+            })?;
+            orbit
+                .capabilities
+                .invoke(Invocation(
+                    inv.invocation,
+                    ser,
+                    Some(Operation::KvWrite {
+                        key,
+                        value: stage.hash().into(),
+                        metadata,
+                    }),
+                ))
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+            orbit
+                .store
+                .persist(stage)
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
             Ok(InvocationResponse::EmptySuccess)
         }
     }
@@ -233,13 +245,15 @@ where
             orbit,
             query,
             invoker,
-        } => orbit
-            .capabilities
-            .store
-            .query(query, &invoker)
-            .await
-            .map(InvocationResponse::CapabilityQuery)
-            .map_err(|e| (Status::InternalServerError, e.to_string())),
+        } =>
+            todo!()
+            // orbit
+            // .capabilities
+            // .store
+            // .query(query, &invoker)
+            // .await
+            // .map(InvocationResponse::CapabilityQuery)
+            // .map_err(|e| (Status::InternalServerError, e.to_string())),
     }
 }
 
@@ -249,7 +263,7 @@ pub enum InvocationResponse<R> {
     KVResponse(KVResponse<R>),
     List(Vec<String>),
     Metadata(Metadata),
-    CapabilityQuery(HashMap<Cid, Delegation>),
+    CapabilityQuery(HashMap<Cid, DelegationInfo>),
     Revoked,
 }
 
@@ -263,7 +277,7 @@ pub struct CapJsonRep {
 }
 
 impl CapJsonRep {
-    pub fn from_delegation(d: Delegation) -> Result<Self, EncodingError> {
+    pub fn from_delegation(d: DelegationInfo) -> Result<Self, EncodingError> {
         Ok(Self {
             capabilities: d.capabilities,
             delegator: d.delegator,
