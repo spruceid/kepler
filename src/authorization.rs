@@ -16,17 +16,22 @@ pub enum FromReqErr<T> {
     TryFrom(T),
 }
 
+pub struct AuthHeaderGetter<T>(pub Vec<u8>, pub T);
+
 macro_rules! impl_fromreq {
     ($type:ident, $inter:ident, $name:tt) => {
         #[rocket::async_trait]
-        impl<'r> FromRequest<'r> for $type {
+        impl<'r> FromRequest<'r> for AuthHeaderGetter<$type> {
             type Error = FromReqErr<<$type as TryFrom<$inter>>::Error>;
             async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
                 match request.headers().get_one($name).map(|e| {
-                    $type::try_from(<$inter as HeaderEncode>::decode(e)?)
-                        .map_err(FromReqErr::TryFrom)
+                    <$inter as HeaderEncode>::decode(e)
+                        .map_err(FromReqErr::from)
+                        .and_then(|(i, s)| {
+                            Ok(($type::try_from(i).map_err(FromReqErr::TryFrom)?, s))
+                        })
                 }) {
-                    Some(Ok(item)) => Outcome::Success(item),
+                    Some(Ok((item, s))) => Outcome::Success(AuthHeaderGetter(s, item)),
                     Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
                     None => Outcome::Forward(()),
                 }

@@ -12,7 +12,7 @@ pub use libipld::Cid;
 
 pub trait HeaderEncode {
     fn encode(&self) -> Result<String, EncodingError>;
-    fn decode(s: &str) -> Result<Self, EncodingError>
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError>
     where
         Self: Sized;
 }
@@ -34,13 +34,15 @@ impl HeaderEncode for KeplerDelegation {
         })
     }
 
-    fn decode(s: &str) -> Result<Self, EncodingError> {
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         Ok(if s.contains('.') {
-            Self::Ucan(Box::new(Ucan::decode(s)?))
+            (
+                Self::Ucan(Box::new(Ucan::decode(s)?)),
+                s.as_bytes().to_vec(),
+            )
         } else {
-            Self::Cacao(Box::new(
-                DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
-            ))
+            let v = base64::decode_config(s, base64::URL_SAFE)?;
+            (Self::Cacao(Box::new(DagCborCodec.decode(&v)?)), v)
         })
     }
 }
@@ -53,8 +55,8 @@ impl HeaderEncode for KeplerInvocation {
     fn encode(&self) -> Result<String, EncodingError> {
         Ok(self.encode()?)
     }
-    fn decode(s: &str) -> Result<Self, EncodingError> {
-        Ok(Self::decode(s)?)
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
+        Ok((Self::decode(s)?, s.as_bytes().to_vec()))
     }
 }
 
@@ -72,10 +74,9 @@ impl HeaderEncode for KeplerRevocation {
             )),
         }
     }
-    fn decode(s: &str) -> Result<Self, EncodingError> {
-        Ok(Self::Cacao(
-            DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
-        ))
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
+        let v = base64::decode_config(s, base64::URL_SAFE)?;
+        Ok((Self::Cacao(DagCborCodec.decode(&v)?), v))
     }
 }
 

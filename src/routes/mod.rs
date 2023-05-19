@@ -26,19 +26,22 @@ use tracing::{info_span, Instrument};
 
 use crate::{
     auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
-    authorization::{Capability, Delegation},
-    kv::{ObjectBuilder, ReadResponse},
     relay::RelayNode,
-    storage::{Content, ImmutableStore},
     tracing::TracingSpan,
-    BlockStores,
+    BlockStage, BlockStores,
+};
+use kepler_core::{
+    events::Delegation,
+    models::kv::Metadata,
+    storage::{Content, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore},
+    util::Capability,
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
-pub struct Metadata(pub BTreeMap<String, String>);
+pub struct ObjectHeaders(pub Metadata);
 
 #[async_trait]
-impl<'r> FromRequest<'r> for Metadata {
+impl<'r> FromRequest<'r> for ObjectHeaders {
     type Error = anyhow::Error;
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
         let md: BTreeMap<String, String> = request
@@ -46,14 +49,14 @@ impl<'r> FromRequest<'r> for Metadata {
             .iter()
             .map(|h| (h.name.into_string(), h.value.to_string()))
             .collect();
-        Outcome::Success(Metadata(md))
+        Outcome::Success(ObjectHeaders(Metadata(md)))
     }
 }
 
-impl<'r> Responder<'r, 'static> for Metadata {
+impl<'r> Responder<'r, 'static> for ObjectHeaders {
     fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'static> {
         let mut r = Response::build();
-        for (k, v) in self.0 {
+        for (k, v) in self.0 .0 {
             if k != "content-length" {
                 r.header(Header::new(k, v));
             }
@@ -75,7 +78,7 @@ where
     R: 'static + AsyncRead + Send,
 {
     fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
-        Ok(Response::build_from(self.1.respond_to(r)?)
+        Ok(Response::build_from(ObjectHeaders(self.1).respond_to(r)?)
             // must ensure that Metadata::respond_to does not set the body of the response
             .streamed_body(self.0.compat())
             .finalize())
@@ -129,11 +132,13 @@ impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
 
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
-    i: InvokeAuthWrapper<BlockStores>,
+    i: InvokeAuthWrapper<BlockStores, BlockStage>,
     req_span: TracingSpan,
     data: Data<'_>,
-) -> Result<InvocationResponse<Content<<BlockStores as ImmutableStore>::Readable>>, (Status, String)>
-{
+) -> Result<
+    InvocationResponse<Content<<BlockStores as ImmutableReadStore>::Readable>>,
+    (Status, String),
+> {
     let action_label = i.prometheus_label().to_string();
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
     // Instrumenting async block to handle yielding properly
@@ -155,12 +160,12 @@ pub async fn invoke(
     .await
 }
 
-pub async fn handle_kv_action<B>(
-    action: KVAction<B>,
+pub async fn handle_kv_action<B, S>(
+    action: KVAction<B, S>,
     data: Data<'_>,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
-    B: 'static + ImmutableStore,
+    B: 'static + ImmutableReadStore,
 {
     match action {
         KVAction::Delete {
@@ -181,36 +186,19 @@ where
                 })?;
             Ok(InvocationResponse::EmptySuccess)
         }
-        KVAction::Get { orbit, key } => match orbit.service.read(key).await {
-            Ok(Some(ReadResponse(md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
-                Metadata(md),
-                r,
-            ))),
+        KVAction::Get { orbit, key } => match orbit.get(&key, None).await {
+            Ok(Some((r, md))) => Ok(InvocationResponse::KVResponse(KVResponse::new(md, r))),
             Err(e) => Err((Status::InternalServerError, e.to_string())),
             Ok(None) => Ok(InvocationResponse::NotFound),
         },
-        KVAction::List { orbit, prefix } => {
-            Ok(InvocationResponse::List(
-                orbit
-                    .service
-                    .list()
-                    .await
-                    .filter_map(|r| {
-                        // filter out non-utf8 keys and those not matching the prefix
-                        r.map(|v| {
-                            std::str::from_utf8(v.as_ref())
-                                .ok()
-                                .map(|s| s.to_string())
-                                .filter(|key| key.starts_with(&prefix))
-                        })
-                        .transpose()
-                    })
-                    .collect::<Result<Vec<String>>>()
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?,
-            ))
-        }
-        KVAction::Metadata { orbit, key } => match orbit.service.get(key).await {
-            Ok(Some(content)) => Ok(InvocationResponse::Metadata(Metadata(content.metadata))),
+        KVAction::List { orbit, prefix } => Ok(InvocationResponse::List(
+            orbit
+                .list(&prefix)
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?,
+        )),
+        KVAction::Metadata { orbit, key } => match orbit.metadata(&key, None).await {
+            Ok(Some(metadata)) => Ok(InvocationResponse::Metadata(metadata)),
             Err(e) => Err((Status::InternalServerError, e.to_string())),
             Ok(None) => Ok(InvocationResponse::NotFound),
         },
@@ -219,31 +207,26 @@ where
             key,
             metadata,
             auth_ref,
+            staged,
         } => {
             let rm: [([u8; 0], _, _); 0] = [];
 
-            orbit
-                .service
-                .write(
-                    [(
-                        ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        data.open(1u8.gigabytes()).compat(),
-                    )],
-                    rm,
-                )
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+            let buf = orbit.staging.stage().await?;
+            futures::io::copy(data.open(1u8.gigabytes()), &mut buf.clone()).await?;
+            // TODO invoke here instead
+
+            orbit.store.persist(buf).await?;
             Ok(InvocationResponse::EmptySuccess)
         }
     }
 }
 
-pub async fn handle_cap_action<B>(
-    action: CapAction<B>,
+pub async fn handle_cap_action<B, S>(
+    action: CapAction<B, S>,
     _data: Data<'_>,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
-    B: 'static + ImmutableStore,
+    B: 'static + ImmutableReadStore,
 {
     match action {
         CapAction::Query {
@@ -301,7 +284,7 @@ where
             InvocationResponse::EmptySuccess => ().respond_to(request),
             InvocationResponse::KVResponse(response) => response.respond_to(request),
             InvocationResponse::List(keys) => Json(keys).respond_to(request),
-            InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
+            InvocationResponse::Metadata(metadata) => ObjectHeaders(metadata).respond_to(request),
             InvocationResponse::Revoked => ().respond_to(request),
             InvocationResponse::CapabilityQuery(caps) => Json(
                 caps.into_iter()

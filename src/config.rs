@@ -1,8 +1,10 @@
 use crate::{
     allow_list::OrbitAllowListService,
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
+    BlockConfig, BlockStage,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, FromInto};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
@@ -39,16 +41,39 @@ pub struct OrbitsConfig {
     pub allowlist: Option<OrbitAllowListService>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Storage {
-    pub blocks: BlockStorage,
-    pub staging: StagingStorage,
+    #[serde_as(as = "FromInto<BlockStorage>")]
+    #[serde(default = "fs_store")]
+    pub blocks: BlockConfig,
+    #[serde_as(as = "FromInto<StagingStorage>")]
+    #[serde(default = "memory_stage")]
+    pub staging: BlockStage,
     #[serde(default = "memory_db")]
     pub database: String,
 }
 
+impl Default for Storage {
+    fn default() -> Self {
+        Self {
+            blocks: BlockStorage::default().into(),
+            staging: StagingStorage::default().into(),
+            database: memory_db(),
+        }
+    }
+}
+
 fn memory_db() -> String {
     "sqlite:memory:".to_string()
+}
+
+fn memory_stage() -> BlockStage {
+    StagingStorage::Memory.into()
+}
+
+fn fs_store() -> BlockConfig {
+    BlockStorage::default().into()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
