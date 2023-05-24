@@ -17,6 +17,7 @@ pub struct Model {
     pub epoch_seq: u64,
 
     pub delegator: String,
+    pub delegatee: String,
     pub expiry: Option<OffsetDateTime>,
     pub issued_at: Option<OffsetDateTime>,
     pub not_before: Option<OffsetDateTime>,
@@ -32,7 +33,11 @@ pub enum Relation {
         to = "(actor::Column::Id, actor::Column::Orbit)"
     )]
     Delegator,
-    #[sea_orm(has_one = "actor::Entity")]
+    #[sea_orm(
+        belongs_to = "actor::Entity",
+        from = "(Column::Delegatee, Column::Orbit)",
+        to = "(actor::Column::Id, actor::Column::Orbit)"
+    )]
     Delegatee,
     // inverse relation, delegations belong to epochs
     #[sea_orm(
@@ -51,7 +56,7 @@ pub enum Relation {
 
 impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Delegatee.def()
+        Relation::Delegator.def()
     }
 }
 
@@ -110,6 +115,32 @@ impl Linked for ChildToParent {
             parent_delegations::Relation::Child.def().rev(),
             parent_delegations::Relation::Parent.def(),
         ]
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Delegator;
+
+impl Linked for Delegator {
+    type FromEntity = Entity;
+
+    type ToEntity = actor::Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        vec![Relation::Delegator.def()]
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Delegatee;
+
+impl Linked for Delegatee {
+    type FromEntity = Entity;
+
+    type ToEntity = actor::Entity;
+
+    fn link(&self) -> Vec<RelationDef> {
+        vec![Relation::Delegatee.def()]
     }
 }
 
@@ -204,14 +235,8 @@ async fn validate<C: ConnectionTrait>(
 
         let mut parent_abilities = Vec::new();
         for parent in parents {
-            // get delegatee of parent
-            let delegatee = parent
-                .find_related(actor::Entity)
-                .one(db)
-                .await?
-                .ok_or_else(|| DelegationError::MissingParents)?;
             // check parent's delegatee is delegator of this one
-            if delegatee.id != delegation.delegator {
+            if parent.delegatee != delegation.delegator {
                 return Err(DelegationError::UnauthorizedDelegator(
                     delegation.delegator.clone(),
                 ))?;
@@ -257,7 +282,7 @@ async fn save<C: ConnectionTrait>(
     // save delegatee actor
     // no need to save delegator, should already exist
     actor::ActiveModel::from(actor::Model {
-        id: delegation.delegate,
+        id: delegation.delegate.clone(),
         orbit: orbit.to_string(),
     })
     .save(db)
@@ -272,6 +297,7 @@ async fn save<C: ConnectionTrait>(
         epoch_seq,
         id: hash.clone().into(),
         delegator: delegation.delegator,
+        delegatee: delegation.delegate,
         expiry: delegation.expiry,
         issued_at: delegation.issued_at,
         not_before: delegation.not_before,

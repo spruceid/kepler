@@ -14,11 +14,7 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "delegation::Entity")]
     DelegatorOf,
-    #[sea_orm(
-        belongs_to = "delegation::Entity",
-        from = "(Column::Id, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
-    )]
+    #[sea_orm(has_many = "delegation::Entity")]
     DelegatedBy,
     #[sea_orm(has_many = "invocation::Entity")]
     InvokerOf,

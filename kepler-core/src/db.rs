@@ -184,7 +184,6 @@ async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u64, DbEr
 
 async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
     use crate::hash::ConvertErr;
-    use crate::relationships::epochs;
     // find epochs which do not appear in the parent column of the parent_epochs junction table
     Ok(epoch::Entity::find()
         .filter(epoch::Column::Orbit.eq(orbit_id))
