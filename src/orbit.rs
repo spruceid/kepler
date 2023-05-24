@@ -62,12 +62,13 @@ pub struct OrbitPeerConfig<B, S> {
     store: B,
     #[builder(setter(into))]
     staging: S,
-    #[builder(setter(into))]
-    db: sea_orm::ConnectOptions,
 }
 
 impl<B, S> Orbit<B, S> {
-    async fn open<CB, CS>(config: &OrbitPeerConfig<CB, CS>) -> anyhow::Result<Option<Self>>
+    async fn open<CB, CS>(
+        config: &OrbitPeerConfig<CB, CS>,
+        conn: sea_orm::DatabaseConnection,
+    ) -> anyhow::Result<Option<Self>>
     where
         CB: StorageConfig<B>,
         CB::Error: 'static + Sync + Send,
@@ -87,8 +88,7 @@ impl<B, S> Orbit<B, S> {
             None => return Ok(None),
         };
 
-        let capabilities =
-            OrbitDatabase::new(config.db.clone(), config.manifest.id().clone()).await?;
+        let capabilities = OrbitDatabase::wrap(conn, config.manifest.id().clone()).await?;
 
         Ok(Some(Orbit {
             manifest: config.manifest.clone(),
@@ -98,7 +98,10 @@ impl<B, S> Orbit<B, S> {
         }))
     }
 
-    async fn create<CB, CS>(config: &OrbitPeerConfig<CB, CS>) -> anyhow::Result<Self>
+    async fn create<CB, CS>(
+        config: &OrbitPeerConfig<CB, CS>,
+        conn: sea_orm::DatabaseConnection,
+    ) -> anyhow::Result<Self>
     where
         CB: StorageConfig<B>,
         CB::Error: 'static + Sync + Send,
@@ -112,8 +115,7 @@ impl<B, S> Orbit<B, S> {
         let store = config.store.create(config.manifest.id()).await?;
         let staging = config.staging.create(config.manifest.id()).await?;
 
-        let capabilities =
-            OrbitDatabase::new(config.db.clone(), config.manifest.id().clone()).await?;
+        let capabilities = OrbitDatabase::wrap(conn, config.manifest.id().clone()).await?;
 
         Ok(Orbit {
             manifest: config.manifest.clone(),
@@ -205,7 +207,7 @@ pub async fn create_orbit(
     id: &OrbitId,
     store_config: &BlockConfig,
     staging_config: &BlockStage,
-    db: &str,
+    db: &sea_orm::DatabaseConnection,
     relay: (PeerId, Multiaddr),
     kp: Ed25519Keypair,
 ) -> Result<Option<Orbit<BlockStores, BlockStage>>> {
@@ -237,9 +239,9 @@ pub async fn create_orbit(
             )
             .store(store_config.clone())
             .staging(staging_config.clone())
-            .db(db)
             .relay(relay.clone())
             .build()?,
+        db.clone(),
     )
     .await?;
 
@@ -254,7 +256,7 @@ pub async fn load_orbit(
     orbit: OrbitId,
     store_config: &BlockConfig,
     stage_config: &BlockStage,
-    db: &str,
+    db: &sea_orm::DatabaseConnection,
     relay: (PeerId, Multiaddr),
 ) -> Result<Option<Orbit<BlockStores, BlockStage>>> {
     if !store_config.exists(&orbit).await? {
@@ -264,7 +266,7 @@ pub async fn load_orbit(
         orbit,
         store_config.clone(),
         stage_config.clone(),
-        db.to_string(),
+        db.clone(),
         relay,
     )
     .await
@@ -273,12 +275,12 @@ pub async fn load_orbit(
 
 // Not using this function directly because cached cannot handle Result<Option<>> well.
 // 100 orbits => 600 FDs
-#[cached(size = 100, result = true, sync_writes = true)]
+// #[cached(size = 100, result = true, sync_writes = true)]
 async fn load_orbit_inner(
     orbit: OrbitId,
     store_config: BlockConfig,
     staging: BlockStage,
-    db: String,
+    db: sea_orm::DatabaseConnection,
     relay: (PeerId, Multiaddr),
 ) -> Result<Orbit<BlockStores, BlockStage>> {
     debug!("loading orbit {}", &orbit);
@@ -298,9 +300,9 @@ async fn load_orbit_inner(
             )
             .store(store_config)
             .staging(staging)
-            .db(db)
             .relay(relay)
             .build()?,
+        db,
     )
     .await?
     .ok_or_else(|| anyhow!("Orbit could not be opened: not found"))

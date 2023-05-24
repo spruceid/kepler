@@ -25,7 +25,12 @@ mod tracing;
 pub mod transport;
 
 use config::{BlockStorage, Config, StagingStorage};
-use kepler_core::storage::{either::Either, memory::MemoryStaging};
+use kepler_core::{
+    migrations::Migrator,
+    sea_orm::Database,
+    sea_orm_migration::MigratorTrait,
+    storage::{either::Either, memory::MemoryStaging},
+};
 use libp2p::{
     identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
     PeerId,
@@ -88,6 +93,8 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
     let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
+    let db = Database::connect(&kepler_config.storage.database).await?;
+    Migrator::up(&db, None).await?;
 
     let routes = routes![
         healthcheck,
@@ -104,6 +111,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         .attach(tracing::TracingFairing {
             header_name: kepler_config.log.tracing.traceheader,
         })
+        .manage(db)
         .manage(relay_node)
         .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
 

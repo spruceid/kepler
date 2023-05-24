@@ -9,6 +9,7 @@ use kepler_core::{
     events::{Delegation, Invocation, Operation, Revocation},
     hash::{hash, Hash},
     models::kv::Metadata,
+    sea_orm,
     storage::ImmutableStaging,
     util::{DelegationInfo, InvocationInfo, RevocationInfo},
     Commit, TxError,
@@ -82,7 +83,13 @@ pub fn check_orbit_and_service(
     }
 }
 
-fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))> {
+fn get_state(
+    req: &Request<'_>,
+) -> Result<(
+    config::Config,
+    (PeerId, Multiaddr),
+    sea_orm::DatabaseConnection,
+)> {
     Ok((
         req.rocket()
             .state::<config::Config>()
@@ -92,6 +99,10 @@ fn get_state(req: &Request<'_>) -> Result<(config::Config, (PeerId, Multiaddr))>
             .state::<RelayNode>()
             .map(|r| (r.id, r.internal()))
             .ok_or_else(|| anyhow!("Could not retrieve relay node information"))?,
+        req.rocket()
+            .state::<sea_orm::DatabaseConnection>()
+            .cloned()
+            .ok_or_else(|| anyhow!("Could not retrieve db connection"))?,
     ))
 }
 
@@ -105,7 +116,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
     type Error = anyhow::Error;
 
     async fn from_request(req: &'l Request<'_>) -> Outcome<Self, Self::Error> {
-        let (config, relay) = match get_state(req) {
+        let (config, relay, db) = match get_state(req) {
             Ok(s) => s,
             Err(e) => return internal_server_error(e),
         };
@@ -142,81 +153,88 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
         let orbits = match try_join_all(
             orbit_ids
                 .iter()
-                .zip(std::iter::repeat((config, relay, token.clone())))
-                .map(|((orbit_id, peer), (config, relay, token))| async move {
-                    match (
-                        peer,
-                        load_orbit(
-                            (*orbit_id).clone(),
-                            &config.storage.blocks,
-                            &config.storage.staging,
-                            &config.storage.database,
-                            relay.clone(),
-                        )
-                        .await,
-                    ) {
-                        (Some(p), Ok(None)) => {
-                            let keys = match req
-                                .rocket()
-                                .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
-                            {
-                                Some(k) => k,
-                                _ => {
-                                    return Err(internal_server_error(anyhow!(
-                                        "could not retrieve open key set"
-                                    )))
-                                }
-                            };
-
-                            match token.delegation {
-                                KeplerDelegation::Ucan(ref ucan) => {
-                                    ucan.verify_signature(DID_METHODS.to_resolver())
-                                        .await
-                                        .map_err(unauthorized)?;
-                                    ucan.payload.validate_time(None).map_err(unauthorized)?;
-                                }
-                                KeplerDelegation::Cacao(ref cacao) => {
-                                    cacao.verify().await.map_err(unauthorized)?;
-                                    if !cacao.payload().valid_now() {
-                                        return Err(unauthorized(anyhow!(
-                                            "Delegation not currently valid"
-                                        )))?;
-                                    }
-                                }
-                            }
-
-                            let kp = match keys.write() {
-                                Ok(mut keys) => match keys.remove(p) {
-                                    Some(k) => k,
-                                    _ => return Err(not_found(anyhow!("Peer ID Not Present"))),
-                                },
-                                Err(_) => {
-                                    return Err(internal_server_error(anyhow!(
-                                        "could not retrieve open key set"
-                                    )))
-                                }
-                            };
-
-                            match create_orbit(
-                                orbit_id,
+                .zip(std::iter::repeat((
+                    config,
+                    relay,
+                    token.clone(),
+                    db.clone(),
+                )))
+                .map(
+                    |((orbit_id, peer), (config, relay, token, db))| async move {
+                        match (
+                            peer,
+                            load_orbit(
+                                (*orbit_id).clone(),
                                 &config.storage.blocks,
                                 &config.storage.staging,
-                                &config.storage.database,
+                                &db,
                                 relay.clone(),
-                                kp,
                             )
-                            .await
-                            {
-                                Ok(Some(orbit)) => Ok(orbit),
-                                Ok(None) => Err(conflict(anyhow!("Orbit already exists"))),
-                                Err(e) => Err(internal_server_error(e)),
+                            .await,
+                        ) {
+                            (Some(p), Ok(None)) => {
+                                let keys = match req
+                                    .rocket()
+                                    .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
+                                {
+                                    Some(k) => k,
+                                    _ => {
+                                        return Err(internal_server_error(anyhow!(
+                                            "could not retrieve open key set"
+                                        )))
+                                    }
+                                };
+
+                                match token.delegation {
+                                    KeplerDelegation::Ucan(ref ucan) => {
+                                        ucan.verify_signature(DID_METHODS.to_resolver())
+                                            .await
+                                            .map_err(unauthorized)?;
+                                        ucan.payload.validate_time(None).map_err(unauthorized)?;
+                                    }
+                                    KeplerDelegation::Cacao(ref cacao) => {
+                                        cacao.verify().await.map_err(unauthorized)?;
+                                        if !cacao.payload().valid_now() {
+                                            return Err(unauthorized(anyhow!(
+                                                "Delegation not currently valid"
+                                            )))?;
+                                        }
+                                    }
+                                }
+
+                                let kp = match keys.write() {
+                                    Ok(mut keys) => match keys.remove(p) {
+                                        Some(k) => k,
+                                        _ => return Err(not_found(anyhow!("Peer ID Not Present"))),
+                                    },
+                                    Err(_) => {
+                                        return Err(internal_server_error(anyhow!(
+                                            "could not retrieve open key set"
+                                        )))
+                                    }
+                                };
+
+                                match create_orbit(
+                                    orbit_id,
+                                    &config.storage.blocks,
+                                    &config.storage.staging,
+                                    &db,
+                                    relay.clone(),
+                                    kp,
+                                )
+                                .await
+                                {
+                                    Ok(Some(orbit)) => Ok(orbit),
+                                    Ok(None) => Err(conflict(anyhow!("Orbit already exists"))),
+                                    Err(e) => Err(internal_server_error(e)),
+                                }
                             }
+                            (_, Ok(None)) => Err(not_found(anyhow!("No Orbit found"))),
+                            (_, Ok(Some(o))) => Ok(o),
+                            (_, Err(e)) => Err(unauthorized(e)),
                         }
-                        (_, Ok(None)) => Err(not_found(anyhow!("No Orbit found"))),
-                        (_, Ok(Some(o))) => Ok(o),
-                        (_, Err(e)) => Err(unauthorized(e)),
-                    }
-                }),
+                    },
+                ),
         )
         .await
         {
@@ -313,13 +331,14 @@ async fn invoke(
     op: Option<Operation>,
     config: &config::Config,
     relay: (PeerId, Multiaddr),
+    db: &sea_orm::DatabaseConnection,
 ) -> Outcome<(Orbit<BlockStores, BlockStage>, Commit), anyhow::Error> {
     let target = &token.capability;
     let orbit = match load_orbit(
         orbit,
         &config.storage.blocks.clone().into(),
         &config.storage.staging.clone().into(),
-        &config.storage.database,
+        db,
         relay,
     )
     .await
@@ -364,7 +383,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                 .with_label_values(&["invoke"])
                 .start_timer();
 
-            let (config, relay) = match get_state(req) {
+            let (config, relay, db) = match get_state(req) {
                 Ok(s) => s,
                 Err(e) => return internal_server_error(e),
             };
@@ -389,6 +408,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                             None,
                             &config,
                             relay,
+                            &db,
                         )
                         .await
                         .map(|(orbit, _auth_ref)| {
@@ -415,6 +435,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 Some(Operation::KvDelete { key: key.clone() }),
                                 &config,
                                 relay,
+                                &db,
                             )
                             .await
                             .map(|(orbit, _)| Self::KV(Box::new(KVAction::Delete { orbit, key }))),
@@ -425,6 +446,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 None,
                                 &config,
                                 relay,
+                                &db,
                             )
                             .await
                             .map(|(orbit, _)| Self::KV(Box::new(KVAction::Get { orbit, key }))),
@@ -435,6 +457,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 None,
                                 &config,
                                 relay,
+                                &db,
                             )
                             .await
                             .map(|(orbit, _)| {
@@ -447,6 +470,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 None,
                                 &config,
                                 relay,
+                                &db,
                             )
                             .await
                             .map(|(orbit, _)| {
@@ -458,7 +482,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                         resource.orbit().clone(),
                                         &config.storage.blocks.clone().into(),
                                         &config.storage.staging.clone().into(),
-                                        &config.storage.database,
+                                        &db,
                                         relay,
                                     )
                                     .await

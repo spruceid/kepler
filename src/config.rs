@@ -65,7 +65,7 @@ impl Default for Storage {
 }
 
 fn memory_db() -> String {
-    "sqlite:memory:".to_string()
+    "sqlite::memory:".to_string()
 }
 
 fn memory_stage() -> BlockStage {
