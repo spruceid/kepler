@@ -20,7 +20,7 @@ pub struct OrbitDatabase {
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub rev: Hash,
-    pub seq: u64,
+    pub seq: u32,
     pub commited_events: Vec<Hash>,
     pub consumed_epochs: Vec<Hash>,
 }
@@ -46,12 +46,11 @@ pub enum TxError {
 impl OrbitDatabase {
     pub async fn new<C: Into<ConnectOptions>>(options: C, orbit: OrbitId) -> Result<Self, DbErr> {
         let conn = Database::connect(options).await?;
+        Migrator::up(&conn, None).await?;
         Self::wrap(conn, orbit).await
     }
 
     pub async fn wrap(conn: DatabaseConnection, orbit: OrbitId) -> Result<Self, DbErr> {
-        Migrator::up(&conn, None).await?;
-
         Ok(Self {
             conn,
             root: orbit.did(),
@@ -59,7 +58,7 @@ impl OrbitDatabase {
         })
     }
 
-    pub async fn get_max_seq(&self) -> Result<u64, DbErr> {
+    pub async fn get_max_seq(&self) -> Result<u32, DbErr> {
         max_seq(&self.conn, &self.orbit.to_string()).await
     }
 
@@ -82,15 +81,15 @@ impl OrbitDatabase {
             match event {
                 // dropping tx rolls back changes, so fine to '?' here
                 Event::Delegation(d) => {
-                    delegation::process(&self.root, &orbit, &tx, d, seq, epoch_id, epoch_seq as u64)
+                    delegation::process(&self.root, &orbit, &tx, d, seq, epoch_id, epoch_seq as u32)
                         .await?
                 }
                 Event::Invocation(i) => {
-                    invocation::process(&self.root, &orbit, &tx, i, seq, epoch_id, epoch_seq as u64)
+                    invocation::process(&self.root, &orbit, &tx, i, seq, epoch_id, epoch_seq as u32)
                         .await?
                 }
                 Event::Revocation(r) => {
-                    revocation::process(&self.root, &orbit, &tx, r, seq, epoch_id, epoch_seq as u64)
+                    revocation::process(&self.root, &orbit, &tx, r, seq, epoch_id, epoch_seq as u32)
                         .await?
                 }
             };
@@ -171,7 +170,7 @@ impl From<revocation::Error> for TxError {
     }
 }
 
-async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u64, DbErr> {
+async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u32, DbErr> {
     Ok(epoch::Entity::find()
         .filter(epoch::Column::Orbit.eq(orbit_id))
         .select_only()

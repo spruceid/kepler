@@ -12,9 +12,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub seq: u64,
+    pub seq: u32,
     pub epoch_id: Vec<u8>,
-    pub epoch_seq: u64,
+    pub epoch_seq: u32,
 
     pub delegator: String,
     pub delegatee: String,
@@ -175,9 +175,9 @@ pub async fn process<C: ConnectionTrait>(
     orbit: &str,
     db: &C,
     delegation: Delegation,
-    seq: u64,
+    seq: u32,
     epoch: Hash,
-    epoch_seq: u64,
+    epoch_seq: u32,
 ) -> Result<Hash, Error> {
     let Delegation(d, ser) = delegation;
     verify(&d).await?;
@@ -275,9 +275,9 @@ async fn save<C: ConnectionTrait>(
     orbit: &str,
     delegation: util::DelegationInfo,
     serialization: Vec<u8>,
-    seq: u64,
+    seq: u32,
     epoch: Hash,
-    epoch_seq: u64,
+    epoch_seq: u32,
 ) -> Result<Hash, Error> {
     // save delegatee actor
     // no need to save delegator, should already exist

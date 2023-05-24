@@ -12,7 +12,7 @@ pub struct Model {
     pub orbit: String,
 
     /// Sequence number
-    pub seq: u64,
+    pub seq: u32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -42,7 +42,7 @@ pub enum Event {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Epoch {
-    pub seq: u64,
+    pub seq: u32,
     pub parents: Vec<Cid>,
     pub events: Vec<Cid>,
 }
@@ -56,7 +56,7 @@ pub enum HashError {
 }
 
 pub fn epoch_hash(
-    seq: u64,
+    seq: u32,
     events: &[Event],
     parents: &[Hash],
 ) -> Result<(Hash, Vec<Hash>), HashError> {

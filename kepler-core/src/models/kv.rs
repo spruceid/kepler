@@ -13,7 +13,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub seq: u64,
+    pub seq: u32,
     pub epoch_id: Vec<u8>,
 
     pub value: Vec<u8>,
