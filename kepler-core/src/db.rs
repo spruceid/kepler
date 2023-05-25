@@ -178,6 +178,8 @@ async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u32, DbEr
         .into_tuple()
         .one(db)
         .await?
+        // to account for if there are no epochs yet
+        .unwrap_or(None)
         .unwrap_or(0))
 }
 
