@@ -185,19 +185,31 @@ async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u32, DbEr
 }
 
 async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
-    use crate::hash::ConvertErr;
+    // use crate::hash::ConvertErr;
     // find epochs which do not appear in the parent column of the parent_epochs junction table
-    Ok(epoch::Entity::find()
-        .filter(epoch::Column::Orbit.eq(orbit_id))
-        .find_also_linked(epoch::ParentToChild)
-        .filter(epochs::Column::Child.is_null())
-        .select_only()
-        .column(epoch::Column::Id)
-        .all(db)
-        .await?
-        .into_iter()
-        .filter_map(|(e, j)| j.map(|_| e.id.try_into()))
-        .collect::<Result<Vec<Hash>, ConvertErr>>()?)
+
+    // what we want is the following sql query:
+    // SELECT "epoch"."id"
+    // FROM "epoch"
+    // LEFT JOIN "parent_epochs" AS "r0" ON ("epoch"."id" = "r0"."parent") AND ("epoch"."orbit" = "r0"."orbit")
+    // LEFT JOIN "epoch" AS "r1" ON ("r0"."child" = "r1"."id") AND ("r0"."orbit" = "r1"."orbit")
+    // WHERE "epoch"."orbit" = 'kepler:example:alice://default' AND "r0"."child" IS NULL
+    //
+    // unfortunately, sea orm doesnt let us use the right alias in the where clause
+
+    // Ok(epoch::Entity::find()
+    //     .filter(epoch::Column::Orbit.eq(orbit_id))
+    //     .find_also_linked(epoch::ParentToChild)
+    //     .filter(epochs::Column::Child.is_null())
+    //     .select_only()
+    //     .column(epoch::Column::Id)
+    //     .all(db)
+    //     .await?
+    //     .into_iter()
+    //     .filter_map(|(e, j)| j.map(|_| e.id.try_into()))
+    // .collect::<Result<Vec<Hash>, ConvertErr>>()?)
+
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
