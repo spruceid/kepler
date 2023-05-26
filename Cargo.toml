@@ -55,6 +55,7 @@ percent-encoding = "2.1"
 
 [dependencies.kepler-core]
 path = "kepler-core/"
+features = ["sqlite", "postgres", "mysql", "tokio"]
 
 [dependencies.kepler-lib]
 path = "lib/"

@@ -2344,6 +2344,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca3aa72a6f96ea37bbc5aa912f6788242832f75369bdfdadcb0e38423f100059"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5768,6 +5788,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_users"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b033d837a7cf162d7993aded9304e30a83213c648b6e389db233191f891e5c2b"
+dependencies = [
+ "getrandom 0.2.9",
+ "redox_syscall 0.2.16",
+ "thiserror",
+]
+
+[[package]]
 name = "ref-cast"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6974,12 +7005,15 @@ checksum = "fa8241483a83a3f33aa5fff7e7d9def398ff9990b2752b6c6112b83c6d246029"
 dependencies = [
  "ahash 0.7.6",
  "atoi",
+ "base64 0.13.1",
  "bigdecimal",
  "bitflags 1.3.2",
  "byteorder",
  "bytes",
  "chrono",
  "crossbeam-queue",
+ "digest 0.10.6",
+ "dirs",
  "dotenvy",
  "either",
  "event-listener",
@@ -6989,23 +7023,31 @@ dependencies = [
  "futures-executor",
  "futures-intrusive",
  "futures-util",
+ "generic-array 0.14.7",
  "hashlink",
  "hex",
+ "hkdf",
+ "hmac 0.12.1",
  "indexmap",
  "itoa",
  "libc",
  "libsqlite3-sys",
  "log",
+ "md-5",
  "memchr",
  "num-bigint",
  "once_cell",
  "paste",
  "percent-encoding",
+ "rand 0.8.5",
+ "rsa 0.6.1",
  "rust_decimal",
  "rustls 0.20.8",
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha1",
+ "sha2 0.10.6",
  "smallvec",
  "sqlformat",
  "sqlx-rt",
@@ -7016,6 +7058,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots",
+ "whoami",
 ]
 
 [[package]]
@@ -8531,6 +8574,16 @@ dependencies = [
  "either",
  "libc",
  "once_cell",
+]
+
+[[package]]
+name = "whoami"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c70234412ca409cc04e864e89523cb0fc37f5e1344ebed5a3ebf4192b6b9f68"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
