@@ -212,7 +212,7 @@ async fn save<C: ConnectionTrait>(
     let hash = crate::hash::hash(&serialization);
     let issued_at = time.unwrap_or_else(|| OffsetDateTime::now_utc());
 
-    ActiveModel::from(Model {
+    Entity::insert(ActiveModel::from(Model {
         seq,
         epoch_id: epoch.into(),
         epoch_seq,
@@ -223,8 +223,8 @@ async fn save<C: ConnectionTrait>(
         resource: invocation.capability.resource,
         ability: invocation.capability.action,
         orbit: orbit.to_string(),
-    })
-    .save(db)
+    }))
+    .exec(db)
     .await?;
 
     if let Some(Operation::KvWrite {
@@ -233,7 +233,7 @@ async fn save<C: ConnectionTrait>(
         metadata,
     }) = parameters
     {
-        kv::ActiveModel::from(kv::Model {
+        kv::Entity::insert(kv::ActiveModel::from(kv::Model {
             key,
             value,
             seq,
@@ -241,8 +241,8 @@ async fn save<C: ConnectionTrait>(
             invocation_id: hash.into(),
             orbit: orbit.to_string(),
             metadata,
-        })
-        .save(db)
+        }))
+        .exec(db)
         .await?;
     }
 

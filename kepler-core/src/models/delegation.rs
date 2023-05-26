@@ -279,19 +279,13 @@ async fn save<C: ConnectionTrait>(
     epoch: Hash,
     epoch_seq: u32,
 ) -> Result<Hash, Error> {
-    // save delegatee actor
-    // no need to save delegator, should already exist
-    actor::ActiveModel::from(actor::Model {
-        id: delegation.delegate.clone(),
-        orbit: orbit.to_string(),
-    })
-    .save(db)
-    .await?;
+    save_actor(delegation.delegate.clone(), orbit.to_string(), db).await?;
+    save_actor(delegation.delegator.clone(), orbit.to_string(), db).await?;
 
     let hash: Hash = crate::hash::hash(&serialization);
 
     // save delegation
-    ActiveModel::from(Model {
+    Entity::insert(ActiveModel::from(Model {
         seq,
         epoch_id: epoch.into(),
         epoch_seq,
@@ -303,22 +297,42 @@ async fn save<C: ConnectionTrait>(
         not_before: delegation.not_before,
         serialization,
         orbit: orbit.to_string(),
-    })
-    .save(db)
+    }))
+    .exec(db)
     .await?;
 
     // save abilities
     for ab in delegation.capabilities {
-        abilities::ActiveModel::from(abilities::Model {
+        abilities::Entity::insert(abilities::ActiveModel::from(abilities::Model {
             delegation: hash.clone().into(),
             resource: ab.resource,
             ability: ab.action,
-            caveats: None,
+            caveats: Default::default(),
             orbit: orbit.to_string(),
-        })
-        .save(db)
+        }))
+        .exec(db)
         .await?;
     }
 
     Ok(hash)
+}
+
+async fn save_actor<C: ConnectionTrait>(id: String, orbit: String, db: &C) -> Result<(), DbErr> {
+    use sea_orm::sea_query::OnConflict;
+    match actor::Entity::insert(actor::ActiveModel::from(actor::Model { id, orbit }))
+        .on_conflict(
+            OnConflict::columns([actor::Column::Id, actor::Column::Orbit])
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec(db)
+        .await
+    {
+        Err(DbErr::RecordNotInserted) => (),
+        r => {
+            r?;
+            ()
+        }
+    };
+    Ok(())
 }

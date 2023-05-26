@@ -77,6 +77,25 @@ impl OrbitDatabase {
         let parents = most_recent(&tx, &orbit).await?;
 
         let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
+
+        epoch::Entity::insert(epoch::ActiveModel::from(epoch::Model {
+            id: epoch_id.clone().into(),
+            seq,
+            orbit: orbit.clone(),
+        }))
+        .exec(&tx)
+        .await?;
+
+        for parent in parents.iter() {
+            epochs::Entity::insert(epochs::ActiveModel::from(epochs::Model {
+                parent: parent.clone().into(),
+                child: epoch_id.clone().into(),
+                orbit: orbit.clone(),
+            }))
+            .exec(&tx)
+            .await?;
+        }
+
         for (epoch_seq, event) in events.into_iter().enumerate() {
             match event {
                 // dropping tx rolls back changes, so fine to '?' here
@@ -94,24 +113,6 @@ impl OrbitDatabase {
                 }
             };
         }
-
-        for parent in parents.iter() {
-            epochs::ActiveModel::from(epochs::Model {
-                parent: parent.clone().into(),
-                child: epoch_id.clone().into(),
-                orbit: orbit.clone(),
-            })
-            .save(&tx)
-            .await?;
-        }
-
-        epoch::ActiveModel::from(epoch::Model {
-            id: epoch_id.clone().into(),
-            seq,
-            orbit,
-        })
-        .save(&tx)
-        .await?;
 
         tx.commit().await?;
 
@@ -174,7 +175,7 @@ async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u32, DbEr
     Ok(epoch::Entity::find()
         .filter(epoch::Column::Orbit.eq(orbit_id))
         .select_only()
-        .column_as(epoch::Column::Seq.max(), "seq")
+        .column_as(epoch::Column::Seq.max(), "max_seq")
         .into_tuple()
         .one(db)
         .await?

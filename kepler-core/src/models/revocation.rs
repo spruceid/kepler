@@ -140,7 +140,7 @@ pub async fn process<C: ConnectionTrait>(
         }
     };
 
-    ActiveModel::from(Model {
+    Entity::insert(ActiveModel::from(Model {
         seq,
         epoch_id: epoch.into(),
         epoch_seq,
@@ -149,8 +149,8 @@ pub async fn process<C: ConnectionTrait>(
         revoker: r_info.revoker,
         revoked: r_info.revoked.into(),
         orbit: orbit.to_string(),
-    })
-    .save(db)
+    }))
+    .exec(db)
     .await?;
 
     Ok(hash)

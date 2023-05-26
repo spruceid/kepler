@@ -15,7 +15,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub caveats: Option<Caveats>,
+    pub caveats: Caveats,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Default)]
