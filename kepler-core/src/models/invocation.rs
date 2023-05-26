@@ -1,6 +1,7 @@
 use super::super::{
     events::{Invocation, Operation},
     models::*,
+    relationships::*,
     util,
 };
 use crate::hash::Hash;
@@ -29,13 +30,6 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    // inverse relation, invocations belong to parent delegations
-    #[sea_orm(
-        belongs_to = "delegation::Entity",
-        from = "Column::Id",
-        to = "delegation::Column::Id"
-    )]
-    Parent,
     // inverse relation, invocations belong to invokers
     #[sea_orm(
         belongs_to = "actor::Entity",
@@ -50,12 +44,6 @@ pub enum Relation {
         to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
-}
-
-impl Related<delegation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Parent.def()
-    }
 }
 
 impl Related<actor::Entity> for Entity {
@@ -146,29 +134,24 @@ async fn validate<C: ConnectionTrait>(
     invocation: &util::InvocationInfo,
     time: Option<OffsetDateTime>,
 ) -> Result<(), Error> {
-    let now = time.unwrap_or_else(|| OffsetDateTime::now_utc());
-    if !invocation.parents.is_empty() || invocation.invoker.starts_with(root) {
+    if !invocation.parents.is_empty() && !invocation.invoker.starts_with(root) {
         let parents = delegation::Entity::find()
-            .filter(Column::Orbit.eq(orbit))
+            .filter(delegation::Column::Orbit.eq(orbit))
             .filter(invocation.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.hash().to_bytes()))
+                cond.add(delegation::Column::Id.eq(p.hash().to_bytes()))
             }))
             .all(db)
             .await?;
+
         if parents.len() != invocation.parents.len() {
             return Err(InvocationError::MissingParents)?;
         };
 
         let mut parent_abilities = Vec::new();
+        let now = time.unwrap_or_else(|| OffsetDateTime::now_utc());
         for parent in parents {
-            // get delegatee of parent
-            let delegatee = parent
-                .find_related(actor::Entity)
-                .one(db)
-                .await?
-                .ok_or_else(|| InvocationError::MissingParents)?;
             // check parent's delegatee is invoker
-            if delegatee.id != invocation.invoker {
+            if parent.delegatee != invocation.invoker {
                 return Err(InvocationError::UnauthorizedInvoker(
                     invocation.invoker.clone(),
                 ))?;
@@ -193,6 +176,10 @@ async fn validate<C: ConnectionTrait>(
                 invocation.capability.action.clone(),
             ))?;
         }
+    } else if !invocation.invoker.starts_with(root) {
+        return Err(InvocationError::UnauthorizedInvoker(
+            invocation.invoker.clone(),
+        ))?;
     }
 
     Ok(())

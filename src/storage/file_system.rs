@@ -218,7 +218,7 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
         let (mut h, v) = staged.into_inner();
         let hash = h.finalize();
         if !self.contains(&hash).await? {
-            let file = File::open(self.get_path(&hash)).await?;
+            let file = File::create(self.get_path(&hash)).await?;
             let mut writer = futures::io::BufWriter::new(file.compat());
             writer.write_all(&v).await?;
         }
@@ -245,7 +245,7 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
                     path.persist(self.get_path(&hash))?;
                 }
                 AsyncEither::Right(v) => {
-                    let file = File::open(self.get_path(&hash)).await?;
+                    let file = File::create(self.get_path(&hash)).await?;
                     let mut writer = futures::io::BufWriter::new(file.compat());
                     writer.write_all(&v).await?;
                 }

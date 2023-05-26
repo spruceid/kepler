@@ -46,8 +46,6 @@ pub enum Relation {
         to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
-    #[sea_orm(has_many = "invocation::Entity")]
-    Invocation,
     #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
     #[sea_orm(has_many = "abilities::Entity")]
@@ -63,12 +61,6 @@ impl Related<actor::Entity> for Entity {
 impl Related<epoch::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Epoch.def()
-    }
-}
-
-impl Related<invocation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Invocation.def()
     }
 }
 
@@ -221,7 +213,7 @@ async fn validate<C: ConnectionTrait>(
     orbit: &str,
     delegation: &util::DelegationInfo,
 ) -> Result<(), Error> {
-    if !delegation.parents.is_empty() || !delegation.delegator.starts_with(root) {
+    if !delegation.parents.is_empty() && !delegation.delegator.starts_with(root) {
         let parents = Entity::find()
             .filter(Column::Orbit.eq(orbit))
             .filter(delegation.parents.iter().fold(Condition::any(), |cond, p| {
@@ -266,7 +258,12 @@ async fn validate<C: ConnectionTrait>(
                 ))?;
             }
         }
-    };
+    } else if !delegation.delegator.starts_with(root) {
+        return Err(DelegationError::UnauthorizedDelegator(
+            delegation.delegator.clone(),
+        ))?;
+    }
+
     Ok(())
 }
 
