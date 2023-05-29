@@ -153,6 +153,7 @@ impl ImmutableReadStore for FileSystemStore {
 pub struct TempFileSystemStage;
 
 #[pin_project]
+#[derive(Debug)]
 pub struct TempFileStage(#[pin] Compat<File>, tempfile::TempPath);
 
 impl TempFileStage {
@@ -221,6 +222,7 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
             let file = File::create(self.get_path(&hash)).await?;
             let mut writer = futures::io::BufWriter::new(file.compat());
             writer.write_all(&v).await?;
+            writer.flush().await?;
         }
         Ok(hash)
     }
@@ -248,6 +250,7 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
                     let file = File::create(self.get_path(&hash)).await?;
                     let mut writer = futures::io::BufWriter::new(file.compat());
                     writer.write_all(&v).await?;
+                    writer.flush().await?;
                 }
             }
         };
