@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "kv")]
+#[sea_orm(table_name = "kv_write")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,

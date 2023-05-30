@@ -131,15 +131,17 @@ impl<B, S> Orbit<B, S> {
         let mut list = kv_write::Entity::find()
             .filter(
                 Condition::all()
-                    .add(kv_write::Column::Key.like(&format!("{prefix}%")))
+                    .add(kv_write::Column::Key.starts_with(prefix))
                     .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
             )
             .order_by_desc(kv_write::Column::Seq)
             .order_by_desc(kv_write::Column::EpochId)
+            .find_also_related(kv_delete::Entity)
+            .filter(kv_delete::Column::InvocationId.is_null())
             .all(&self.capabilities.readable().await?)
             .await?
             .into_iter()
-            .map(|kv| kv.key)
+            .map(|(kv, _)| kv.key)
             .collect::<Vec<String>>();
         list.dedup();
         Ok(list)
@@ -163,10 +165,13 @@ impl<B, S> Orbit<B, S> {
         version: Option<(u32, Hash)>,
     ) -> Result<Option<kv_write::Model>, sea_orm::DbErr> {
         use sea_orm::{entity::prelude::*, query::*};
-        if let Some((seq, epoch)) = version {
-            kv_write::Entity::find_by_id((self.manifest.id().to_string(), seq, epoch.into()))
+        Ok(if let Some((seq, epoch)) = version {
+            kv_write::Entity::find_by_id((self.manifest.id().to_string(), seq, epoch))
+                .find_also_related(kv_delete::Entity)
+                .filter(kv_delete::Column::InvocationId.is_null())
                 .one(&self.capabilities.readable().await?)
-                .await
+                .await?
+                .map(|(kv, _)| kv)
         } else {
             kv_write::Entity::find()
                 .filter(
@@ -176,9 +181,12 @@ impl<B, S> Orbit<B, S> {
                 )
                 .order_by_desc(kv_write::Column::Seq)
                 .order_by_desc(kv_write::Column::EpochId)
+                .find_also_related(kv_delete::Entity)
+                .filter(kv_delete::Column::InvocationId.is_null())
                 .one(&self.capabilities.readable().await?)
-                .await
-        }
+                .await?
+                .map(|(kv, _)| kv)
+        })
     }
 }
 
