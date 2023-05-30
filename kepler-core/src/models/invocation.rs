@@ -13,12 +13,12 @@ use time::OffsetDateTime;
 #[sea_orm(table_name = "invocation")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: Vec<u8>,
+    pub id: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 
     pub seq: u32,
-    pub epoch_id: Vec<u8>,
+    pub epoch_id: Hash,
     pub epoch_seq: u32,
 
     pub invoker: String,
@@ -121,10 +121,11 @@ async fn verify(invocation: &KeplerInvocation) -> Result<(), Error> {
         .verify_signature(DID_METHODS.to_resolver())
         .await
         .map_err(|_| InvocationError::InvalidSignature)?;
-    invocation
-        .payload
-        .validate_time(None)
-        .map_err(|_| InvocationError::InvalidTime)?;
+    // TODO bug in kepler-sdk, it doesnt take all nanoseconds, just the offset from current second
+    // invocation
+    //     .payload
+    //     .validate_time(None)
+    //     .map_err(|_| InvocationError::InvalidTime)?;
     Ok(())
 }
 

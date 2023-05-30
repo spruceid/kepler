@@ -1,4 +1,5 @@
 use super::*;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -7,17 +8,17 @@ use std::collections::BTreeMap;
 #[sea_orm(table_name = "kv_delete")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub invocation_id: Vec<u8>,
+    pub invocation_id: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
     #[sea_orm(primary_key)]
     pub seq: u32,
     #[sea_orm(primary_key)]
-    pub epoch_id: Vec<u8>,
+    pub epoch_id: Hash,
 
     pub key: String,
     pub deleted_seq: u32,
-    pub deleted_epoch_id: Vec<u8>,
+    pub deleted_epoch_id: Hash,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

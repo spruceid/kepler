@@ -1,4 +1,5 @@
 use super::*;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -6,7 +7,7 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     /// Hash-based ID
     #[sea_orm(primary_key, unique)]
-    pub id: Vec<u8>,
+    pub id: Hash,
     /// Orbit
     #[sea_orm(primary_key)]
     pub orbit: String,

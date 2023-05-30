@@ -8,16 +8,16 @@ use time::OffsetDateTime;
 #[sea_orm(table_name = "revocation")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: Vec<u8>,
+    pub id: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 
     pub seq: u32,
-    pub epoch_id: Vec<u8>,
+    pub epoch_id: Hash,
     pub epoch_seq: u32,
 
     pub revoker: String,
-    pub revoked: Vec<u8>,
+    pub revoked: Hash,
     pub serialization: Vec<u8>,
 }
 
@@ -147,7 +147,7 @@ pub async fn process<C: ConnectionTrait>(
         id: hash.into(),
         serialization,
         revoker: r_info.revoker,
-        revoked: r_info.revoked.into(),
+        revoked: (*r_info.revoked.hash()).into(),
         orbit: orbit.to_string(),
     }))
     .exec(db)

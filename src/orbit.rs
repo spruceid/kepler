@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use kepler_core::{
     hash::Hash,
-    models::kv_write::Metadata,
+    models::{kv_write::Metadata, *},
     sea_orm,
     storage::{Content, ImmutableReadStore, StorageConfig},
     OrbitDatabase,
@@ -126,7 +126,6 @@ impl<B, S> Orbit<B, S> {
     }
 
     pub async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
-        use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
         let mut list = kv_write::Entity::find()
@@ -149,23 +148,36 @@ impl<B, S> Orbit<B, S> {
     pub async fn metadata(
         &self,
         key: &str,
-        version: Option<(u64, Hash)>,
+        version: Option<(u32, Hash)>,
     ) -> anyhow::Result<Option<Metadata>> {
-        use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
-        match kv_write::Entity::find()
-            .filter(
-                Condition::all()
-                    .add(kv_write::Column::Key.eq(key))
-                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
-            )
-            .order_by_desc(kv_write::Column::Seq)
-            .order_by_desc(kv_write::Column::EpochId)
-            .one(&self.capabilities.readable().await?)
-            .await?
-        {
+        match self.get_kv_entity(key, version).await? {
             Some(entry) => Ok(Some(entry.metadata)),
             None => return Ok(None),
+        }
+    }
+
+    async fn get_kv_entity(
+        &self,
+        key: &str,
+        version: Option<(u32, Hash)>,
+    ) -> Result<Option<kv_write::Model>, sea_orm::DbErr> {
+        use sea_orm::{entity::prelude::*, query::*};
+        if let Some((seq, epoch)) = version {
+            kv_write::Entity::find_by_id((self.manifest.id().to_string(), seq, epoch.into()))
+                .one(&self.capabilities.readable().await?)
+                .await
+        } else {
+            kv_write::Entity::find()
+                .filter(
+                    Condition::all()
+                        .add(kv_write::Column::Key.eq(key))
+                        .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
+                )
+                .order_by_desc(kv_write::Column::Seq)
+                .order_by_desc(kv_write::Column::EpochId)
+                .one(&self.capabilities.readable().await?)
+                .await
         }
     }
 }
@@ -178,22 +190,11 @@ where
     pub async fn get(
         &self,
         key: &str,
-        version: Option<(u64, Hash)>,
+        version: Option<(u32, Hash)>,
     ) -> anyhow::Result<Option<(Content<B::Readable>, Metadata)>> {
-        use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
-        let entry = match kv_write::Entity::find()
-            .filter(
-                Condition::all()
-                    .add(kv_write::Column::Key.eq(key))
-                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
-            )
-            .order_by_desc(kv_write::Column::Seq)
-            .order_by_desc(kv_write::Column::EpochId)
-            .one(&self.capabilities.readable().await?)
-            .await?
-        {
+        let entry = match self.get_kv_entity(key, version).await? {
             Some(entry) => entry,
             None => return Ok(None),
         };

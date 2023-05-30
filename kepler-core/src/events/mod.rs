@@ -22,7 +22,7 @@ pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Option<Operation>);
 pub enum Operation {
     KvWrite {
         key: String,
-        value: Vec<u8>,
+        value: Hash,
         metadata: Metadata,
     },
     KvDelete {

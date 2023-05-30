@@ -8,12 +8,12 @@ use time::OffsetDateTime;
 #[sea_orm(table_name = "delegation")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub id: Vec<u8>,
+    pub id: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 
     pub seq: u32,
-    pub epoch_id: Vec<u8>,
+    pub epoch_id: Hash,
     pub epoch_seq: u32,
 
     pub delegator: String,
@@ -286,7 +286,7 @@ async fn save<C: ConnectionTrait>(
         seq,
         epoch_id: epoch.into(),
         epoch_seq,
-        id: hash.clone().into(),
+        id: hash.clone(),
         delegator: delegation.delegator,
         delegatee: delegation.delegate,
         expiry: delegation.expiry,
@@ -301,7 +301,7 @@ async fn save<C: ConnectionTrait>(
     // save abilities
     for ab in delegation.capabilities {
         abilities::Entity::insert(abilities::ActiveModel::from(abilities::Model {
-            delegation: hash.clone().into(),
+            delegation: hash.clone(),
             resource: ab.resource,
             ability: ab.action,
             caveats: Default::default(),

@@ -2,6 +2,7 @@ use kepler_lib::libipld::cid::{
     multihash::{Blake3_256, Code, Hasher as MHasher, Multihash, MultihashDigest},
     Cid,
 };
+use sea_orm::entity::prelude::*;
 use sea_orm::DbErr;
 
 pub fn hash(data: &[u8]) -> Hash {
@@ -70,6 +71,12 @@ impl TryFrom<Vec<u8>> for Hash {
     }
 }
 
+impl From<Multihash> for Hash {
+    fn from(value: Multihash) -> Self {
+        Self(value)
+    }
+}
+
 impl From<Hash> for Vec<u8> {
     fn from(hash: Hash) -> Self {
         hash.0.to_bytes()
@@ -79,5 +86,61 @@ impl From<Hash> for Vec<u8> {
 impl AsRef<[u8]> for Hash {
     fn as_ref(&self) -> &[u8] {
         self.0.digest()
+    }
+}
+
+impl From<Hash> for Value {
+    fn from(hash: Hash) -> Self {
+        Value::Bytes(Some(Box::new(hash.into())))
+    }
+}
+
+impl sea_orm::TryGetable for Hash {
+    fn try_get_by<I: sea_orm::ColIdx>(
+        res: &QueryResult,
+        idx: I,
+    ) -> Result<Self, sea_orm::TryGetError> {
+        let vec: Vec<u8> = res.try_get_by(idx).map_err(sea_orm::TryGetError::DbErr)?;
+        Hash::try_from(vec).map_err(|e| {
+            sea_orm::TryGetError::DbErr(DbErr::TryIntoErr {
+                from: "Vec<u8>",
+                into: "Hash",
+                source: Box::new(e),
+            })
+        })
+    }
+}
+
+impl sea_orm::sea_query::ValueType for Hash {
+    fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
+        match v {
+            Value::Bytes(Some(x)) => Ok(<Hash as TryFrom<Vec<u8>>>::try_from(*x)
+                .map_err(|_| sea_orm::sea_query::ValueTypeErr)?),
+            _ => Err(sea_orm::sea_query::ValueTypeErr),
+        }
+    }
+
+    fn type_name() -> String {
+        stringify!(Hash).to_owned()
+    }
+
+    fn array_type() -> sea_orm::sea_query::ArrayType {
+        sea_orm::sea_query::ArrayType::Bytes
+    }
+
+    fn column_type() -> sea_orm::sea_query::ColumnType {
+        sea_orm::sea_query::ColumnType::Binary(sea_orm::sea_query::table::BlobSize::Blob(None))
+    }
+}
+
+impl sea_orm::sea_query::Nullable for Hash {
+    fn null() -> Value {
+        Value::Bytes(None)
+    }
+}
+
+impl sea_orm::TryFromU64 for Hash {
+    fn try_from_u64(_: u64) -> Result<Self, DbErr> {
+        Err(DbErr::ConvertFromU64(stringify!($type)))
     }
 }

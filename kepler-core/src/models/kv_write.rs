@@ -1,4 +1,5 @@
 use super::*;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -11,11 +12,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub seq: u32,
     #[sea_orm(primary_key)]
-    pub epoch_id: Vec<u8>,
+    pub epoch_id: Hash,
 
     pub key: String,
-    pub invocation_id: Vec<u8>,
-    pub value: Vec<u8>,
+    pub invocation_id: Hash,
+    pub value: Hash,
     pub metadata: Metadata,
 }
 
