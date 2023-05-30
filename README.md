@@ -15,16 +15,16 @@ You will need to create a directory for Kepler to store data in:
 mkdir kepler
 ```
 
-Within this directory, create two more directories `blocks` and `indexes`:
+Within this directory, create one more directories `blocks` and a database file `caps.db`:
 ```bash
 mkdir kepler/blocks
-mkdir kepler/indexes
+touch kepler/caps.db
 ```
 
 You will then need to set the environment variables to point to those directories:
 ```bash
 export KEPLER_STORAGE_BLOCKS_PATH="kepler/blocks"
-export KEPLER_STORAGE_INDEXES_PATH="kepler/indexes"
+export KEPLER_STORAGE_DATABASE="kepler/caps.db"
 ```
 
 Finally you can run Kepler using `cargo`:
@@ -40,40 +40,57 @@ Kepler instances are configured by the [kepler.toml](kepler.toml) configuration 
 
 The following common options are available:
 
-| Option               | env var                     | description                                                    |
-|:---------------------|:----------------------------|:---------------------------------------------------------------|
-| log_level            | KEPLER_LOG_LEVEL            | Set the level of logging output, options are "normal", "debug" |
-| address              | KEPLER_ADDRESS              | Set the listening address of the kepler instance               |
-| port                 | KEPLER_PORT                 | Set the listening TCP port for the kepler instance             |
-| storage.blocks.type  | KEPLER_STORAGE_BLOCKS_TYPE  | Set the mode of block storage, options are "Local" and "S3"    |
-| storage.indexes.type | KEPLER_STORAGE_INDEXES_TYPE | Set the type of the index store, options are "Local" and "DynamoDB" |
-| orbits.allowlist     | KEPLER_ORBITS_ALLOWLIST     | Set the URL of an allowlist service for gating the creation of Orbit Peers                                                               |
+| Option              | env var                    | description                                                                |
+|:--------------------|:---------------------------|:---------------------------------------------------------------------------|
+| log_level           | KEPLER_LOG_LEVEL           | Set the level of logging output, options are "normal", "debug"             |
+| address             | KEPLER_ADDRESS             | Set the listening address of the kepler instance                           |
+| port                | KEPLER_PORT                | Set the listening TCP port for the kepler instance                         |
+| storage.blocks.type | KEPLER_STORAGE_BLOCKS_TYPE | Set the mode of block storage, options are "Local" and "S3"                |
+| storage.database    | KEPLER_STORAGE_DATABASE    | Set the location of the SQL database                                       |
+| storage.staging    | KEPLER_STORAGE_STAGING    | Set the mode of content staging, options are "Memory" and "FileSystem" |
+| orbits.allowlist    | KEPLER_ORBITS_ALLOWLIST    | Set the URL of an allowlist service for gating the creation of Orbit Peers |
+
+### Database Config
+
+The SQL database can be configured with `storage.database` or the `KEPLER_STORAGE_DATABASE` environment variable. It supports Sqlite, MySQL and PostgresSQL. For example:
+
+| Type     | Example                                       | Description                                                                         |
+|:---------|:----------------------------------------------|:------------------------------------------------------------------------------------|
+| Sqlite   | "sqlite:./kepler/caps.db"                     | Set Kepler to use a local Sqlite file at the relative path `./kepler/caps.db`       |
+| MySQL    | "mysql://root:root@localhost:3306/example"    | Use the MySQL instance deployed at `localhost:3306`, with database name `example`   |
+| Postgres | "postgres://root:root@localhost:5432/example" | Use the Postgres instance deployed at `localhost:5432` with database name `example` |
+
+This will default to an in-memory Sqlite database (i.e. `sqlite::memory:`).
+
+#### Migrations
+
+Kepler will automatically apply the relevant migrations to your chosen SQL database. Use caution if you are sharing this database with another application.
+
+### Staging Config
+
+Kepler will temporarily stage files it recieves before writing them. It can do this in memory or in temporary files. This can be configured by setting `storage.staging` to `Memory` or `FileSystem`. Default is `Memory`.
 
 ### Storage Config
 
-Storage can be configured for both Blocks and Indexes, depending on the `type` for each.
+Storage can be configured for Blocks depending on it's `type`.
 
 #### Local Storage
 
-When `storage.blocks.type` and `storage.indexes.type` are `Local`, the local filesystem will be used for application storage. The following config options will become available:
+When `storage.blocks.type` is `Local`, the local filesystem will be used for application content storage. The following config option will become available:
 
 | Option               | env var                     | description                                                    |
 |:---------------------|:----------------------------|:---------------------------------------------------------------|
 | storage.blocks.path  | KEPLER_STORAGE_BLOCKS_PATH  | Set the path of the block storage                              |
-| storage.indexes.path | KEPLER_STORAGE_INDEXES_PATH | Set the path of the index store                                |
 
 #### AWS Storage
 
-When `storage.blocks.type` is `S3` and `storage.indexes.type` is `DynamoDB`, the instance will use the S3 and DynamoDB AWS services for application storage. The following config options will become available:
+When `storage.blocks.type` is `S3` the instance will use the S3 AWS service for application storage. The following config options will become available:
 
 | Option               | env var                     | description                                                    |
 |:---------------------|:----------------------------|:---------------------------------------------------------------|
 | storage.blocks.type  | KEPLER_STORAGE_BLOCKS_TYPE  | Set the mode of block storage, options are "Local" and "S3"    |
 | storage.blocks.bucket  | KEPLER_STORAGE_BLOCKS_BUCKET  | Set the name of the S3 bucket    |
 | storage.blocks.endpoint  | KEPLER_STORAGE_BLOCKS_ENDPOINT  | Set the URL of the S3 store    |
-| storage.blocks.dynamodb_table  | KEPLER_STORAGE_BLOCKS_DYNAMODB_TABLE  | Set the name of the dynamodb table |
-| storage.blocks.dynamodb_endpoint  | KEPLER_STORAGE_BLOCKS_DYNAMODB_ENDPOINT  | Set the URL of the dynamodb service  |
-| storage.indexes.path | KEPLER_STORAGE_INDEXES_PATH | Set the path of the index store                                |
 
 Additionally, the following environment variables must be present: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_DEFAULT_REGION`.
 
