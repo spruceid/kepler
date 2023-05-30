@@ -282,6 +282,7 @@ pub enum KVAction<B, S> {
     Delete {
         orbit: Orbit<B, S>,
         key: String,
+        commit: Commit,
     },
     Get {
         orbit: Orbit<B, S>,
@@ -441,7 +442,9 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 &db,
                             )
                             .await
-                            .map(|(orbit, _)| Self::KV(Box::new(KVAction::Delete { orbit, key }))),
+                            .map(|(orbit, commit)| {
+                                Self::KV(Box::new(KVAction::Delete { orbit, key, commit }))
+                            }),
                             "get" => invoke(
                                 resource.orbit().clone(),
                                 token,

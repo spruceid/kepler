@@ -32,8 +32,10 @@ use crate::{
 };
 use kepler_core::{
     events::{Invocation, Operation},
-    models::kv_write::Metadata,
-    storage::{Content, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore},
+    models::{kv_write::Metadata, *},
+    storage::{
+        Content, ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore,
+    },
     util::Capability,
     util::DelegationInfo,
 };
@@ -166,13 +168,50 @@ pub async fn handle_kv_action<B, S>(
     data: Data<'_>,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
-    B: 'static + ImmutableReadStore + ImmutableWriteStore<S>,
+    B: 'static + ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore,
     S: 'static + ImmutableStaging,
     S::Writable: Unpin,
 {
+    use kepler_core::sea_orm::{EntityTrait, QuerySelect};
     match action {
-        KVAction::Delete { .. } => {
-            // TODO deletion works?
+        KVAction::Delete { orbit, key, commit } => {
+            // get hash of just deleted content
+            let hash = kv_delete::Entity::find_by_id((
+                commit
+                    .committed_events
+                    .first()
+                    .ok_or_else(|| {
+                        (
+                            Status::InternalServerError,
+                            "No Committed Deletion Event".to_string(),
+                        )
+                    })?
+                    .to_owned(),
+                orbit.manifest.id().to_string(),
+                commit.seq,
+                commit.rev,
+            ))
+            .find_also_related(kv_write::Entity)
+            .column(kv_write::Column::Value)
+            .one(
+                &orbit
+                    .capabilities
+                    .readable()
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?,
+            )
+            .await
+            .map_err(|e| (Status::InternalServerError, e.to_string()))?
+            .ok_or_else(|| (Status::NotFound, "No such key".to_string()))?
+            .1
+            .ok_or_else(|| (Status::NotFound, "No such key".to_string()))?
+            .value;
+            // delete content from the store
+            orbit
+                .store
+                .remove(&hash)
+                .await
+                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
             Ok(InvocationResponse::EmptySuccess)
         }
         KVAction::Get { orbit, key } => match orbit.get(&key, None).await {
