@@ -1,7 +1,6 @@
 use super::super::{
     events::{Invocation, Operation},
     models::*,
-    relationships::*,
     util,
 };
 use crate::hash::Hash;
@@ -141,7 +140,7 @@ async fn validate<C: ConnectionTrait>(
         let parents = delegation::Entity::find()
             .filter(delegation::Column::Orbit.eq(orbit))
             .filter(invocation.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(delegation::Column::Id.eq(p.hash().to_bytes()))
+                cond.add(delegation::Column::Id.eq(Hash::from(*p)))
             }))
             .all(db)
             .await?;
@@ -204,9 +203,9 @@ async fn save<C: ConnectionTrait>(
 
     Entity::insert(ActiveModel::from(Model {
         seq,
-        epoch_id: epoch.into(),
+        epoch_id: epoch,
         epoch_seq,
-        id: hash.into(),
+        id: hash,
         issued_at,
         serialization,
         invoker: invocation.invoker,
@@ -227,8 +226,8 @@ async fn save<C: ConnectionTrait>(
                 key,
                 value,
                 seq,
-                epoch_id: epoch.into(),
-                invocation_id: hash.into(),
+                epoch_id: epoch,
+                invocation_id: hash,
                 orbit: orbit.to_string(),
                 metadata,
             }))
@@ -237,7 +236,7 @@ async fn save<C: ConnectionTrait>(
         }
         Some(Operation::KvDelete { key, version }) => {
             let (deleted_seq, deleted_epoch_id) = match version {
-                Some((seq, epoch_id)) => (seq, epoch_id.into()),
+                Some((seq, epoch_id)) => (seq, epoch_id),
                 None => {
                     let kv = kv_write::Entity::find()
                         .filter(kv_write::Column::Key.eq(key.clone()))
@@ -252,8 +251,8 @@ async fn save<C: ConnectionTrait>(
             kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
                 key,
                 seq,
-                epoch_id: epoch.into(),
-                invocation_id: hash.into(),
+                epoch_id: epoch,
+                invocation_id: hash,
                 deleted_seq,
                 deleted_epoch_id,
                 orbit: orbit.to_string(),

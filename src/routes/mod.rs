@@ -38,6 +38,7 @@ use kepler_core::{
     },
     util::Capability,
     util::DelegationInfo,
+    TxError,
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
@@ -261,7 +262,18 @@ where
                     }),
                 ))
                 .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                .map_err(|e| match e {
+                    TxError::Db(e) => {
+                        warn!("Invoke error: {}", e);
+                        match e {
+                            kepler_core::sea_orm::DbErr::Conn(e) => {
+                                (Status::ServiceUnavailable, e.to_string())
+                            }
+                            e => (Status::InternalServerError, e.to_string()),
+                        }
+                    }
+                    e => (Status::Unauthorized, e.to_string()),
+                })?;
             orbit
                 .store
                 .persist(stage)

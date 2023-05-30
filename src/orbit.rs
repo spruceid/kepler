@@ -152,7 +152,6 @@ impl<B, S> Orbit<B, S> {
         key: &str,
         version: Option<(u32, Hash)>,
     ) -> anyhow::Result<Option<Metadata>> {
-        use sea_orm::{entity::prelude::*, query::*};
         match self.get_kv_entity(key, version).await? {
             Some(entry) => Ok(Some(entry.metadata)),
             None => return Ok(None),
@@ -200,7 +199,6 @@ where
         key: &str,
         version: Option<(u32, Hash)>,
     ) -> anyhow::Result<Option<(Content<B::Readable>, Metadata)>> {
-        use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
         let entry = match self.get_kv_entity(key, version).await? {
             Some(entry) => entry,

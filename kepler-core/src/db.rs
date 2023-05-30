@@ -151,7 +151,7 @@ impl OrbitDatabase {
     }
 
     pub async fn get_valid_delegations(&self) -> Result<HashMap<Hash, DelegationInfo>, TxError> {
-        use sea_orm::{entity::prelude::*, query::*};
+        use sea_orm::entity::prelude::*;
         let orbit = self.orbit.to_string();
         let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
             delegation::Entity::find()
