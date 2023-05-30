@@ -27,7 +27,7 @@ impl Hasher {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Hash(Multihash);
 
 impl Hash {
@@ -74,6 +74,12 @@ impl TryFrom<Vec<u8>> for Hash {
 impl From<Multihash> for Hash {
     fn from(value: Multihash) -> Self {
         Self(value)
+    }
+}
+
+impl From<Cid> for Hash {
+    fn from(value: Cid) -> Self {
+        Self((*value.hash()).into())
     }
 }
 

@@ -1,13 +1,14 @@
 use super::super::models::delegation;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "parent_delegation")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub parent: Vec<u8>,
+    pub parent: Hash,
     #[sea_orm(primary_key)]
-    pub child: Vec<u8>,
+    pub child: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 }
@@ -26,6 +27,12 @@ pub enum Relation {
         to = "(delegation::Column::Id, delegation::Column::Orbit)"
     )]
     Child,
+}
+
+impl Related<delegation::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Child.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

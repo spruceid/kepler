@@ -3,12 +3,17 @@ use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Revoca
 use crate::hash::Hash;
 use crate::models::*;
 use crate::relationships::*;
-use kepler_lib::resource::OrbitId;
+use crate::util::{Capability, DelegationInfo};
+use kepler_lib::{
+    authorization::{EncodingError, KeplerDelegation},
+    resource::OrbitId,
+};
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::QuerySelect, ConnectOptions, ConnectionTrait,
     Database, DatabaseConnection, DatabaseTransaction, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct OrbitDatabase {
@@ -41,6 +46,8 @@ pub enum TxError {
     InvalidRevocation(#[from] revocation::RevocationError),
     #[error("Epoch Hashing Err")]
     EpochHashingErr(#[from] HashError),
+    #[error(transparent)]
+    Encoding(#[from] EncodingError),
 }
 
 impl OrbitDatabase {
@@ -141,6 +148,63 @@ impl OrbitDatabase {
         self.conn
             .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
             .await
+    }
+
+    pub async fn get_valid_delegations(&self) -> Result<HashMap<Hash, DelegationInfo>, TxError> {
+        use sea_orm::{entity::prelude::*, query::*};
+        let orbit = self.orbit.to_string();
+        let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
+            delegation::Entity::find()
+                .filter(delegation::Column::Orbit.eq(&orbit))
+                .left_join(revocation::Entity)
+                .filter(revocation::Column::Id.is_null())
+                .find_with_related(abilities::Entity)
+                .all(&self.conn)
+                .await?
+                .into_iter()
+                .unzip();
+        let parents = dels
+            .load_many(parent_delegations::Entity, &self.conn)
+            .await?;
+        let now = time::OffsetDateTime::now_utc();
+        Ok(dels
+            .into_iter()
+            .zip(abilities)
+            .zip(parents)
+            .filter_map(|((del, ability), parents)| {
+                if del.expiry.map(|e| e > now).unwrap_or(true)
+                    && del.not_before.map(|n| n <= now).unwrap_or(true)
+                {
+                    Some(match KeplerDelegation::from_bytes(&del.serialization) {
+                        Ok(delegation) => Ok((
+                            del.id,
+                            DelegationInfo {
+                                delegator: del.delegator,
+                                delegate: del.delegatee,
+                                parents: parents
+                                    .into_iter()
+                                    .map(|p| p.parent.to_cid(0x55))
+                                    .collect(),
+                                expiry: del.expiry,
+                                not_before: del.not_before,
+                                issued_at: del.issued_at,
+                                capabilities: ability
+                                    .into_iter()
+                                    .map(|a| Capability {
+                                        resource: a.resource,
+                                        action: a.ability,
+                                    })
+                                    .collect(),
+                                delegation,
+                            },
+                        )),
+                        Err(e) => Err(e),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Result<HashMap<Hash, DelegationInfo>, EncodingError>>()?)
     }
 }
 

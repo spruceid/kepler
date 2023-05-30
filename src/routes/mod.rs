@@ -1,7 +1,7 @@
 use anyhow::Result;
 use futures::io::AsyncRead;
 use kepler_lib::{
-    authorization::{EncodingError, HeaderEncode},
+    authorization::{CapabilitiesQuery, EncodingError, HeaderEncode},
     libipld::Cid,
 };
 use libp2p::{
@@ -279,20 +279,27 @@ pub async fn handle_cap_action<B, S>(
 where
     B: 'static + ImmutableReadStore,
 {
+    use kepler_core::sea_orm::{entity::prelude::*, query::*};
     match action {
         CapAction::Query {
             orbit,
-            query,
+            query: CapabilitiesQuery::All,
             invoker,
-        } =>
-            todo!()
-            // orbit
-            // .capabilities
-            // .store
-            // .query(query, &invoker)
-            // .await
-            // .map(InvocationResponse::CapabilityQuery)
-            // .map_err(|e| (Status::InternalServerError, e.to_string())),
+        } => Ok(InvocationResponse::CapabilityQuery(
+            orbit
+                .capabilities
+                .get_valid_delegations()
+                .await
+                .map_err(|e| {
+                    (
+                        Status::InternalServerError,
+                        format!("failed to get valid delegations: {}", e),
+                    )
+                })?
+                .into_iter()
+                .map(|(h, d)| (h.to_cid(0x55), d))
+                .collect(),
+        )),
     }
 }
 

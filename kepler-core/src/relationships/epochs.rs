@@ -1,13 +1,14 @@
 use super::super::models::epoch;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "parent_epochs")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub parent: Vec<u8>,
+    pub parent: Hash,
     #[sea_orm(primary_key)]
-    pub child: Vec<u8>,
+    pub child: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 }

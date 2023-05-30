@@ -1,4 +1,4 @@
-use super::super::{events::Delegation, models::*, util};
+use super::super::{events::Delegation, models::*, relationships::*, util};
 use crate::hash::Hash;
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
@@ -50,6 +50,8 @@ pub enum Relation {
     Revocation,
     #[sea_orm(has_many = "abilities::Entity")]
     Abilities,
+    #[sea_orm(has_many = "parent_delegations::Entity")]
+    Parents,
 }
 
 impl Related<actor::Entity> for Entity {
@@ -76,6 +78,12 @@ impl Related<abilities::Entity> for Entity {
     }
 }
 
+impl Related<parent_delegations::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Parents.def()
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct ParentToChild;
 
@@ -85,7 +93,6 @@ impl Linked for ParentToChild {
     type ToEntity = Entity;
 
     fn link(&self) -> Vec<RelationDef> {
-        use super::super::relationships::parent_delegations;
         vec![
             parent_delegations::Relation::Parent.def().rev(),
             parent_delegations::Relation::Child.def(),
@@ -102,7 +109,6 @@ impl Linked for ChildToParent {
     type ToEntity = Entity;
 
     fn link(&self) -> Vec<RelationDef> {
-        use super::super::relationships::parent_delegations;
         vec![
             parent_delegations::Relation::Child.def().rev(),
             parent_delegations::Relation::Parent.def(),
@@ -307,6 +313,18 @@ async fn save<C: ConnectionTrait>(
             caveats: Default::default(),
             orbit: orbit.to_string(),
         }))
+        .exec(db)
+        .await?;
+    }
+
+    for parent in delegation.parents {
+        parent_delegations::Entity::insert(parent_delegations::ActiveModel::from(
+            parent_delegations::Model {
+                child: hash.clone(),
+                parent: parent.into(),
+                orbit: orbit.to_string(),
+            },
+        ))
         .exec(db)
         .await?;
     }

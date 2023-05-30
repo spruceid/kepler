@@ -47,6 +47,17 @@ impl HeaderEncode for KeplerDelegation {
     }
 }
 
+impl KeplerDelegation {
+    pub fn from_bytes(b: &[u8]) -> Result<Self, EncodingError> {
+        match DagCborCodec.decode(b) {
+            Ok(cacao) => Ok(Self::Cacao(Box::new(cacao))),
+            Err(_) => Ok(Self::Ucan(Box::new(Ucan::decode(
+                &String::from_utf8_lossy(b),
+            )?))),
+        }
+    }
+}
+
 // turn everything into url safe, b64-cacao or jwt
 
 pub type KeplerInvocation = Ucan;
