@@ -84,7 +84,6 @@ pub enum BlockStorage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq, Default)]
-#[serde(tag = "type")]
 pub enum StagingStorage {
     FileSystem,
     #[default]

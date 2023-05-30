@@ -16,7 +16,6 @@ use libp2p::{
 };
 use rocket::tokio::task::JoinHandle;
 
-use cached::proc_macro::cached;
 use std::{error::Error as StdError, ops::Deref};
 
 #[derive(Debug)]
@@ -75,7 +74,6 @@ impl<B, S> Orbit<B, S> {
         CS: StorageConfig<S>,
         CS::Error: 'static + Sync + Send,
     {
-        let id = config.manifest.id().get_cid();
         let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
         let _relay = &config.relay;
 
@@ -108,7 +106,6 @@ impl<B, S> Orbit<B, S> {
         CS: StorageConfig<S>,
         CS::Error: 'static + Sync + Send,
     {
-        let id = config.manifest.id().get_cid();
         let _local_peer_id = PeerId::from_public_key(&PublicKey::Ed25519(config.identity.public()));
         let _relay = &config.relay;
 

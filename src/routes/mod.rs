@@ -175,7 +175,11 @@ where
 {
     use kepler_core::sea_orm::{EntityTrait, QuerySelect};
     match action {
-        KVAction::Delete { orbit, key, commit } => {
+        KVAction::Delete {
+            orbit,
+            key: _,
+            commit,
+        } => {
             // get hash of just deleted content
             let hash = kv_delete::Entity::find_by_id((
                 commit
@@ -291,12 +295,11 @@ pub async fn handle_cap_action<B, S>(
 where
     B: 'static + ImmutableReadStore,
 {
-    use kepler_core::sea_orm::{entity::prelude::*, query::*};
     match action {
         CapAction::Query {
             orbit,
             query: CapabilitiesQuery::All,
-            invoker,
+            invoker: _,
         } => Ok(InvocationResponse::CapabilityQuery(
             orbit
                 .capabilities

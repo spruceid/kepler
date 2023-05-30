@@ -6,17 +6,15 @@ use crate::routes::ObjectHeaders;
 use crate::{BlockStage, BlockStores};
 use anyhow::Result;
 use kepler_core::{
-    events::{Delegation, Invocation, Operation, Revocation},
+    events::{Delegation, Invocation, Operation},
     hash::{hash, Hash},
     models::kv_write::Metadata,
     sea_orm,
-    storage::ImmutableStaging,
-    util::{DelegationInfo, InvocationInfo, RevocationInfo},
+    util::{DelegationInfo, InvocationInfo},
     Commit, TxError,
 };
 use kepler_lib::{
     authorization::{CapabilitiesQuery, KeplerDelegation},
-    libipld::Cid,
     resolver::DID_METHODS,
     resource::{OrbitId, ResourceId},
 };
@@ -334,7 +332,6 @@ async fn invoke(
     relay: (PeerId, Multiaddr),
     db: &sea_orm::DatabaseConnection,
 ) -> Outcome<(Orbit<BlockStores, BlockStage>, Commit), anyhow::Error> {
-    let target = &token.capability;
     let orbit = match load_orbit(
         orbit,
         &config.storage.blocks.clone().into(),
