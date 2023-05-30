@@ -1,6 +1,6 @@
 use crate::{
     hash::{hash, Hash},
-    models::kv::Metadata,
+    models::kv_write::Metadata,
 };
 pub use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
@@ -27,6 +27,7 @@ pub enum Operation {
     },
     KvDelete {
         key: String,
+        version: Option<(u32, Hash)>,
     },
 }
 

@@ -32,7 +32,7 @@ use crate::{
 };
 use kepler_core::{
     events::{Invocation, Operation},
-    models::kv::Metadata,
+    models::kv_write::Metadata,
     storage::{Content, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore},
     util::Capability,
     util::DelegationInfo,

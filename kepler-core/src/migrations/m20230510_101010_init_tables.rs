@@ -29,7 +29,10 @@ impl MigrationTrait for Migration {
             .create_table(schema.create_table_from_entity(abilities::Entity))
             .await?;
         manager
-            .create_table(schema.create_table_from_entity(kv::Entity))
+            .create_table(schema.create_table_from_entity(kv_write::Entity))
+            .await?;
+        manager
+            .create_table(schema.create_table_from_entity(kv_delete::Entity))
             .await?;
 
         manager
@@ -65,7 +68,7 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(abilities::Entity).to_owned())
             .await?;
         manager
-            .drop_table(Table::drop().table(kv::Entity).to_owned())
+            .drop_table(Table::drop().table(kv_write::Entity).to_owned())
             .await?;
 
         manager

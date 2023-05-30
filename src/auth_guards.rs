@@ -8,7 +8,7 @@ use anyhow::Result;
 use kepler_core::{
     events::{Delegation, Invocation, Operation, Revocation},
     hash::{hash, Hash},
-    models::kv::Metadata,
+    models::kv_write::Metadata,
     sea_orm,
     storage::ImmutableStaging,
     util::{DelegationInfo, InvocationInfo, RevocationInfo},
@@ -432,7 +432,10 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 resource.orbit().clone(),
                                 token,
                                 ser.into(),
-                                Some(Operation::KvDelete { key: key.clone() }),
+                                Some(Operation::KvDelete {
+                                    key: key.clone(),
+                                    version: None,
+                                }),
                                 &config,
                                 relay,
                                 &db,

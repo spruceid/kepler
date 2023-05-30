@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use derive_builder::Builder;
 use kepler_core::{
     hash::Hash,
-    models::kv::Metadata,
+    models::kv_write::Metadata,
     sea_orm,
     storage::{Content, ImmutableReadStore, StorageConfig},
     OrbitDatabase,
@@ -129,10 +129,14 @@ impl<B, S> Orbit<B, S> {
         use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
-        let mut list = kv::Entity::find()
-            .filter(Condition::all().add(kv::Column::Key.like(&format!("{prefix}%"))))
-            .order_by_desc(kv::Column::Seq)
-            .order_by_desc(kv::Column::EpochId)
+        let mut list = kv_write::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(kv_write::Column::Key.like(&format!("{prefix}%")))
+                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
+            )
+            .order_by_desc(kv_write::Column::Seq)
+            .order_by_desc(kv_write::Column::EpochId)
             .all(&self.capabilities.readable().await?)
             .await?
             .into_iter()
@@ -149,10 +153,14 @@ impl<B, S> Orbit<B, S> {
     ) -> anyhow::Result<Option<Metadata>> {
         use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
-        match kv::Entity::find()
-            .filter(Condition::all().add(kv::Column::Key.eq(key)))
-            .order_by_desc(kv::Column::Seq)
-            .order_by_desc(kv::Column::EpochId)
+        match kv_write::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(kv_write::Column::Key.eq(key))
+                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
+            )
+            .order_by_desc(kv_write::Column::Seq)
+            .order_by_desc(kv_write::Column::EpochId)
             .one(&self.capabilities.readable().await?)
             .await?
         {
@@ -175,10 +183,14 @@ where
         use kepler_core::models::*;
         use sea_orm::{entity::prelude::*, query::*};
         // get content id for key from db
-        let entry = match kv::Entity::find()
-            .filter(Condition::all().add(kv::Column::Key.eq(key)))
-            .order_by_desc(kv::Column::Seq)
-            .order_by_desc(kv::Column::EpochId)
+        let entry = match kv_write::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(kv_write::Column::Key.eq(key))
+                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
+            )
+            .order_by_desc(kv_write::Column::Seq)
+            .order_by_desc(kv_write::Column::EpochId)
             .one(&self.capabilities.readable().await?)
             .await?
         {

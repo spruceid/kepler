@@ -6,7 +6,7 @@ use super::super::{
 };
 use crate::hash::Hash;
 use kepler_lib::{authorization::KeplerInvocation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
+use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait, QueryOrder};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -82,6 +82,8 @@ pub enum InvocationError {
     UnauthorizedCapability(String, String),
     #[error("Cannot find parent delegation")]
     MissingParents,
+    #[error("No Such Key: {0}")]
+    MissingKvWrite(String),
 }
 
 pub async fn process<C: ConnectionTrait>(
@@ -214,24 +216,52 @@ async fn save<C: ConnectionTrait>(
     .exec(db)
     .await?;
 
-    if let Some(Operation::KvWrite {
-        key,
-        value,
-        metadata,
-    }) = parameters
-    {
-        kv::Entity::insert(kv::ActiveModel::from(kv::Model {
+    match parameters {
+        Some(Operation::KvWrite {
             key,
             value,
-            seq,
-            epoch_id: epoch.into(),
-            invocation_id: hash.into(),
-            orbit: orbit.to_string(),
             metadata,
-        }))
-        .exec(db)
-        .await?;
-    }
+        }) => {
+            kv_write::Entity::insert(kv_write::ActiveModel::from(kv_write::Model {
+                key,
+                value,
+                seq,
+                epoch_id: epoch.into(),
+                invocation_id: hash.into(),
+                orbit: orbit.to_string(),
+                metadata,
+            }))
+            .exec(db)
+            .await?;
+        }
+        Some(Operation::KvDelete { key, version }) => {
+            let (deleted_seq, deleted_epoch_id) = match version {
+                Some((seq, epoch_id)) => (seq, epoch_id.into()),
+                None => {
+                    let kv = kv_write::Entity::find()
+                        .filter(kv_write::Column::Key.eq(key.clone()))
+                        .order_by_desc(kv_write::Column::Seq)
+                        .order_by_desc(kv_write::Column::EpochId)
+                        .one(db)
+                        .await?
+                        .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?;
+                    (kv.seq, kv.epoch_id)
+                }
+            };
+            kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
+                key,
+                seq,
+                epoch_id: epoch.into(),
+                invocation_id: hash.into(),
+                deleted_seq,
+                deleted_epoch_id,
+                orbit: orbit.to_string(),
+            }))
+            .exec(db)
+            .await?;
+        }
+        None => {}
+    };
 
     Ok(hash)
 }

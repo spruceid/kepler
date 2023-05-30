@@ -7,15 +7,14 @@ use std::collections::BTreeMap;
 #[sea_orm(table_name = "kv")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub invocation_id: Vec<u8>,
-    #[sea_orm(primary_key)]
-    pub key: String,
-    #[sea_orm(primary_key)]
     pub orbit: String,
-
+    #[sea_orm(primary_key)]
     pub seq: u32,
+    #[sea_orm(primary_key)]
     pub epoch_id: Vec<u8>,
 
+    pub key: String,
+    pub invocation_id: Vec<u8>,
     pub value: Vec<u8>,
     pub metadata: Metadata,
 }
@@ -31,11 +30,19 @@ pub enum Relation {
         to = "(invocation::Column::Id, invocation::Column::Orbit)"
     )]
     Invocation,
+    #[sea_orm(has_many = "kv_delete::Entity")]
+    Deleted,
 }
 
 impl Related<invocation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Invocation.def()
+    }
+}
+
+impl Related<kv_delete::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Deleted.def()
     }
 }
 
