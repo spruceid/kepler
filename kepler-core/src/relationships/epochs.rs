@@ -29,4 +29,10 @@ pub enum Relation {
     Child,
 }
 
+impl Related<epoch::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Parent.def()
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}

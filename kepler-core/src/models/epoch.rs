@@ -1,5 +1,6 @@
 use super::*;
 use crate::hash::Hash;
+use crate::relationships::epochs;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -24,6 +25,14 @@ pub enum Relation {
     Invocation,
     #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
+    #[sea_orm(has_many = "epochs::Entity")]
+    Children,
+}
+
+impl Related<epochs::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Children.def()
+    }
 }
 
 impl Related<delegation::Entity> for Entity {
@@ -53,7 +62,6 @@ impl Linked for ParentToChild {
     type ToEntity = Entity;
 
     fn link(&self) -> Vec<RelationDef> {
-        use super::super::relationships::epochs;
         vec![
             epochs::Relation::Parent.def().rev(),
             epochs::Relation::Child.def(),
@@ -70,7 +78,6 @@ impl Linked for ChildToParent {
     type ToEntity = Entity;
 
     fn link(&self) -> Vec<RelationDef> {
-        use super::super::relationships::epochs;
         vec![
             epochs::Relation::Child.def().rev(),
             epochs::Relation::Parent.def(),
