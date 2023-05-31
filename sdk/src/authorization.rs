@@ -59,7 +59,8 @@ mod header_enc {
         T: HeaderEncode,
         D: Deserializer<'de>,
     {
-        String::deserialize(d).and_then(|encoded| T::decode(&encoded).map_err(D::Error::custom))
+        String::deserialize(d)
+            .and_then(|encoded| T::decode(&encoded).map_err(D::Error::custom).map(|t| t.0))
     }
 
     pub fn serialize<T, S>(t: &T, s: S) -> Result<S::Ok, S::Error>

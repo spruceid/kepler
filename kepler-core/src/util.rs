@@ -1,9 +1,9 @@
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
-    capgrok::{extract_capabilities, verify_statement, Capability as SiweCap},
     libipld::Cid,
     resource::KRIParseError,
+    siwe_recap::{extract_capabilities, verify_statement, Capability as SiweCap},
     ssi::ucan::Capability as UcanCap,
 };
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ pub enum DelegationError {
     #[error(transparent)]
     SiweConversion(#[from] kepler_lib::cacaos::siwe_cacao::SIWEPayloadConversionError),
     #[error(transparent)]
-    SiweCapError(#[from] kepler_lib::capgrok::Error),
+    SiweCapError(#[from] kepler_lib::siwe_recap::Error),
     #[error("Invalid Siwe Statement")]
     InvalidStatement,
 }
