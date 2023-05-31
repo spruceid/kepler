@@ -3502,7 +3502,6 @@ dependencies = [
  "kepler-core",
  "kepler-lib",
  "lazy_static",
- "libipld",
  "libp2p",
  "opentelemetry",
  "opentelemetry-jaeger",
