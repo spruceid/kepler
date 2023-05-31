@@ -107,9 +107,7 @@ pub async fn process<C: ConnectionTrait>(
         i_info,
         Some(now),
         serialized,
-        seq,
-        epoch,
-        epoch_seq,
+        (seq, epoch, epoch_seq),
         parameters,
     )
     .await
@@ -193,18 +191,16 @@ async fn save<C: ConnectionTrait>(
     invocation: util::InvocationInfo,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
-    seq: u32,
-    epoch: Hash,
-    epoch_seq: u32,
+    event_version: (u32, Hash, u32),
     parameters: Option<Operation>,
 ) -> Result<Hash, Error> {
     let hash = crate::hash::hash(&serialization);
     let issued_at = time.unwrap_or_else(OffsetDateTime::now_utc);
 
     Entity::insert(ActiveModel::from(Model {
-        seq,
-        epoch_id: epoch,
-        epoch_seq,
+        seq: event_version.0,
+        epoch_id: event_version.1,
+        epoch_seq: event_version.2,
         id: hash,
         issued_at,
         serialization,
@@ -225,8 +221,8 @@ async fn save<C: ConnectionTrait>(
             kv_write::Entity::insert(kv_write::ActiveModel::from(kv_write::Model {
                 key,
                 value,
-                seq,
-                epoch_id: epoch,
+                seq: event_version.0,
+                epoch_id: event_version.1,
                 invocation_id: hash,
                 orbit: orbit.to_string(),
                 metadata,
@@ -250,8 +246,8 @@ async fn save<C: ConnectionTrait>(
             };
             kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
                 key,
-                seq,
-                epoch_id: epoch,
+                seq: event_version.0,
+                epoch_id: event_version.1,
                 invocation_id: hash,
                 deleted_seq,
                 deleted_epoch_id,

@@ -183,7 +183,7 @@ pub async fn process<C: ConnectionTrait>(
     let d_info = util::DelegationInfo::try_from(d).map_err(DelegationError::ParameterExtraction)?;
     validate(db, root, orbit, &d_info).await?;
 
-    Ok(save(db, orbit, d_info, ser, seq, epoch, epoch_seq).await?)
+    save(db, orbit, d_info, ser, seq, epoch, epoch_seq).await
 }
 
 // verify signatures and time
