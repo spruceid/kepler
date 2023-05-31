@@ -11,22 +11,22 @@ impl MigrationTrait for Migration {
         let schema = Schema::new(manager.get_database_backend());
 
         manager
+            .create_table(schema.create_table_from_entity(actor::Entity))
+            .await?;
+        manager
             .create_table(schema.create_table_from_entity(epoch::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(delegation::Entity))
             .await?;
         manager
+            .create_table(schema.create_table_from_entity(abilities::Entity))
+            .await?;
+        manager
             .create_table(schema.create_table_from_entity(invocation::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(revocation::Entity))
-            .await?;
-        manager
-            .create_table(schema.create_table_from_entity(actor::Entity))
-            .await?;
-        manager
-            .create_table(schema.create_table_from_entity(abilities::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(kv_write::Entity))
@@ -39,10 +39,10 @@ impl MigrationTrait for Migration {
             .create_table(schema.create_table_from_entity(epochs::Entity))
             .await?;
         manager
-            .create_table(schema.create_table_from_entity(invoked_abilities::Entity))
+            .create_table(schema.create_table_from_entity(parent_delegations::Entity))
             .await?;
         manager
-            .create_table(schema.create_table_from_entity(parent_delegations::Entity))
+            .create_table(schema.create_table_from_entity(invoked_abilities::Entity))
             .await?;
 
         Ok(())
