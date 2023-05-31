@@ -3,6 +3,7 @@ version: "3"
 services:
   kepler:
     build: ..
+    platform: linux/amd64
     ports:
       - "8000:8000"
       - "8001:8001"
