@@ -86,7 +86,7 @@ impl OrbitDatabase {
         let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
 
         epoch::Entity::insert(epoch::ActiveModel::from(epoch::Model {
-            id: epoch_id.clone().into(),
+            id: epoch_id,
             seq,
             orbit: orbit.clone(),
         }))
@@ -95,8 +95,8 @@ impl OrbitDatabase {
 
         for parent in parents.iter() {
             epochs::Entity::insert(epochs::ActiveModel::from(epochs::Model {
-                parent: parent.clone().into(),
-                child: epoch_id.clone().into(),
+                parent: *parent,
+                child: epoch_id,
                 orbit: orbit.clone(),
             }))
             .exec(&tx)
@@ -107,16 +107,40 @@ impl OrbitDatabase {
             match event {
                 // dropping tx rolls back changes, so fine to '?' here
                 Event::Delegation(d) => {
-                    delegation::process(&self.root, &orbit, &tx, d, seq, epoch_id, epoch_seq as u32)
-                        .await?
+                    delegation::process(
+                        &self.root,
+                        &orbit,
+                        &tx,
+                        *d,
+                        seq,
+                        epoch_id,
+                        epoch_seq as u32,
+                    )
+                    .await?
                 }
                 Event::Invocation(i) => {
-                    invocation::process(&self.root, &orbit, &tx, i, seq, epoch_id, epoch_seq as u32)
-                        .await?
+                    invocation::process(
+                        &self.root,
+                        &orbit,
+                        &tx,
+                        *i,
+                        seq,
+                        epoch_id,
+                        epoch_seq as u32,
+                    )
+                    .await?
                 }
                 Event::Revocation(r) => {
-                    revocation::process(&self.root, &orbit, &tx, r, seq, epoch_id, epoch_seq as u32)
-                        .await?
+                    revocation::process(
+                        &self.root,
+                        &orbit,
+                        &tx,
+                        *r,
+                        seq,
+                        epoch_id,
+                        epoch_seq as u32,
+                    )
+                    .await?
                 }
             };
         }
@@ -132,15 +156,18 @@ impl OrbitDatabase {
     }
 
     pub async fn delegate(&self, delegation: Delegation) -> Result<Commit, TxError> {
-        self.transact(vec![Event::Delegation(delegation)]).await
+        self.transact(vec![Event::Delegation(Box::new(delegation))])
+            .await
     }
 
     pub async fn invoke(&self, invocation: Invocation) -> Result<Commit, TxError> {
-        self.transact(vec![Event::Invocation(invocation)]).await
+        self.transact(vec![Event::Invocation(Box::new(invocation))])
+            .await
     }
 
     pub async fn revoke_tx(&self, revocation: Revocation) -> Result<Commit, TxError> {
-        self.transact(vec![Event::Revocation(revocation)]).await
+        self.transact(vec![Event::Revocation(Box::new(revocation))])
+            .await
     }
 
     // to allow users to make custom read queries

@@ -142,9 +142,9 @@ impl TryFrom<KeplerDelegation> for DelegationInfo {
                     delegator: c.payload().iss.to_string(),
                     delegate: c.payload().aud.to_string(),
                     parents,
-                    expiry: c.payload().exp.as_ref().map(|t| t.as_ref().clone()),
-                    not_before: c.payload().nbf.as_ref().map(|t| t.as_ref().clone()),
-                    issued_at: Some(c.payload().iat.as_ref().clone()),
+                    expiry: c.payload().exp.as_ref().map(|t| *t.as_ref()),
+                    not_before: c.payload().nbf.as_ref().map(|t| *t.as_ref()),
+                    issued_at: Some(*c.payload().iat.as_ref()),
                     delegation: d,
                 }
             }

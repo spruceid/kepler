@@ -36,9 +36,9 @@ pub struct Revocation(pub KeplerRevocation, pub Vec<u8>);
 
 #[derive(Debug)]
 pub enum Event {
-    Invocation(Invocation),
-    Delegation(Delegation),
-    Revocation(Revocation),
+    Invocation(Box<Invocation>),
+    Delegation(Box<Delegation>),
+    Revocation(Box<Revocation>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,23 +65,17 @@ pub fn epoch_hash(
         .iter()
         .map(|e| {
             hash(match e {
-                Event::Invocation(Invocation(_, s, _)) => s,
-                Event::Delegation(Delegation(_, s)) => s,
-                Event::Revocation(Revocation(_, s)) => s,
+                Event::Invocation(i) => &i.1,
+                Event::Delegation(d) => &d.1,
+                Event::Revocation(r) => &r.1,
             })
         })
         .collect::<Vec<_>>();
     Ok((
         hash(&serde_ipld_dagcbor::to_vec(&Epoch {
             seq,
-            parents: parents
-                .iter()
-                .map(|h| Ok(Cid::new_v1(0x55, Code::Blake3_256.wrap(h.as_ref())?)))
-                .collect::<Result<Vec<Cid>, MultihashError>>()?,
-            events: event_hashes
-                .iter()
-                .map(|h| Ok(Cid::new_v1(0x55, Code::Blake3_256.wrap(h.as_ref())?)))
-                .collect::<Result<Vec<Cid>, MultihashError>>()?,
+            parents: parents.iter().map(|h| h.to_cid(0x55)).collect(),
+            events: event_hashes.iter().map(|h| h.to_cid(0x55)).collect(),
         })?),
         event_hashes,
     ))

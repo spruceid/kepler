@@ -183,9 +183,7 @@ pub async fn process<C: ConnectionTrait>(
     let d_info = util::DelegationInfo::try_from(d).map_err(DelegationError::ParameterExtraction)?;
     validate(db, root, orbit, &d_info).await?;
 
-    Ok(save(db, orbit, d_info, ser, seq, epoch, epoch_seq)
-        .await?
-        .into())
+    Ok(save(db, orbit, d_info, ser, seq, epoch, epoch_seq).await?)
 }
 
 // verify signatures and time
@@ -290,9 +288,9 @@ async fn save<C: ConnectionTrait>(
     // save delegation
     Entity::insert(ActiveModel::from(Model {
         seq,
-        epoch_id: epoch.into(),
+        epoch_id: epoch,
         epoch_seq,
-        id: hash.clone(),
+        id: hash,
         delegator: delegation.delegator,
         delegatee: delegation.delegate,
         expiry: delegation.expiry,
@@ -307,7 +305,7 @@ async fn save<C: ConnectionTrait>(
     // save abilities
     for ab in delegation.capabilities {
         abilities::Entity::insert(abilities::ActiveModel::from(abilities::Model {
-            delegation: hash.clone(),
+            delegation: hash,
             resource: ab.resource,
             ability: ab.action,
             caveats: Default::default(),
@@ -320,7 +318,7 @@ async fn save<C: ConnectionTrait>(
     for parent in delegation.parents {
         parent_delegations::Entity::insert(parent_delegations::ActiveModel::from(
             parent_delegations::Model {
-                child: hash.clone(),
+                child: hash,
                 parent: parent.into(),
                 orbit: orbit.to_string(),
             },
@@ -346,7 +344,6 @@ async fn save_actor<C: ConnectionTrait>(id: String, orbit: String, db: &C) -> Re
         Err(DbErr::RecordNotInserted) => (),
         r => {
             r?;
-            ()
         }
     };
     Ok(())

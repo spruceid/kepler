@@ -79,7 +79,7 @@ impl From<Multihash> for Hash {
 
 impl From<Cid> for Hash {
     fn from(value: Cid) -> Self {
-        Self((*value.hash()).into())
+        Self(*value.hash())
     }
 }
 

@@ -150,7 +150,7 @@ async fn validate<C: ConnectionTrait>(
         };
 
         let mut parent_abilities = Vec::new();
-        let now = time.unwrap_or_else(|| OffsetDateTime::now_utc());
+        let now = time.unwrap_or_else(OffsetDateTime::now_utc);
         for parent in parents {
             // check parent's delegatee is invoker
             if parent.delegatee != invocation.invoker {
@@ -199,7 +199,7 @@ async fn save<C: ConnectionTrait>(
     parameters: Option<Operation>,
 ) -> Result<Hash, Error> {
     let hash = crate::hash::hash(&serialization);
-    let issued_at = time.unwrap_or_else(|| OffsetDateTime::now_utc());
+    let issued_at = time.unwrap_or_else(OffsetDateTime::now_utc);
 
     Entity::insert(ActiveModel::from(Model {
         seq,

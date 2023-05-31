@@ -132,19 +132,19 @@ pub async fn process<C: ConnectionTrait>(
                 .find_related(actor::Entity)
                 .one(db)
                 .await?
-                .ok_or_else(|| RevocationError::MissingParents)?;
+                .ok_or(RevocationError::MissingParents)?;
 
             if delegatee.id != r_info.revoker {
-                return Err(RevocationError::UnauthorizedRevoker(delegatee.id.clone()).into());
+                return Err(RevocationError::UnauthorizedRevoker(delegatee.id).into());
             };
         }
     };
 
     Entity::insert(ActiveModel::from(Model {
         seq,
-        epoch_id: epoch.into(),
+        epoch_id: epoch,
         epoch_seq,
-        id: hash.into(),
+        id: hash,
         serialization,
         revoker: r_info.revoker,
         revoked: (*r_info.revoked.hash()).into(),

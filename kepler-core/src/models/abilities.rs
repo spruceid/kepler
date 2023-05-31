@@ -42,7 +42,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 impl From<Caveats> for Value {
     fn from(source: Caveats) -> Self {
-        Value::Json(serde_json::to_value(&source).ok().map(Box::new))
+        Value::Json(serde_json::to_value(source).ok().map(Box::new))
     }
 }
 

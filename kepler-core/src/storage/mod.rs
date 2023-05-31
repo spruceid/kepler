@@ -63,7 +63,7 @@ pub trait ImmutableStaging: Send + Sync {
     type Error: StdError + Send + Sync;
     type Writable: futures::io::AsyncWrite + Send + Sync;
     async fn stage(&self) -> Result<HashBuffer<Self::Writable>, Self::Error> {
-        self.get_staging_buffer().await.map(|w| HashBuffer::new(w))
+        self.get_staging_buffer().await.map(HashBuffer::new)
     }
     async fn get_staging_buffer(&self) -> Result<Self::Writable, Self::Error>;
 }

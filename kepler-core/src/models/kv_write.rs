@@ -51,7 +51,7 @@ impl ActiveModelBehavior for ActiveModel {}
 
 impl From<Metadata> for Value {
     fn from(source: Metadata) -> Self {
-        Value::Json(serde_json::to_value(&source).ok().map(Box::new))
+        Value::Json(serde_json::to_value(source).ok().map(Box::new))
     }
 }
 
