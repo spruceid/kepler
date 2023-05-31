@@ -16,9 +16,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub seq: u32,
+    pub seq: i64,
     pub epoch_id: Hash,
-    pub epoch_seq: u32,
+    pub epoch_seq: i64,
 
     pub invoker: String,
     pub issued_at: OffsetDateTime,
@@ -90,9 +90,9 @@ pub async fn process<C: ConnectionTrait>(
     orbit: &str,
     db: &C,
     invocation: Invocation,
-    seq: u32,
+    seq: i64,
     epoch: Hash,
-    epoch_seq: u32,
+    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Invocation(i, serialized, parameters) = invocation;
     verify(&i).await?;
@@ -191,7 +191,7 @@ async fn save<C: ConnectionTrait>(
     invocation: util::InvocationInfo,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
-    event_version: (u32, Hash, u32),
+    event_version: (i64, Hash, i64),
     parameters: Option<Operation>,
 ) -> Result<Hash, Error> {
     let hash = crate::hash::hash(&serialization);

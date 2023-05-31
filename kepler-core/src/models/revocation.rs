@@ -12,9 +12,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub seq: u32,
+    pub seq: i64,
     pub epoch_id: Hash,
-    pub epoch_seq: u32,
+    pub epoch_seq: i64,
 
     pub revoker: String,
     pub revoked: Hash,
@@ -90,9 +90,9 @@ pub async fn process<C: ConnectionTrait>(
     orbit: &str,
     db: &C,
     revocation: Revocation,
-    seq: u32,
+    seq: i64,
     epoch: Hash,
-    epoch_seq: u32,
+    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Revocation(r, serialization) = revocation;
 

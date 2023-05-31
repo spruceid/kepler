@@ -143,7 +143,7 @@ impl<B, S> Orbit<B, S> {
     pub async fn metadata(
         &self,
         key: &str,
-        version: Option<(u32, Hash)>,
+        version: Option<(i64, Hash)>,
     ) -> anyhow::Result<Option<Metadata>> {
         match self.get_kv_entity(key, version).await? {
             Some(entry) => Ok(Some(entry.metadata)),
@@ -154,7 +154,7 @@ impl<B, S> Orbit<B, S> {
     async fn get_kv_entity(
         &self,
         key: &str,
-        version: Option<(u32, Hash)>,
+        version: Option<(i64, Hash)>,
     ) -> Result<Option<kv_write::Model>, sea_orm::DbErr> {
         use sea_orm::{entity::prelude::*, query::*};
         Ok(if let Some((seq, epoch)) = version {
@@ -190,7 +190,7 @@ where
     pub async fn get(
         &self,
         key: &str,
-        version: Option<(u32, Hash)>,
+        version: Option<(i64, Hash)>,
     ) -> anyhow::Result<Option<(Content<B::Readable>, Metadata)>> {
         // get content id for key from db
         let entry = match self.get_kv_entity(key, version).await? {

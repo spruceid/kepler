@@ -12,9 +12,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
 
-    pub seq: u32,
+    pub seq: i64,
     pub epoch_id: Hash,
-    pub epoch_seq: u32,
+    pub epoch_seq: i64,
 
     pub delegator: String,
     pub delegatee: String,
@@ -173,9 +173,9 @@ pub async fn process<C: ConnectionTrait>(
     orbit: &str,
     db: &C,
     delegation: Delegation,
-    seq: u32,
+    seq: i64,
     epoch: Hash,
-    epoch_seq: u32,
+    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Delegation(d, ser) = delegation;
     verify(&d).await?;
@@ -276,9 +276,9 @@ async fn save<C: ConnectionTrait>(
     orbit: &str,
     delegation: util::DelegationInfo,
     serialization: Vec<u8>,
-    seq: u32,
+    seq: i64,
     epoch: Hash,
-    epoch_seq: u32,
+    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     save_actor(delegation.delegate.clone(), orbit.to_string(), db).await?;
     save_actor(delegation.delegator.clone(), orbit.to_string(), db).await?;

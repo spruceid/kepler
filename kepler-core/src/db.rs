@@ -25,7 +25,7 @@ pub struct OrbitDatabase {
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub rev: Hash,
-    pub seq: u32,
+    pub seq: i64,
     pub committed_events: Vec<Hash>,
     pub consumed_epochs: Vec<Hash>,
 }
@@ -65,7 +65,7 @@ impl OrbitDatabase {
         })
     }
 
-    pub async fn get_max_seq(&self) -> Result<u32, DbErr> {
+    pub async fn get_max_seq(&self) -> Result<i64, DbErr> {
         max_seq(&self.conn, &self.orbit.to_string()).await
     }
 
@@ -114,7 +114,7 @@ impl OrbitDatabase {
                         *d,
                         seq,
                         epoch_id,
-                        epoch_seq as u32,
+                        epoch_seq as i64,
                     )
                     .await?
                 }
@@ -126,7 +126,7 @@ impl OrbitDatabase {
                         *i,
                         seq,
                         epoch_id,
-                        epoch_seq as u32,
+                        epoch_seq as i64,
                     )
                     .await?
                 }
@@ -138,7 +138,7 @@ impl OrbitDatabase {
                         *r,
                         seq,
                         epoch_id,
-                        epoch_seq as u32,
+                        epoch_seq as i64,
                     )
                     .await?
                 }
@@ -262,7 +262,7 @@ impl From<revocation::Error> for TxError {
     }
 }
 
-async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<u32, DbErr> {
+async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<i64, DbErr> {
     Ok(epoch::Entity::find()
         .filter(epoch::Column::Orbit.eq(orbit_id))
         .select_only()

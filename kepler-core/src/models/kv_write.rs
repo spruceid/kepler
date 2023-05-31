@@ -10,7 +10,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
     #[sea_orm(primary_key)]
-    pub seq: u32,
+    pub seq: i64,
     #[sea_orm(primary_key)]
     pub epoch_id: Hash,
 

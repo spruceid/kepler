@@ -27,7 +27,7 @@ pub enum Operation {
     },
     KvDelete {
         key: String,
-        version: Option<(u32, Hash)>,
+        version: Option<(i64, Hash)>,
     },
 }
 
@@ -43,7 +43,7 @@ pub enum Event {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Epoch {
-    pub seq: u32,
+    pub seq: i64,
     pub parents: Vec<Cid>,
     pub events: Vec<Cid>,
 }
@@ -57,7 +57,7 @@ pub enum HashError {
 }
 
 pub fn epoch_hash(
-    seq: u32,
+    seq: i64,
     events: &[Event],
     parents: &[Hash],
 ) -> Result<(Hash, Vec<Hash>), HashError> {
