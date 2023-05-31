@@ -323,10 +323,8 @@ async fn load_orbit_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::{IndexStorage, LocalIndexStorage},
-        BlockConfig, FileSystemConfig,
-    };
+    use crate::{BlockConfig, BlockStage, FileSystemConfig};
+    use kepler_core::{sea_orm, storage::memory::MemoryStaging};
     use kepler_lib::resolver::DID_METHODS;
     use kepler_lib::ssi::{
         did::{Source, DIDURL},
@@ -335,18 +333,17 @@ mod tests {
     use std::convert::TryInto;
     use tempfile::{tempdir, TempDir};
 
-    async fn op(md: Manifest) -> anyhow::Result<(Orbit<BlockStores>, TempDir)> {
+    async fn op(md: Manifest) -> anyhow::Result<(Orbit<BlockStores, BlockStage>, TempDir)> {
         let dir = tempdir()?;
         Ok((
             Orbit::create(
-                &OrbitPeerConfigBuilder::<BlockConfig, IndexStorage>::default()
-                    .identity(Keypair::generate())
+                &OrbitPeerConfigBuilder::<BlockConfig, BlockStage>::default()
+                    .identity(Keypair::generate_ed25519())
                     .manifest(md)
-                    .blocks(BlockConfig::B(FileSystemConfig::new(dir.path())))
-                    .index(IndexStorage::Local(LocalIndexStorage {
-                        path: dir.path().into(),
-                    }))
+                    .store(BlockConfig::B(FileSystemConfig::new(dir.path())))
+                    .staging(BlockStage::B(MemoryStaging))
                     .build()?,
+                sea_orm::Database::connect("sqlite::memory:").await?,
             )
             .await?,
             dir,
@@ -370,6 +367,6 @@ mod tests {
 
         let md = Manifest::resolve_dyn(&oid, None).await.unwrap().unwrap();
 
-        let (orbit, dir) = op(md).await.unwrap();
+        let (_orbit, _dir) = op(md).await.unwrap();
     }
 }

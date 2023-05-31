@@ -46,8 +46,8 @@ impl_fromreq!(RevocationInfo, KeplerRevocation, "Authorization");
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use kepler_lib::{
+        libipld::cid::Cid,
         resolver::DID_METHODS,
         ssi::{
             did::{Document, Source},
@@ -111,7 +111,7 @@ mod test {
         pub header: Header,
     }
     #[test]
-    async fn basic() -> Result<()> {
+    async fn basic() -> anyhow::Result<()> {
         Ok(())
     }
 }
