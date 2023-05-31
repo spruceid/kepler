@@ -334,8 +334,8 @@ async fn invoke(
 ) -> Outcome<(Orbit<BlockStores, BlockStage>, Commit), anyhow::Error> {
     let orbit = match load_orbit(
         orbit,
-        &config.storage.blocks.clone().into(),
-        &config.storage.staging.clone().into(),
+        &config.storage.blocks.clone(),
+        &config.storage.staging.clone(),
         db,
         relay,
     )
@@ -402,7 +402,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                         "read" => invoke(
                             resource.orbit().clone(),
                             token,
-                            ser.into(),
+                            ser,
                             None,
                             &config,
                             relay,
@@ -429,7 +429,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                             "del" => invoke(
                                 resource.orbit().clone(),
                                 token,
-                                ser.into(),
+                                ser,
                                 Some(Operation::KvDelete {
                                     key: key.clone(),
                                     version: None,
@@ -445,7 +445,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                             "get" => invoke(
                                 resource.orbit().clone(),
                                 token,
-                                ser.into(),
+                                ser,
                                 None,
                                 &config,
                                 relay,
@@ -456,7 +456,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                             "list" => invoke(
                                 resource.orbit().clone(),
                                 token,
-                                ser.into(),
+                                ser,
                                 None,
                                 &config,
                                 relay,
@@ -469,7 +469,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                             "metadata" => invoke(
                                 resource.orbit().clone(),
                                 token,
-                                ser.into(),
+                                ser,
                                 None,
                                 &config,
                                 relay,
@@ -483,8 +483,8 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                 Outcome::Success(ObjectHeaders(metadata)) => {
                                     let orbit = match load_orbit(
                                         resource.orbit().clone(),
-                                        &config.storage.blocks.clone().into(),
-                                        &config.storage.staging.clone().into(),
+                                        &config.storage.blocks.clone(),
+                                        &config.storage.staging.clone(),
                                         &db,
                                         relay,
                                     )
@@ -498,7 +498,7 @@ impl<'l> FromRequest<'l> for InvokeAuthWrapper<BlockStores, BlockStage> {
                                         orbit,
                                         inv: token,
                                         key,
-                                        ser: ser.into(),
+                                        ser,
                                         metadata,
                                     })))
                                 }

@@ -100,7 +100,7 @@ impl ProviderUtils for FileSystemConfig {
     async fn relay_key_pair(&self) -> Result<Keypair, Self::Error> {
         let path = self.path.join("kp");
         match read(&path).await {
-            Ok(mut k) => Ok(Keypair::from_protobuf_encoding(&mut k)?),
+            Ok(k) => Ok(Keypair::from_protobuf_encoding(&k)?),
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let k = Keypair::generate_ed25519();
                 write(&path, k.to_protobuf_encoding()?).await?;
@@ -111,7 +111,7 @@ impl ProviderUtils for FileSystemConfig {
     }
     async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Keypair>, Self::Error> {
         match read(self.path.join(orbit.get_cid().to_string()).join("kp")).await {
-            Ok(mut k) => Ok(Some(Keypair::from_protobuf_encoding(&mut k)?)),
+            Ok(k) => Ok(Some(Keypair::from_protobuf_encoding(&k)?)),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }

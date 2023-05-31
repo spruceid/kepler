@@ -147,7 +147,7 @@ impl<B, S> Orbit<B, S> {
     ) -> anyhow::Result<Option<Metadata>> {
         match self.get_kv_entity(key, version).await? {
             Some(entry) => Ok(Some(entry.metadata)),
-            None => return Ok(None),
+            None => Ok(None),
         }
     }
 
@@ -197,7 +197,7 @@ where
             Some(entry) => entry,
             None => return Ok(None),
         };
-        let content = match self.store.read(&entry.value.try_into()?).await? {
+        let content = match self.store.read(&entry.value).await? {
             Some(content) => content,
             None => return Err(anyhow!("content indexed but not found")),
         };

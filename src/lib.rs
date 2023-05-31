@@ -46,11 +46,11 @@ pub type BlockStores = Either<S3BlockStore, FileSystemStore>;
 pub type BlockConfig = Either<S3BlockConfig, FileSystemConfig>;
 pub type BlockStage = Either<TempFileSystemStage, MemoryStaging>;
 
-impl Into<BlockConfig> for BlockStorage {
-    fn into(self) -> BlockConfig {
-        match self {
-            Self::S3(s) => BlockConfig::A(s),
-            Self::Local(l) => BlockConfig::B(l),
+impl From<BlockStorage> for BlockConfig {
+    fn from(c: BlockStorage) -> BlockConfig {
+        match c {
+            BlockStorage::S3(s) => Self::A(s),
+            BlockStorage::Local(l) => Self::B(l),
         }
     }
 }

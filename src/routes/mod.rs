@@ -260,7 +260,7 @@ where
                     ser,
                     Some(Operation::KvWrite {
                         key,
-                        value: stage.hash().into(),
+                        value: stage.hash(),
                         metadata,
                     }),
                 ))
