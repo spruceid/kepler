@@ -19,8 +19,8 @@ use kepler_lib::{
     resource::{OrbitId, ResourceId},
 };
 use libp2p::{
-    core::{Multiaddr, PeerId},
-    identity::ed25519::Keypair as Ed25519Keypair,
+    core::Multiaddr,
+    identity::{Keypair, PeerId},
 };
 use rocket::{
     futures::future::try_join_all,
@@ -173,7 +173,7 @@ impl<'l> FromRequest<'l> for DelegateAuthWrapper {
                             (Some(p), Ok(None)) => {
                                 let keys = match req
                                     .rocket()
-                                    .state::<RwLock<HashMap<PeerId, Ed25519Keypair>>>()
+                                    .state::<RwLock<HashMap<PeerId, Keypair>>>()
                                 {
                                     Some(k) => k,
                                     _ => {

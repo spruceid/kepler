@@ -5,8 +5,7 @@ use kepler_lib::{
     libipld::Cid,
 };
 use libp2p::{
-    core::PeerId,
-    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
+    identity::{Keypair, PeerId},
     multiaddr::Protocol,
 };
 use rocket::{
@@ -108,10 +107,10 @@ pub fn relay_addr(relay: &State<RelayNode>) -> String {
 
 #[get("/peer/generate")]
 pub fn open_host_key(
-    s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
+    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
-    let keypair = Ed25519Keypair::generate();
-    let id = PublicKey::Ed25519(keypair.public()).to_peer_id();
+    let keypair = Keypair::generate_ed25519();
+    let id = keypair.public().to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);

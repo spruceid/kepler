@@ -31,10 +31,7 @@ use kepler_core::{
     sea_orm_migration::MigratorTrait,
     storage::{either::Either, memory::MemoryStaging},
 };
-use libp2p::{
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    PeerId,
-};
+use libp2p::{identity::Keypair, PeerId};
 use orbit::ProviderUtils;
 use relay::RelayNode;
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
@@ -92,7 +89,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
+    let relay_node = RelayNode::new(kepler_config.relay.port, kp).await?;
     let db = Database::connect(&kepler_config.storage.database).await?;
     Migrator::up(&db, None).await?;
 
@@ -113,7 +110,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         })
         .manage(db)
         .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

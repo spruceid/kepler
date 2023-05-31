@@ -3,10 +3,7 @@ use std::{
     future::{ready, Ready},
 };
 
-use libp2p::{
-    core::{Endpoint, PeerId},
-    noise::NoiseError,
-};
+use libp2p::{core::Endpoint, identity::PeerId, noise::Error as NoiseError};
 
 pub fn auth_mapper<A, I>(
     i: I,

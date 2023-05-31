@@ -15,7 +15,7 @@ use futures::{
 };
 use kepler_core::{hash::Hash, storage::*};
 use kepler_lib::resource::OrbitId;
-use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use libp2p::identity::{DecodingError, Keypair};
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -88,7 +88,7 @@ impl ProviderUtils for S3BlockConfig {
     async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
         self.key_pair(orbit).await.map(|o| o.is_some())
     }
-    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
+    async fn relay_key_pair(&self) -> Result<Keypair, Self::Error> {
         let client = new_client(self);
         match client
             .get_object()
@@ -97,7 +97,7 @@ impl ProviderUtils for S3BlockConfig {
             .send()
             .await
         {
-            Ok(o) => Ok(Ed25519Keypair::decode(
+            Ok(o) => Ok(Keypair::from_protobuf_encoding(
                 &mut o.body.collect().await?.into_bytes().to_vec(),
             )?),
             Err(SdkError::ServiceError {
@@ -108,12 +108,12 @@ impl ProviderUtils for S3BlockConfig {
                     },
                 ..
             }) => {
-                let kp = Ed25519Keypair::generate();
+                let kp = Keypair::generate_ed25519();
                 client
                     .put_object()
                     .bucket(&self.bucket)
                     .key("kp")
-                    .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
+                    .body(ByteStream::new(SdkBody::from(kp.to_protobuf_encoding()?)))
                     .send()
                     .await?;
                 Ok(kp)
@@ -121,7 +121,7 @@ impl ProviderUtils for S3BlockConfig {
             Err(e) => Err(e.into()),
         }
     }
-    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
+    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Keypair>, Self::Error> {
         match new_client(self)
             .get_object()
             .bucket(&self.bucket)
@@ -129,7 +129,7 @@ impl ProviderUtils for S3BlockConfig {
             .send()
             .await
         {
-            Ok(o) => Ok(Some(Ed25519Keypair::decode(
+            Ok(o) => Ok(Some(Keypair::from_protobuf_encoding(
                 &mut o.body.collect().await?.into_bytes().to_vec(),
             )?)),
             Err(SdkError::ServiceError {
@@ -143,13 +143,13 @@ impl ProviderUtils for S3BlockConfig {
             Err(e) => Err(e.into()),
         }
     }
-    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
+    async fn setup_orbit(&self, orbit: &OrbitId, key: &Keypair) -> Result<(), Self::Error> {
         let client = new_client(self);
         client
             .put_object()
             .bucket(&self.bucket)
             .key(format!("{}/keypair", orbit.get_cid()))
-            .body(ByteStream::new(SdkBody::from(key.encode().to_vec())))
+            .body(ByteStream::new(SdkBody::from(key.to_protobuf_encoding()?)))
             .send()
             .await?;
         client

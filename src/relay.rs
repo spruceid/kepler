@@ -1,5 +1,8 @@
 use anyhow::Result;
-use libp2p::core::{identity::Keypair, multiaddr::multiaddr, Multiaddr, PeerId};
+use libp2p::{
+    core::{multiaddr::multiaddr, Multiaddr},
+    identity::{Keypair, PeerId},
+};
 
 pub struct RelayNode {
     pub port: u16,
