@@ -1,6 +1,7 @@
 mod db;
 pub mod events;
 pub mod hash;
+pub mod manifest;
 pub mod migrations;
 pub mod models;
 pub mod relationships;

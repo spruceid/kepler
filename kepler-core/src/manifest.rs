@@ -1,12 +1,10 @@
-use kepler_lib::libipld::cid::{multibase::Base, Cid, Error as CidError};
-use libp2p::{Multiaddr, PeerId};
-
 use kepler_lib::resource::OrbitId;
 use kepler_lib::ssi::{
     did::{Document, RelativeDIDURL, Service, VerificationMethod, DIDURL},
     did_resolve::DIDResolver,
     one_or_many::OneOrMany,
 };
+use libp2p::{Multiaddr, PeerId};
 use std::{convert::TryFrom, str::FromStr};
 use thiserror::Error;
 
@@ -41,15 +39,6 @@ impl Manifest {
     /// The set of [Verification Methods](https://www.w3.org/TR/did-core/#verification-methods) who are authorized to invoke any capability.
     pub fn invokers(&self) -> &[DIDURL] {
         &self.invokers
-    }
-
-    /// Creates a Kepler URI for a given CID in the IPFS Store
-    pub fn make_uri(&self, cid: &Cid) -> Result<String, CidError> {
-        Ok(format!(
-            "kepler:{}/ipfs/{}",
-            self.id(),
-            cid.to_string_of_base(Base::Base58Btc)?
-        ))
     }
 
     pub async fn resolve_dyn(
