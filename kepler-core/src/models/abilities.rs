@@ -13,8 +13,6 @@ pub struct Model {
     pub ability: String,
     #[sea_orm(primary_key)]
     pub delegation: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 
     pub caveats: Caveats,
 }
@@ -26,8 +24,8 @@ pub struct Caveats(pub BTreeMap<String, serde_json::Value>);
 pub enum Relation {
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "(Column::Delegation, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
+        from = "Column::Delegation",
+        to = "delegation::Column::Id"
     )]
     Delegation,
 }

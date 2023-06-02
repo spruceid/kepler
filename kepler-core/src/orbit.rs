@@ -1,5 +1,5 @@
 use crate::{
-    db::{Commit, OrbitDatabase, TxError},
+    db::{get_kv_entity, Commit, OrbitDatabase, TxError},
     events::*,
     hash::Hash,
     manifest::Manifest,
@@ -13,7 +13,7 @@ use futures::io::AsyncRead;
 use kepler_lib::authorization::{
     EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
 };
-use sea_orm::{DbErr, TransactionTrait};
+use sea_orm::{ConnectionTrait, DbErr, TransactionTrait};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -27,8 +27,8 @@ pub struct OrbitPeer<B, S, C> {
 impl<B, S, C> OrbitPeer<B, S, C> {
     pub(crate) fn new(manifest: Manifest, conn: C, store: B, staging: S) -> Self {
         Self {
-            manifest,
             capabilities: OrbitDatabase::wrap(conn, manifest.id().clone()),
+            manifest,
             store,
             staging,
         }
@@ -46,107 +46,6 @@ where
     pub async fn revoke(&self, revocation: String) -> Result<Commit, TxError> {
         todo!()
     }
-
-    async fn list(&self, prefix: &str) -> Result<Vec<String>, DbErr> {
-        use sea_orm::{entity::prelude::*, query::*};
-        // get content id for key from db
-        let mut list = kv_write::Entity::find()
-            .filter(
-                Condition::all()
-                    .add(kv_write::Column::Key.starts_with(prefix))
-                    .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
-            )
-            .order_by_desc(kv_write::Column::Seq)
-            .order_by_desc(kv_write::Column::EpochId)
-            .find_also_related(kv_delete::Entity)
-            .filter(kv_delete::Column::InvocationId.is_null())
-            .all(&self.capabilities.readable().await?)
-            .await?
-            .into_iter()
-            .map(|(kv, _)| kv.key)
-            .collect::<Vec<String>>();
-        list.dedup();
-        Ok(list)
-    }
-
-    async fn metadata(
-        &self,
-        key: &str,
-        version: Option<(i64, Hash)>,
-    ) -> Result<Option<Metadata>, DbErr> {
-        match self.get_kv_entity(key, version).await? {
-            Some(entry) => Ok(Some(entry.metadata)),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_kv_entity(
-        &self,
-        key: &str,
-        version: Option<(i64, Hash)>,
-    ) -> Result<Option<kv_write::Model>, DbErr> {
-        use sea_orm::{entity::prelude::*, query::*};
-        Ok(if let Some((seq, epoch)) = version {
-            kv_write::Entity::find_by_id((self.manifest.id().to_string(), seq, epoch))
-                .find_also_related(kv_delete::Entity)
-                .filter(kv_delete::Column::InvocationId.is_null())
-                .one(&self.capabilities.readable().await?)
-                .await?
-                .map(|(kv, _)| kv)
-        } else {
-            kv_write::Entity::find()
-                .filter(
-                    Condition::all()
-                        .add(kv_write::Column::Key.eq(key))
-                        .add(kv_write::Column::Orbit.eq(self.manifest.id().to_string())),
-                )
-                .order_by_desc(kv_write::Column::Seq)
-                .order_by_desc(kv_write::Column::EpochId)
-                .find_also_related(kv_delete::Entity)
-                .filter(kv_delete::Column::InvocationId.is_null())
-                .one(&self.capabilities.readable().await?)
-                .await?
-                .map(|(kv, _)| kv)
-        })
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GetError<B> {
-    #[error("database error: {0}")]
-    Database(#[from] DbErr),
-    #[error("store error")]
-    Store(B),
-    #[error("content indexed but not found")]
-    NotFound,
-}
-
-impl<B, S, C> OrbitPeer<B, S, C>
-where
-    C: TransactionTrait,
-    B: ImmutableReadStore,
-{
-    async fn get(
-        &self,
-        key: &str,
-        version: Option<(i64, Hash)>,
-    ) -> Result<Option<(Content<B::Readable>, Metadata)>, GetError<B::Error>> {
-        // get content id for key from db
-        let entry = match self.get_kv_entity(key, version).await? {
-            Some(entry) => entry,
-            None => return Ok(None),
-        };
-        let content = match self
-            .store
-            .read(&entry.value)
-            .await
-            .map_err(GetError::Store)?
-        {
-            Some(content) => content,
-            None => return Err(GetError::NotFound),
-        };
-        Ok(Some((content, entry.metadata)))
-    }
 }
 
 pub enum InvocationOutcome<R> {
@@ -159,11 +58,13 @@ pub enum InvocationOutcome<R> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum Error<T: std::error::Error> {
     #[error(transparent)]
     Tx(#[from] TxError),
     #[error(transparent)]
     Encoding(#[from] EncodingError),
+    #[error(transparent)]
+    TryInto(T),
 }
 
 impl<B, S, C> OrbitPeer<B, S, C>
@@ -178,8 +79,49 @@ where
         invocation: String,
         data: Option<(Metadata, R)>,
     ) -> Result<(Commit, InvocationOutcome<B::Readable>), Error> {
+        let (i, ser) = <KeplerInvocation as HeaderEncode>::decode(&invocation)?;
+        let invocation = InvocationInfo::try_from(i)?;
+        let res: ResourceId = invocation.capability.resource.parse()?;
+
+        if let Some((metadata, data)) = data {
+            let mut stage = self.staging.stage().await?;
+        } else {
+        }
         todo!()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum GetError<B> {
+    #[error("database error: {0}")]
+    Database(#[from] DbErr),
+    #[error("store error")]
+    Store(B),
+    #[error("content indexed but not found")]
+    NotFound,
+}
+
+pub(crate) async fn get<C, S>(
+    db: &C,
+    store: &S,
+    orbit: &str,
+    key: &str,
+    version: Option<(i64, Hash)>,
+) -> Result<Option<(Content<S::Readable>, Metadata)>, GetError<S::Error>>
+where
+    C: ConnectionTrait,
+    S: ImmutableReadStore,
+{
+    // get content id for key from db
+    let entry = match get_kv_entity(db, orbit, key, version).await? {
+        Some(entry) => entry,
+        None => return Ok(None),
+    };
+    let content = match store.read(&entry.value).await.map_err(GetError::Store)? {
+        Some(content) => content,
+        None => return Err(GetError::NotFound),
+    };
+    Ok(Some((content, entry.metadata)))
 }
 
 #[cfg(test)]

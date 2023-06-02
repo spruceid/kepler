@@ -7,10 +7,8 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 
     pub seq: i64,
     pub epoch_id: Hash,
@@ -29,21 +27,21 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "(Column::Delegator, Column::Orbit)",
-        to = "(actor::Column::Id, actor::Column::Orbit)"
+        from = "Column::Delegator",
+        to = "actor::Column::Id"
     )]
     Delegator,
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "(Column::Delegatee, Column::Orbit)",
-        to = "(actor::Column::Id, actor::Column::Orbit)"
+        from = "Column::Delegatee",
+        to = "actor::Column::Id"
     )]
     Delegatee,
     // inverse relation, delegations belong to epochs
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "(Column::EpochId, Column::Orbit)",
-        to = "(epoch::Column::Id, epoch::Column::Orbit)"
+        from = "Column::EpochId",
+        to = "epoch::Column::Id"
     )]
     Epoch,
     #[sea_orm(has_many = "revocation::Entity")]

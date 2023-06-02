@@ -1,12 +1,17 @@
 use crate::{
+    db::Commit,
     manifest::{Manifest, ResolutionError},
     migrations::Migrator,
-    orbit::OrbitPeer,
-    storage::StorageConfig,
+    orbit::{InvocationOutcome, OrbitPeer},
+    storage::{
+        ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore,
+        StorageConfig,
+    },
 };
 use kepler_lib::resource::OrbitId;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr};
 use sea_orm_migration::MigratorTrait;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct OrbitPeerManager<B, S> {
@@ -167,5 +172,29 @@ impl<B, S> OrbitPeerManager<B, S> {
             .await
             .map_err(InitError::Staging)?;
         Ok(OrbitPeer::new(manifest, &self.database, store, staging))
+    }
+}
+
+impl<B, S> OrbitPeerManager<B, S> {
+    pub async fn delegate(&self, delegation: String) -> Result<HashMap<OrbitId, Commit>, ()> {
+        todo!()
+    }
+
+    pub async fn revoke(&self, revocation: String) -> Result<HashMap<OrbitId, Commit>, ()> {
+        todo!()
+    }
+
+    pub async fn invoke<BO, SO>(
+        &self,
+        invocation: String,
+    ) -> Result<HashMap<OrbitId, (Commit, InvocationOutcome<BO::Readable>)>, ()>
+    where
+        B: StorageConfig<BO>,
+        S: StorageConfig<SO>,
+        BO: ImmutableReadStore + ImmutableWriteStore<SO> + ImmutableDeleteStore,
+        SO: ImmutableStaging,
+        SO::Writable: 'static,
+    {
+        todo!()
     }
 }

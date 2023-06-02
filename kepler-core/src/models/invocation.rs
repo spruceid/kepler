@@ -11,10 +11,8 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invocation")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 
     pub seq: i64,
     pub epoch_id: Hash,
@@ -32,15 +30,15 @@ pub enum Relation {
     // inverse relation, invocations belong to invokers
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "(Column::Invoker, Column::Orbit)",
-        to = "(actor::Column::Id, actor::Column::Orbit)"
+        from = "Column::Invoker",
+        to = "actor::Column::Id"
     )]
     Invoker,
     // inverse relation, invocations belong to epochs
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "(Column::EpochId, Column::Orbit)",
-        to = "(epoch::Column::Id, epoch::Column::Orbit)"
+        from = "Column::EpochId",
+        to = "epoch::Column::Id"
     )]
     Epoch,
 }

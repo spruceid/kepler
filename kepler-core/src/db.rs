@@ -136,81 +136,12 @@ where
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
-        let orbit = self.orbit.to_string();
 
-        let seq = max_seq(&tx, &orbit).await? + 1;
-        let parents = most_recent(&tx, &orbit).await?;
-
-        let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
-
-        epoch::Entity::insert(epoch::ActiveModel::from(epoch::Model {
-            id: epoch_id,
-            seq,
-            orbit: orbit.clone(),
-        }))
-        .exec(&tx)
-        .await?;
-
-        for parent in parents.iter() {
-            epochs::Entity::insert(epochs::ActiveModel::from(epochs::Model {
-                parent: *parent,
-                child: epoch_id,
-                orbit: orbit.clone(),
-            }))
-            .exec(&tx)
-            .await?;
-        }
-
-        for (epoch_seq, event) in events.into_iter().enumerate() {
-            match event {
-                // dropping tx rolls back changes, so fine to '?' here
-                Event::Delegation(d) => {
-                    delegation::process(
-                        &self.root,
-                        &orbit,
-                        &tx,
-                        *d,
-                        seq,
-                        epoch_id,
-                        epoch_seq as i64,
-                    )
-                    .await?
-                }
-                Event::Invocation(i) => {
-                    invocation::process(
-                        &self.root,
-                        &orbit,
-                        &tx,
-                        *i,
-                        seq,
-                        epoch_id,
-                        epoch_seq as i64,
-                    )
-                    .await?
-                }
-                Event::Revocation(r) => {
-                    revocation::process(
-                        &self.root,
-                        &orbit,
-                        &tx,
-                        *r,
-                        seq,
-                        epoch_id,
-                        epoch_seq as i64,
-                    )
-                    .await?
-                }
-            };
-        }
+        let commit = transact(&tx, &self.orbit, &self.root, events).await?;
 
         tx.commit().await?;
 
-        Ok(Commit {
-            rev: epoch_id,
-            seq,
-            committed_events: event_ids,
-            consumed_epochs: parents,
-        })
+        Ok(commit)
     }
 
     pub async fn delegate(&self, delegation: Delegation) -> Result<Commit, TxError> {
@@ -263,6 +194,60 @@ impl From<revocation::Error> for TxError {
     }
 }
 
+pub(crate) async fn transact<C: ConnectionTrait>(
+    db: &C,
+    orbit_id: &OrbitId,
+    root: &str,
+    events: Vec<Event>,
+) -> Result<Commit, TxError> {
+    let orbit = orbit_id.to_string();
+
+    let seq = max_seq(db, &orbit).await? + 1;
+    let parents = most_recent(db, &orbit).await?;
+
+    let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
+
+    epoch::Entity::insert(epoch::ActiveModel::from(epoch::Model {
+        id: epoch_id,
+        seq,
+        orbit: orbit.clone(),
+    }))
+    .exec(db)
+    .await?;
+
+    for parent in parents.iter() {
+        epochs::Entity::insert(epochs::ActiveModel::from(epochs::Model {
+            parent: *parent,
+            child: epoch_id,
+            orbit: orbit.clone(),
+        }))
+        .exec(db)
+        .await?;
+    }
+
+    for (epoch_seq, event) in events.into_iter().enumerate() {
+        match event {
+            // dropping db rolls back changes, so fine to '?' here
+            Event::Delegation(d) => {
+                delegation::process(root, &orbit, db, *d, seq, epoch_id, epoch_seq as i64).await?
+            }
+            Event::Invocation(i) => {
+                invocation::process(root, &orbit, db, *i, seq, epoch_id, epoch_seq as i64).await?
+            }
+            Event::Revocation(r) => {
+                revocation::process(root, &orbit, db, *r, seq, epoch_id, epoch_seq as i64).await?
+            }
+        };
+    }
+
+    Ok(Commit {
+        rev: epoch_id,
+        seq,
+        committed_events: event_ids,
+        consumed_epochs: parents,
+    })
+}
+
 async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<i64, DbErr> {
     Ok(epoch::Entity::find()
         .filter(epoch::Column::Orbit.eq(orbit_id))
@@ -287,6 +272,73 @@ async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<H
         .into_tuple()
         .all(db)
         .await
+}
+
+pub(crate) async fn list<C: ConnectionTrait>(
+    db: &C,
+    orbit: &str,
+    prefix: &str,
+) -> Result<Vec<String>, DbErr> {
+    // get content id for key from db
+    let mut list = kv_write::Entity::find()
+        .filter(
+            Condition::all()
+                .add(kv_write::Column::Key.starts_with(prefix))
+                .add(kv_write::Column::Orbit.eq(orbit)),
+        )
+        .order_by_desc(kv_write::Column::Seq)
+        .order_by_desc(kv_write::Column::EpochId)
+        .find_also_related(kv_delete::Entity)
+        .filter(kv_delete::Column::InvocationId.is_null())
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|(kv, _)| kv.key)
+        .collect::<Vec<String>>();
+    list.dedup();
+    Ok(list)
+}
+
+pub(crate) async fn metadata<C: ConnectionTrait>(
+    db: &C,
+    orbit: &str,
+    key: &str,
+    version: Option<(i64, Hash)>,
+) -> Result<Option<kv_write::Metadata>, DbErr> {
+    match get_kv_entity(db, orbit, key, version).await? {
+        Some(entry) => Ok(Some(entry.metadata)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) async fn get_kv_entity<C: ConnectionTrait>(
+    db: &C,
+    orbit: &str,
+    key: &str,
+    version: Option<(i64, Hash)>,
+) -> Result<Option<kv_write::Model>, DbErr> {
+    Ok(if let Some((seq, epoch)) = version {
+        kv_write::Entity::find_by_id((orbit.to_string(), seq, epoch))
+            .find_also_related(kv_delete::Entity)
+            .filter(kv_delete::Column::InvocationId.is_null())
+            .one(db)
+            .await?
+            .map(|(kv, _)| kv)
+    } else {
+        kv_write::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(kv_write::Column::Key.eq(key))
+                    .add(kv_write::Column::Orbit.eq(orbit)),
+            )
+            .order_by_desc(kv_write::Column::Seq)
+            .order_by_desc(kv_write::Column::EpochId)
+            .find_also_related(kv_delete::Entity)
+            .filter(kv_delete::Column::InvocationId.is_null())
+            .one(db)
+            .await?
+            .map(|(kv, _)| kv)
+    })
 }
 
 #[cfg(test)]

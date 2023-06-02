@@ -20,6 +20,9 @@ use serde_ipld_dagcbor::EncodeError;
 pub struct Delegation(pub DelegationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug)]
+pub struct Revocation(pub RevocationInfo, pub(crate) Vec<u8>);
+
+#[derive(Debug)]
 pub struct Invocation(
     pub InvocationInfo,
     pub(crate) Vec<u8>,
@@ -38,9 +41,6 @@ pub(crate) enum Operation {
         version: Option<(i64, Hash)>,
     },
 }
-
-#[derive(Debug)]
-pub struct Revocation(pub RevocationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug)]
 pub enum Event {
@@ -72,21 +72,70 @@ pub fn epoch_hash(
     let event_hashes = events
         .iter()
         .map(|e| {
-            hash(match e {
-                Event::Invocation(i) => &i.1,
-                Event::Delegation(d) => &d.1,
-                Event::Revocation(r) => &r.1,
+            Ok(match e {
+                Event::Invocation(i) => hash_inv(&i)?.to_cid(0x71),
+                Event::Delegation(d) => hash(&d.1).to_cid(0x55),
+                Event::Revocation(r) => hash(&r.1).to_cid(0x55),
             })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<Cid>, HashError>>()?;
     Ok((
         hash(&serde_ipld_dagcbor::to_vec(&Epoch {
             seq,
-            parents: parents.iter().map(|h| h.to_cid(0x55)).collect(),
-            events: event_hashes.iter().map(|h| h.to_cid(0x55)).collect(),
+            parents: parents.iter().map(|h| h.to_cid(0x71)).collect(),
+            events: event_hashes.clone(),
         })?),
-        event_hashes,
+        event_hashes.into_iter().map(|h| h.into()).collect(),
     ))
 }
 
-fn hash_inv(invocation: &Invocation) -> Result<Hash, HashError> {}
+const CBOR_CODEC: u64 = 0x71;
+const RAW_CODEC: u64 = 0x55;
+
+fn hash_inv(invocation: &Invocation) -> Result<Hash, HashError> {
+    #[derive(Debug, Serialize)]
+    #[serde(untagged)]
+    enum Op<'a> {
+        KvWrite {
+            key: &'a str,
+            value: Cid,
+            metadata: &'a Metadata,
+        },
+        KvDelete {
+            key: &'a str,
+            version: Option<(i64, Cid)>,
+        },
+    }
+
+    #[derive(Debug, Serialize)]
+    struct InvBlock {
+        invocation: Cid,
+        operations: Vec<Cid>,
+    }
+
+    Ok(hash(&serde_ipld_dagcbor::to_vec(&InvBlock {
+        invocation: hash(&invocation.1).to_cid(RAW_CODEC),
+        operations: match &invocation.2 {
+            Some(Operation::KvWrite {
+                key,
+                value,
+                metadata,
+            }) => vec![hash(&serde_ipld_dagcbor::to_vec(&Op::KvWrite {
+                key,
+                value: value.to_cid(RAW_CODEC),
+                metadata,
+            })?)
+            .to_cid(CBOR_CODEC)],
+            Some(Operation::KvDelete { key, version }) => {
+                vec![hash(&serde_ipld_dagcbor::to_vec(&Op::KvDelete {
+                    key,
+                    version: version
+                        .as_ref()
+                        .map(|(seq, hash)| (*seq, hash.to_cid(RAW_CODEC))),
+                })?)
+                .to_cid(CBOR_CODEC)]
+            }
+            None => vec![],
+        },
+    })?))
+}

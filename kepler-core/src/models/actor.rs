@@ -4,10 +4,8 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "actor")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: String,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

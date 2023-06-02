@@ -7,10 +7,8 @@ use time::OffsetDateTime;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "revocation")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 
     pub seq: i64,
     pub epoch_id: Hash,
@@ -25,20 +23,20 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "actor::Entity",
-        from = "(Column::Revoker, Column::Orbit)",
-        to = "(actor::Column::Id, actor::Column::Orbit)"
+        from = "Column::Revoker",
+        to = "actor::Column::Id"
     )]
     Revoker,
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "(Column::EpochId, Column::Orbit)",
-        to = "(epoch::Column::Id, epoch::Column::Orbit)"
+        from = "Column::EpochId",
+        to = "epoch::Column::Id"
     )]
     Epoch,
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "(Column::Revoked, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
+        from = "Column::Revoked",
+        to = "delegation::Column::Id"
     )]
     Delegation,
 }

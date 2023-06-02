@@ -9,22 +9,20 @@ pub struct Model {
     pub parent: Hash,
     #[sea_orm(primary_key)]
     pub child: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "(Column::Parent, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
+        from = "Column::Parent",
+        to = "delegation::Column::Id"
     )]
     Parent,
     #[sea_orm(
         belongs_to = "delegation::Entity",
-        from = "(Column::Child, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
+        from = "Column::Child",
+        to = "delegation::Column::Id"
     )]
     Child,
 }
