@@ -154,8 +154,6 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DelegationError {
-    #[error(transparent)]
-    ParameterExtraction(#[from] util::DelegationError),
     #[error("Delegation expired or not yet valid")]
     InvalidTime,
     #[error("Failed to verify signature")]
@@ -168,7 +166,7 @@ pub enum DelegationError {
     MissingParents,
 }
 
-pub async fn process<C: ConnectionTrait>(
+pub(crate) async fn process<C: ConnectionTrait>(
     root: &str,
     orbit: &str,
     db: &C,
@@ -178,12 +176,11 @@ pub async fn process<C: ConnectionTrait>(
     epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Delegation(d, ser) = delegation;
-    verify(&d).await?;
+    verify(&d.delegation).await?;
 
-    let d_info = util::DelegationInfo::try_from(d).map_err(DelegationError::ParameterExtraction)?;
-    validate(db, root, orbit, &d_info).await?;
+    validate(db, root, orbit, &d).await?;
 
-    save(db, orbit, d_info, ser, seq, epoch, epoch_seq).await
+    save(db, orbit, d, ser, seq, epoch, epoch_seq).await
 }
 
 // verify signatures and time

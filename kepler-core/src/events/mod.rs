@@ -1,9 +1,13 @@
 use crate::{
     hash::{hash, Hash},
     models::kv_write::Metadata,
+    util::{
+        DelegationError, DelegationInfo, InvocationError, InvocationInfo, RevocationError,
+        RevocationInfo,
+    },
 };
 pub use kepler_lib::{
-    authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
+    authorization::{HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation},
     libipld::cid::{
         multihash::{Code, Error as MultihashError, MultihashDigest},
         Cid,
@@ -13,13 +17,17 @@ use serde::{Deserialize, Serialize};
 use serde_ipld_dagcbor::EncodeError;
 
 #[derive(Debug)]
-pub struct Delegation(pub KeplerDelegation, pub Vec<u8>);
+pub struct Delegation(pub DelegationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug)]
-pub struct Invocation(pub KeplerInvocation, pub Vec<u8>, pub Option<Operation>);
+pub struct Invocation(
+    pub InvocationInfo,
+    pub(crate) Vec<u8>,
+    pub(crate) Option<Operation>,
+);
 
 #[derive(Debug)]
-pub enum Operation {
+pub(crate) enum Operation {
     KvWrite {
         key: String,
         value: Hash,
@@ -32,7 +40,7 @@ pub enum Operation {
 }
 
 #[derive(Debug)]
-pub struct Revocation(pub KeplerRevocation, pub Vec<u8>);
+pub struct Revocation(pub RevocationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug)]
 pub enum Event {
@@ -80,3 +88,5 @@ pub fn epoch_hash(
         event_hashes,
     ))
 }
+
+fn hash_inv(invocation: &Invocation) -> Result<Hash, HashError> {}

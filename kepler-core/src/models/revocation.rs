@@ -1,4 +1,4 @@
-use super::super::{events::Revocation, models::*, util};
+use super::super::{events::Revocation, models::*};
 use crate::hash::Hash;
 use kepler_lib::authorization::KeplerRevocation;
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
@@ -73,8 +73,6 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RevocationError {
-    #[error(transparent)]
-    ParameterExtraction(#[from] util::RevocationError),
     #[error("Revocation expired or not yet valid")]
     InvalidTime,
     #[error("Failed to verify signature")]
@@ -85,7 +83,7 @@ pub enum RevocationError {
     MissingParents,
 }
 
-pub async fn process<C: ConnectionTrait>(
+pub(crate) async fn process<C: ConnectionTrait>(
     root: &str,
     orbit: &str,
     db: &C,
@@ -98,7 +96,7 @@ pub async fn process<C: ConnectionTrait>(
 
     let t = OffsetDateTime::now_utc();
 
-    match &r {
+    match &r.revocation {
         KeplerRevocation::Cacao(c) => {
             c.verify()
                 .await
@@ -109,19 +107,16 @@ pub async fn process<C: ConnectionTrait>(
         }
     };
 
-    let r_info: util::RevocationInfo =
-        r.try_into().map_err(RevocationError::ParameterExtraction)?;
-
     let hash: Hash = crate::hash::hash(&serialization);
-    if !r_info.parents.is_empty() && !r_info.revoker.starts_with(root) {
+    if !r.parents.is_empty() && !r.revoker.starts_with(root) {
         let parents = delegation::Entity::find()
             .filter(Column::Orbit.eq(orbit))
-            .filter(r_info.parents.iter().fold(Condition::any(), |cond, p| {
+            .filter(r.parents.iter().fold(Condition::any(), |cond, p| {
                 cond.add(Column::Id.eq(p.hash().to_bytes()))
             }))
             .all(db)
             .await?;
-        if parents.len() != r_info.parents.len() {
+        if parents.len() != r.parents.len() {
             return Err(RevocationError::MissingParents)?;
         };
 
@@ -134,7 +129,7 @@ pub async fn process<C: ConnectionTrait>(
                 .await?
                 .ok_or(RevocationError::MissingParents)?;
 
-            if delegatee.id != r_info.revoker {
+            if delegatee.id != r.revoker {
                 return Err(RevocationError::UnauthorizedRevoker(delegatee.id).into());
             };
         }
@@ -146,8 +141,8 @@ pub async fn process<C: ConnectionTrait>(
         epoch_seq,
         id: hash,
         serialization,
-        revoker: r_info.revoker,
-        revoked: (*r_info.revoked.hash()).into(),
+        revoker: r.revoker,
+        revoked: (*r.revoked.hash()).into(),
         orbit: orbit.to_string(),
     }))
     .exec(db)

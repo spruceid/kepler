@@ -8,7 +8,7 @@ pub mod models;
 pub mod orbit;
 pub mod relationships;
 pub mod storage;
-pub mod util;
+mod util;
 
 pub use db::Commit;
 pub use manager::{InitError, OrbitPeerManager};

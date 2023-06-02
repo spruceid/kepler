@@ -1,17 +1,18 @@
 use super::super::models::*;
+use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "invoked_abilities")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub invocation: Vec<u8>,
+    pub invocation: Hash,
     #[sea_orm(primary_key)]
     pub resource: String,
     #[sea_orm(primary_key)]
     pub ability: String,
     #[sea_orm(primary_key)]
-    pub delegation: Vec<u8>,
+    pub delegation: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
 }

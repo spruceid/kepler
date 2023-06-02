@@ -69,8 +69,6 @@ pub enum Error {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvocationError {
-    #[error(transparent)]
-    ParameterExtraction(#[from] util::InvocationError),
     #[error("Invocation expired or not yet valid")]
     InvalidTime,
     #[error("Failed to verify signature")]
@@ -85,7 +83,7 @@ pub enum InvocationError {
     MissingKvWrite(String),
 }
 
-pub async fn process<C: ConnectionTrait>(
+pub(crate) async fn process<C: ConnectionTrait>(
     root: &str,
     orbit: &str,
     db: &C,
@@ -95,16 +93,15 @@ pub async fn process<C: ConnectionTrait>(
     epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Invocation(i, serialized, parameters) = invocation;
-    verify(&i).await?;
+    verify(&i.invocation).await?;
 
-    let i_info = util::InvocationInfo::try_from(i).map_err(InvocationError::ParameterExtraction)?;
     let now = OffsetDateTime::now_utc();
-    validate(db, root, orbit, &i_info, Some(now)).await?;
+    validate(db, root, orbit, &i, Some(now)).await?;
 
     save(
         db,
         orbit,
-        i_info,
+        i,
         Some(now),
         serialized,
         (seq, epoch, epoch_seq),
