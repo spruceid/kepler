@@ -1,5 +1,5 @@
-use super::super::{events::Revocation, models::*};
-use crate::hash::Hash;
+use super::super::{events::Revocation, models::*, relationships::*};
+use crate::hash::{hash, Hash};
 use kepler_lib::authorization::KeplerRevocation;
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
 use time::OffsetDateTime;
@@ -9,10 +9,6 @@ use time::OffsetDateTime;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Hash,
-
-    pub seq: i64,
-    pub epoch_id: Hash,
-    pub epoch_seq: i64,
 
     pub revoker: String,
     pub revoked: Hash,
@@ -28,17 +24,23 @@ pub enum Relation {
     )]
     Revoker,
     #[sea_orm(
-        belongs_to = "epoch::Entity",
-        from = "Column::EpochId",
-        to = "epoch::Column::Id"
+        belongs_to = "event_order::Entity",
+        from = "Column::Id",
+        to = "event_order::Column::Event"
     )]
-    Epoch,
+    Ordering,
     #[sea_orm(
         belongs_to = "delegation::Entity",
         from = "Column::Revoked",
         to = "delegation::Column::Id"
     )]
     Delegation,
+    #[sea_orm(
+        belongs_to = "parent_delegations::Entity",
+        from = "Column::Id",
+        to = "parent_delegations::Column::Child"
+    )]
+    Parents,
 }
 
 impl Related<actor::Entity> for Entity {
@@ -47,9 +49,9 @@ impl Related<actor::Entity> for Entity {
     }
 }
 
-impl Related<epoch::Entity> for Entity {
+impl Related<event_order::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Epoch.def()
+        Relation::Ordering.def()
     }
 }
 
@@ -82,13 +84,8 @@ pub enum RevocationError {
 }
 
 pub(crate) async fn process<C: ConnectionTrait>(
-    root: &str,
-    orbit: &str,
     db: &C,
     revocation: Revocation,
-    seq: i64,
-    epoch: Hash,
-    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Revocation(r, serialization) = revocation;
 
@@ -105,46 +102,40 @@ pub(crate) async fn process<C: ConnectionTrait>(
         }
     };
 
-    let hash: Hash = crate::hash::hash(&serialization);
-    if !r.parents.is_empty() && !r.revoker.starts_with(root) {
-        let parents = delegation::Entity::find()
-            .filter(Column::Orbit.eq(orbit))
-            .filter(r.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.hash().to_bytes()))
-            }))
-            .all(db)
-            .await?;
-        if parents.len() != r.parents.len() {
-            return Err(RevocationError::MissingParents)?;
-        };
+    let hash: Hash = hash(&serialization);
+    let r_hash: Hash = (*r.revoked.hash()).into();
 
-        // verify parents and get delegated capabilities
-        for parent in parents {
-            // get delegatee of parent
-            let delegatee = parent
-                .find_related(actor::Entity)
-                .one(db)
-                .await?
-                .ok_or(RevocationError::MissingParents)?;
-
-            if delegatee.id != r.revoker {
-                return Err(RevocationError::UnauthorizedRevoker(delegatee.id).into());
-            };
-        }
+    // check the revoker is also the delegator
+    if delegation::Entity::find()
+        .filter(delegation::Column::Id.eq(r_hash))
+        .one(db)
+        .await
+        .map_err(|_| RevocationError::MissingParents)?
+        .delegator
+        != r.revoker
+    {
+        return Err(RevocationError::UnauthorizedRevoker(r.revoker).into());
     };
 
     Entity::insert(ActiveModel::from(Model {
-        seq,
-        epoch_id: epoch,
-        epoch_seq,
         id: hash,
         serialization,
         revoker: r.revoker,
         revoked: (*r.revoked.hash()).into(),
-        orbit: orbit.to_string(),
     }))
     .exec(db)
     .await?;
+
+    for parent in r.parents {
+        parent_delegations::Entity::insert(parent_delegations::ActiveModel::from(
+            parent_delegations::Model {
+                child: hash,
+                parent: parent.into(),
+            },
+        ))
+        .exec(db)
+        .await?;
+    }
 
     Ok(hash)
 }

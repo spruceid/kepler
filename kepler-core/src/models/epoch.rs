@@ -1,55 +1,35 @@
 use super::*;
 use crate::hash::Hash;
-use crate::relationships::epochs;
+use crate::relationships::*;
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, PartialOrd, Ord)]
 #[sea_orm(table_name = "epoch")]
 pub struct Model {
-    /// Hash-based ID
-    #[sea_orm(primary_key, unique)]
-    pub id: Hash,
-    /// Orbit
-    #[sea_orm(primary_key)]
-    pub orbit: String,
-
     /// Sequence number
     pub seq: i64,
+    /// Hash-based ID
+    #[sea_orm(primary_key, unique, auto_increment = false)]
+    pub id: Hash,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "delegation::Entity")]
-    Delegation,
-    #[sea_orm(has_many = "invocation::Entity")]
-    Invocation,
-    #[sea_orm(has_many = "revocation::Entity")]
-    Revocation,
-    #[sea_orm(has_many = "epochs::Entity")]
+    #[sea_orm(has_many = "event_order::Entity")]
+    Events,
+    #[sea_orm(has_many = "epoch_order::Entity")]
     Children,
 }
 
-impl Related<epochs::Entity> for Entity {
+impl Related<epoch_order::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Children.def()
     }
 }
 
-impl Related<delegation::Entity> for Entity {
+impl Related<event_order::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Delegation.def()
-    }
-}
-
-impl Related<invocation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Invocation.def()
-    }
-}
-
-impl Related<revocation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Revocation.def()
+        Relation::Events.def()
     }
 }
 
@@ -63,8 +43,8 @@ impl Linked for ParentToChild {
 
     fn link(&self) -> Vec<RelationDef> {
         vec![
-            epochs::Relation::Parent.def().rev(),
-            epochs::Relation::Child.def(),
+            epoch_order::Relation::Parent.def().rev(),
+            epoch_order::Relation::Child.def(),
         ]
     }
 }
@@ -79,8 +59,8 @@ impl Linked for ChildToParent {
 
     fn link(&self) -> Vec<RelationDef> {
         vec![
-            epochs::Relation::Child.def().rev(),
-            epochs::Relation::Parent.def(),
+            epoch_order::Relation::Child.def().rev(),
+            epoch_order::Relation::Parent.def(),
         ]
     }
 }

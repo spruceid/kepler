@@ -2,6 +2,7 @@ use super::super::{events::Delegation, models::*, relationships::*, util};
 use crate::hash::Hash;
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
+use serde_json::Value as JsonValue;
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -9,10 +10,6 @@ use time::OffsetDateTime;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: Hash,
-
-    pub seq: i64,
-    pub epoch_id: Hash,
-    pub epoch_seq: i64,
 
     pub delegator: String,
     pub delegatee: String,
@@ -39,16 +36,20 @@ pub enum Relation {
     Delegatee,
     // inverse relation, delegations belong to epochs
     #[sea_orm(
-        belongs_to = "epoch::Entity",
-        from = "Column::EpochId",
-        to = "epoch::Column::Id"
+        belongs_to = "event_order::Entity",
+        from = "Column::Id",
+        to = "event_order::Column::Event"
     )]
-    Epoch,
+    Ordering,
     #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
     #[sea_orm(has_many = "abilities::Entity")]
     Abilities,
-    #[sea_orm(has_many = "parent_delegations::Entity")]
+    #[sea_orm(
+        belongs_to = "parent_delegations::Entity",
+        from = "Column::Id",
+        to = "parent_delegations::Column::Child"
+    )]
     Parents,
 }
 
@@ -58,9 +59,9 @@ impl Related<actor::Entity> for Entity {
     }
 }
 
-impl Related<epoch::Entity> for Entity {
+impl Related<event_order::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Epoch.def()
+        Relation::Ordering.def()
     }
 }
 
@@ -83,9 +84,9 @@ impl Related<parent_delegations::Entity> for Entity {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct ParentToChild;
+pub struct ParentToChildren;
 
-impl Linked for ParentToChild {
+impl Linked for ParentToChildren {
     type FromEntity = Entity;
 
     type ToEntity = Entity;
@@ -99,9 +100,9 @@ impl Linked for ParentToChild {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct ChildToParent;
+pub struct ChildToParents;
 
-impl Linked for ChildToParent {
+impl Linked for ChildToParents {
     type FromEntity = Entity;
 
     type ToEntity = Entity;
@@ -165,20 +166,15 @@ pub enum DelegationError {
 }
 
 pub(crate) async fn process<C: ConnectionTrait>(
-    root: &str,
-    orbit: &str,
     db: &C,
     delegation: Delegation,
-    seq: i64,
-    epoch: Hash,
-    epoch_seq: i64,
 ) -> Result<Hash, Error> {
     let Delegation(d, ser) = delegation;
     verify(&d.delegation).await?;
 
-    validate(db, root, orbit, &d).await?;
+    validate(db, &d).await?;
 
-    save(db, orbit, d, ser, seq, epoch, epoch_seq).await
+    save(db, d, ser).await
 }
 
 // verify signatures and time
@@ -208,83 +204,77 @@ async fn verify(delegation: &KeplerDelegation) -> Result<(), Error> {
 // verify parenthood and authorization
 async fn validate<C: ConnectionTrait>(
     db: &C,
-    root: &str,
-    orbit: &str,
     delegation: &util::DelegationInfo,
 ) -> Result<(), Error> {
-    if !delegation.parents.is_empty() && !delegation.delegator.starts_with(root) {
-        let parents = Entity::find()
-            .filter(Column::Orbit.eq(orbit))
-            .filter(delegation.parents.iter().fold(Condition::any(), |cond, p| {
-                cond.add(Column::Id.eq(p.hash().to_bytes()))
-            }))
-            .all(db)
-            .await?;
-        if parents.len() != delegation.parents.len() {
-            return Err(DelegationError::MissingParents)?;
-        };
+    // get caps which rely on delegated caps
+    let dependant_caps = delegation
+        .capabilities
+        .iter()
+        .filter(|c| {
+            // remove caps for which the delegator is the root authority
+            c.resource
+                .parse()
+                .ok()
+                .map(|r| r.did() != delegation.delegator)
+                .unwrap_or(true)
+        })
+        .collect();
 
-        let mut parent_abilities = Vec::new();
-        for parent in parents {
-            // check parent's delegatee is delegator of this one
-            if parent.delegatee != delegation.delegator {
-                return Err(DelegationError::UnauthorizedDelegator(
-                    delegation.delegator.clone(),
-                ))?;
-            };
-            // check expiry of parent is not before this one
-            if parent.expiry < delegation.expiry {
-                return Err(DelegationError::InvalidTime)?;
-            };
-            // parent nbf must come before child nbf, child nbf must exist if parent nbf does
-            if parent
-                .not_before
-                .map(|pnbf| delegation.not_before.map(|nbf| pnbf > nbf).unwrap_or(true))
-                .unwrap_or(false)
-            {
-                return Err(DelegationError::InvalidTime)?;
-            };
-            parent_abilities.extend(parent.find_related(abilities::Entity).all(db).await?);
-        }
-        for ab in delegation.capabilities.iter() {
-            if !parent_abilities
-                .iter()
-                .any(|pab| ab.resource.starts_with(&pab.resource) && ab.action == pab.ability)
-            {
-                return Err(DelegationError::UnauthorizedCapability(
-                    ab.resource.clone(),
-                    ab.action.clone(),
-                ))?;
+    match (dependant_caps.is_empty(), delegation.parents.is_empty()) {
+        // no dependant caps, no parents needed, must be valid
+        (true, _) => Ok(()),
+        // dependant caps, no parents, invalid
+        (false, true) => Err(DelegationError::MissingParents.into()),
+        // dependant caps, parents, check parents
+        (false, false) => {
+            // get parents which have
+            let parents = Entity::find()
+                // the correct id
+                .filter(Column::Id.is_in(delegation.parents.iter().map(|c| Hash::from(*c))))
+                // the correct delegatee
+                .filter(Column::Delegatee.eq(delegation.delegator))
+                .all(db)
+                .await?
+                .into_iter()
+                .filter(|p| {
+                    // valid time bounds
+                    p.expiry < delegation.expiry
+                        && p.not_before
+                            .map(|pnbf| delegation.not_before.map(|nbf| pnbf > nbf).unwrap_or(true))
+                            .unwrap_or(false)
+                })
+                .collect();
+
+            // get delegated abilities from each parent
+            let parent_abilities = parents.find_many(abilities::Entity, db).await?;
+
+            // check each dependant cap is supported by at least one parent cap
+            match !dependant_caps.iter().first(|c| {
+                !parent_abilities
+                    .iter()
+                    .any(|pc| c.resource.starts_with(&pc.resource) && c.action == pc.ability)
+            }) {
+                Some(c) => {
+                    Err(DelegationError::UnauthorizedCapability(c.resource, c.ability).into())
+                }
+                None => Ok(()),
             }
         }
-    } else if !delegation.delegator.starts_with(root) {
-        return Err(DelegationError::UnauthorizedDelegator(
-            delegation.delegator.clone(),
-        ))?;
     }
-
-    Ok(())
 }
 
 async fn save<C: ConnectionTrait>(
     db: &C,
-    orbit: &str,
     delegation: util::DelegationInfo,
     serialization: Vec<u8>,
-    seq: i64,
-    epoch: Hash,
-    epoch_seq: i64,
 ) -> Result<Hash, Error> {
-    save_actor(delegation.delegate.clone(), orbit.to_string(), db).await?;
-    save_actor(delegation.delegator.clone(), orbit.to_string(), db).await?;
+    save_actor(delegation.delegate.clone(), db).await?;
+    save_actor(delegation.delegator.clone(), db).await?;
 
     let hash: Hash = crate::hash::hash(&serialization);
 
     // save delegation
     Entity::insert(ActiveModel::from(Model {
-        seq,
-        epoch_id: epoch,
-        epoch_seq,
         id: hash,
         delegator: delegation.delegator,
         delegatee: delegation.delegate,
@@ -292,44 +282,40 @@ async fn save<C: ConnectionTrait>(
         issued_at: delegation.issued_at,
         not_before: delegation.not_before,
         serialization,
-        orbit: orbit.to_string(),
     }))
     .exec(db)
     .await?;
 
     // save abilities
-    for ab in delegation.capabilities {
-        abilities::Entity::insert(abilities::ActiveModel::from(abilities::Model {
+    abilities::Entity::insert_many(delegation.capabilities.into_iter().map(|ab| {
+        abilities::ActiveModel::from(abilities::Model {
             delegation: hash,
             resource: ab.resource,
             ability: ab.action,
             caveats: Default::default(),
-            orbit: orbit.to_string(),
-        }))
-        .exec(db)
-        .await?;
-    }
+        })
+    }))
+    .exec(db)
+    .await?;
 
-    for parent in delegation.parents {
-        parent_delegations::Entity::insert(parent_delegations::ActiveModel::from(
-            parent_delegations::Model {
-                child: hash,
-                parent: parent.into(),
-                orbit: orbit.to_string(),
-            },
-        ))
-        .exec(db)
-        .await?;
-    }
+    // save parent relationships
+    parent_delegations::Entity::insert_many(delegation.parents.into_iter().map(|p| {
+        parent_delegations::ActiveModel::from(parent_delegations::Model {
+            child: hash,
+            parent: p.into(),
+        })
+    }))
+    .exec(db)
+    .await?;
 
     Ok(hash)
 }
 
-async fn save_actor<C: ConnectionTrait>(id: String, orbit: String, db: &C) -> Result<(), DbErr> {
+async fn save_actor<C: ConnectionTrait>(id: String, db: &C) -> Result<(), DbErr> {
     use sea_orm::sea_query::OnConflict;
-    match actor::Entity::insert(actor::ActiveModel::from(actor::Model { id, orbit }))
+    match actor::Entity::insert(actor::ActiveModel::from(actor::Model { id }))
         .on_conflict(
-            OnConflict::columns([actor::Column::Id, actor::Column::Orbit])
+            OnConflict::column(actor::Column::Id)
                 .do_nothing()
                 .to_owned(),
         )

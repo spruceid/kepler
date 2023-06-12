@@ -19,17 +19,13 @@ pub enum Relation {
         to = "delegation::Column::Id"
     )]
     Parent,
-    #[sea_orm(
-        belongs_to = "delegation::Entity",
-        from = "Column::Child",
-        to = "delegation::Column::Id"
-    )]
+    #[sea_orm(has_many = "delegation::Entity")]
     Child,
 }
 
 impl Related<delegation::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Child.def()
+        Relation::Parent.def()
     }
 }
 

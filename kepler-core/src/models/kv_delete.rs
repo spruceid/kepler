@@ -9,28 +9,23 @@ pub struct Model {
     pub invocation_id: Hash,
     #[sea_orm(primary_key)]
     pub orbit: String,
-    #[sea_orm(primary_key)]
-    pub seq: i64,
-    #[sea_orm(primary_key)]
-    pub epoch_id: Hash,
 
     pub key: String,
-    pub deleted_seq: i64,
-    pub deleted_epoch_id: Hash,
+    pub deleted_invocation_id: Hash,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
         belongs_to = "invocation::Entity",
-        from = "(Column::InvocationId, Column::Orbit)",
-        to = "(invocation::Column::Id, invocation::Column::Orbit)"
+        from = "Column::InvocationId",
+        to = "invocation::Column::Id"
     )]
     Invocation,
     #[sea_orm(
         belongs_to = "kv_write::Entity",
-        from = "(Column::Orbit, Column::DeletedEpochId, Column::DeletedSeq)",
-        to = "(kv_write::Column::Orbit, kv_write::Column::EpochId, kv_write::Column::Seq)"
+        from = "(Column::Orbit, Column::DeletedInvocationId, Column::Key)",
+        to = "(kv_write::Column::Orbit, kv_write::Column::Invocation, kv_write::Column::Key)"
     )]
     Write,
 }

@@ -36,7 +36,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(epochs::Entity))
+            .create_table(schema.create_table_from_entity(epoch_order::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(parent_delegations::Entity))
@@ -72,7 +72,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .drop_table(Table::drop().table(epochs::Entity).to_owned())
+            .drop_table(Table::drop().table(epoch_order::Entity).to_owned())
             .await?;
         manager
             .drop_table(Table::drop().table(invoked_abilities::Entity).to_owned())

@@ -2,7 +2,7 @@ use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
     libipld::Cid,
-    resource::KRIParseError,
+    resource::{KRIParseError, OrbitId},
     siwe_recap::{extract_capabilities, verify_statement, Capability as SiweCap},
     ssi::ucan::Capability as UcanCap,
 };
@@ -84,6 +84,14 @@ pub struct DelegationInfo {
     pub issued_at: Option<OffsetDateTime>,
 }
 
+impl DelegationInfo {
+    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> {
+        self.capabilities
+            .iter()
+            .filter_map(|c| c.resource.parse().ok())
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum DelegationError {
     #[error(transparent)]
@@ -154,18 +162,24 @@ impl TryFrom<KeplerDelegation> for DelegationInfo {
 
 #[derive(Debug, Clone)]
 pub struct InvocationInfo {
-    pub capability: Capability,
+    pub capabilities: Vec<Capability>,
     pub invoker: String,
     pub parents: Vec<Cid>,
     pub invocation: KeplerInvocation,
+}
+
+impl InvocationInfo {
+    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> {
+        self.capabilities
+            .iter()
+            .filter_map(|c| c.resource.parse().ok())
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum InvocationError {
     #[error("Missing Resource")]
     MissingResource,
-    #[error("Ambiguous Action")]
-    Ambiguous,
     #[error(transparent)]
     ResourceParse(#[from] CapExtractError),
 }
@@ -173,14 +187,13 @@ pub enum InvocationError {
 impl TryFrom<KeplerInvocation> for InvocationInfo {
     type Error = InvocationError;
     fn try_from(invocation: KeplerInvocation) -> Result<Self, Self::Error> {
-        let mut rs = invocation.payload.attenuation.iter();
-        let capability = match (rs.next().map(extract_ucan_cap), rs.next()) {
-            (Some(Ok(r)), None) => r,
-            (None, _) | (Some(_), Some(_)) => return Err(InvocationError::Ambiguous),
-            (Some(Err(e)), None) => return Err(e.into()),
-        };
         Ok(Self {
-            capability,
+            capabilities: invocation
+                .payload
+                .attenuation
+                .iter()
+                .map(extract_ucan_cap)
+                .collect::<Result<Vec<Capability>, CapExtractError>>()?,
             invoker: invocation.payload.issuer.clone(),
             parents: invocation.payload.proof.clone(),
             invocation,
@@ -190,7 +203,7 @@ impl TryFrom<KeplerInvocation> for InvocationInfo {
 
 #[derive(Debug, Clone)]
 pub struct RevocationInfo {
-    // TODO THESE SHOULD BE HASH
+    // TODO these should be hash
     pub parents: Vec<Cid>,
     pub revoked: Cid,
     pub revoker: String,

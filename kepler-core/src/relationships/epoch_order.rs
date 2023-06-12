@@ -3,7 +3,7 @@ use crate::hash::Hash;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "parent_epochs")]
+#[sea_orm(table_name = "epoch_order")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub parent: Hash,
@@ -18,14 +18,14 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "(Column::Parent, Column::Orbit)",
-        to = "(epoch::Column::Id, epoch::Column::Orbit)"
+        from = "Column::Parent",
+        to = "epoch::Column::Id"
     )]
     Parent,
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "(Column::Child, Column::Orbit)",
-        to = "(epoch::Column::Id, epoch::Column::Orbit)"
+        from = "Column::Child",
+        to = "epoch::Column::Id"
     )]
     Child,
 }

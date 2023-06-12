@@ -1,5 +1,5 @@
 use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Revocation};
-use crate::hash::Hash;
+use crate::hash::{hash, Hash};
 use crate::models::*;
 use crate::relationships::*;
 use crate::util::{Capability, DelegationInfo};
@@ -74,7 +74,6 @@ where
         let orbit = self.orbit.to_string();
         let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
             delegation::Entity::find()
-                .filter(delegation::Column::Orbit.eq(&orbit))
                 .left_join(revocation::Entity)
                 .filter(revocation::Column::Id.is_null())
                 .find_with_related(abilities::Entity)
@@ -137,7 +136,7 @@ where
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
 
-        let commit = transact(&tx, &self.orbit, &self.root, events).await?;
+        let commit = transact(&tx, events).await?;
 
         tx.commit().await?;
 
@@ -196,82 +195,107 @@ impl From<revocation::Error> for TxError {
 
 pub(crate) async fn transact<C: ConnectionTrait>(
     db: &C,
-    orbit_id: &OrbitId,
-    root: &str,
     events: Vec<Event>,
-) -> Result<Commit, TxError> {
-    let orbit = orbit_id.to_string();
+) -> Result<HashMap<OrbitId, Commit>, TxError> {
+    // for each event, get the hash and the relevent orbit(s)
+    let (orbits, events) = events
+        .into_iter()
+        .map(|event| {
+            let (hash, orbits) = match event {
+                Event::Delegation(d) => (hash(&d.1), d.0.orbits()),
+                Event::Invocation(i) => (hash(&i.1), i.0.orbits()),
+                Event::Revocation(r) => (hash(&r.1), r.0.orbits()),
+            };
+            (hash, event, orbits)
+        })
+        .fold(
+            (HashMap::new(), Vec::new()),
+            |(mut o, mut events), (hash, event, orbits)| {
+                for orbit in orbits {
+                    o.entry(orbit).or_insert_with(Vec::new).push(hash);
+                }
+                events.push((hash, event));
+            },
+        );
 
-    let seq = max_seq(db, &orbit).await? + 1;
-    let parents = most_recent(db, &orbit).await?;
+    // get max sequence for each of the orbits
+    let mut max_seqs = event_order::Entity::find()
+        .filter(event_order::Column::Orbit.is_in(orbits.keys().map(|o| o.to_string())))
+        .group_by(event_order::Column::Orbit)
+        .max(event_order::Column::Seq)
+        .all(db)
+        .await?
+        .into_iter()
+        .fold(HashMap::new(), |mut m, (orbit, seq)| {
+            m.insert(orbit, seq + 1);
+            m
+        });
 
-    let (epoch_id, event_ids) = epoch_hash(seq, &events, &parents)?;
+    // get 'most recent' epochs for each of the orbits
+    let mut most_recent = epoch_order::Entity::find()
+        .filter(epoch_order::Column::Child.is_in(orbits.keys().map(|o| o.to_string())))
+        .left_join(epoch_order::Relation::Parent.def())
+        .all(db)
+        .await?
+        .into_iter()
+        .fold(HashMap::new(), |mut m, (orbit, recent)| {
+            m.insert(orbit, recent);
+            m
+        });
 
-    epoch::Entity::insert(epoch::ActiveModel::from(epoch::Model {
-        id: epoch_id,
-        seq,
-        orbit: orbit.clone(),
-    }))
-    .exec(db)
-    .await?;
+    // get all the orderings and associated data
+    let (epoch_order, event_order) = orbits
+        .into_iter()
+        .map(|(orbit, event_hashes)| {
+            (
+                orbit,
+                event_hashes,
+                max_seqs.remove(&orbit).unwrap_or(0),
+                most_recent.remove(&orbit).unwrap_or_else(Vec::new),
+                // TODO get hash of epoch
+                todo!(),
+            )
+        })
+        .map(|(orbit, hashes, seq, parents, epoch)| {
+            (
+                parents.into_iter().map(|parent| epoch_order::Model {
+                    parent,
+                    child: epoch,
+                    orbit: orbit.clone(),
+                }),
+                hashes
+                    .into_iter()
+                    .enumerate()
+                    .map(|(epoch_seq, event)| event_order::Model {
+                        event,
+                        orbit: orbit.clone(),
+                        seq,
+                        epoch,
+                        epoch_seq,
+                    }),
+            )
+        })
+        .unzip();
 
-    for parent in parents.iter() {
-        epochs::Entity::insert(epochs::ActiveModel::from(epochs::Model {
-            parent: *parent,
-            child: epoch_id,
-            orbit: orbit.clone(),
-        }))
+    // save epoch orderings
+    epoch_order::Entity::insert_many(epoch_order.flatten().map(epoch_order::ActiveModel::from))
         .exec(db)
         .await?;
-    }
 
-    for (epoch_seq, event) in events.into_iter().enumerate() {
+    // save event orderings
+    event_order::Entity::insert_many(event_order.flatten().map(event_order::ActiveModel::from))
+        .exec(db)
+        .await?;
+
+    for (hash, event) in events {
         match event {
-            // dropping db rolls back changes, so fine to '?' here
-            Event::Delegation(d) => {
-                delegation::process(root, &orbit, db, *d, seq, epoch_id, epoch_seq as i64).await?
-            }
-            Event::Invocation(i) => {
-                invocation::process(root, &orbit, db, *i, seq, epoch_id, epoch_seq as i64).await?
-            }
-            Event::Revocation(r) => {
-                revocation::process(root, &orbit, db, *r, seq, epoch_id, epoch_seq as i64).await?
-            }
-        };
+            Event::Delegation(d) => delegation::process(db, *d).await?,
+            Event::Invocation(i) => invocation::process(db, *i).await?,
+            Event::Revocation(r) => revocation::process(db, *r).await?,
+        }
     }
 
-    Ok(Commit {
-        rev: epoch_id,
-        seq,
-        committed_events: event_ids,
-        consumed_epochs: parents,
-    })
-}
-
-async fn max_seq<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<i64, DbErr> {
-    Ok(epoch::Entity::find()
-        .filter(epoch::Column::Orbit.eq(orbit_id))
-        .select_only()
-        .column_as(epoch::Column::Seq.max(), "max_seq")
-        .into_tuple()
-        .one(db)
-        .await?
-        // to account for if there are no epochs yet
-        .unwrap_or(None)
-        .unwrap_or(0))
-}
-
-async fn most_recent<C: ConnectionTrait>(db: &C, orbit_id: &str) -> Result<Vec<Hash>, DbErr> {
-    // find epochs which do not appear in the parent column of the parent_epochs junction table
-    epoch::Entity::find()
-        .filter(epoch::Column::Orbit.eq(orbit_id))
-        .left_join(epochs::Entity)
-        .filter(epochs::Column::Parent.is_null())
-        .select_only()
-        .column(epoch::Column::Id)
-        .into_tuple()
-        .all(db)
-        .await
+    todo!()
 }
 
 pub(crate) async fn list<C: ConnectionTrait>(
@@ -286,8 +310,6 @@ pub(crate) async fn list<C: ConnectionTrait>(
                 .add(kv_write::Column::Key.starts_with(prefix))
                 .add(kv_write::Column::Orbit.eq(orbit)),
         )
-        .order_by_desc(kv_write::Column::Seq)
-        .order_by_desc(kv_write::Column::EpochId)
         .find_also_related(kv_delete::Entity)
         .filter(kv_delete::Column::InvocationId.is_null())
         .all(db)

@@ -1,5 +1,5 @@
-use super::*;
 use crate::hash::Hash;
+use crate::{models::*, relationships::*};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -10,12 +10,9 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub orbit: String,
     #[sea_orm(primary_key)]
-    pub seq: i64,
-    #[sea_orm(primary_key)]
-    pub epoch_id: Hash,
-
     pub key: String,
-    pub invocation_id: Hash,
+    #[sea_orm(primary_key)]
+    pub invocation: Hash,
     pub value: Hash,
     pub metadata: Metadata,
 }
@@ -27,8 +24,8 @@ pub struct Metadata(pub BTreeMap<String, String>);
 pub enum Relation {
     #[sea_orm(
         belongs_to = "invocation::Entity",
-        from = "(Column::InvocationId, Column::Orbit)",
-        to = "(invocation::Column::Id, invocation::Column::Orbit)"
+        from = "Column::Invocation",
+        to = "invocation::Column::Id"
     )]
     Invocation,
     #[sea_orm(has_many = "kv_delete::Entity")]
