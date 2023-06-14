@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use time::OffsetDateTime;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Capability {
     pub resource: String,
     pub action: String,
@@ -85,7 +85,7 @@ pub struct DelegationInfo {
 }
 
 impl DelegationInfo {
-    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> {
+    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> + '_ {
         self.capabilities
             .iter()
             .filter_map(|c| c.resource.parse().ok())
@@ -169,7 +169,7 @@ pub struct InvocationInfo {
 }
 
 impl InvocationInfo {
-    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> {
+    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> + '_ {
         self.capabilities
             .iter()
             .filter_map(|c| c.resource.parse().ok())

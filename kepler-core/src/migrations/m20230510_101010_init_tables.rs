@@ -36,6 +36,9 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
+            .create_table(schema.create_table_from_entity(event_order::Entity))
+            .await?;
+        manager
             .create_table(schema.create_table_from_entity(epoch_order::Entity))
             .await?;
         manager
@@ -71,6 +74,9 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(kv_write::Entity).to_owned())
             .await?;
 
+        manager
+            .drop_table(Table::drop().table(event_order::Entity).to_owned())
+            .await?;
         manager
             .drop_table(Table::drop().table(epoch_order::Entity).to_owned())
             .await?;

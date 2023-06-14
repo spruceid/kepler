@@ -10,7 +10,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub child: Hash,
     #[sea_orm(primary_key)]
-    pub orbit: String,
+    pub orbit: epoch::OrbitIdWrap,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

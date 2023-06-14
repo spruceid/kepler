@@ -18,7 +18,9 @@ use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
-#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
+#[derive(
+    Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord,
+)]
 pub struct OrbitId {
     suffix: String,
     id: String,

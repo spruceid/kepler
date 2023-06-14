@@ -3,11 +3,9 @@ use crate::hash::Hash;
 use crate::relationships::*;
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, PartialOrd, Ord)]
 #[sea_orm(table_name = "event_order")]
 pub struct Model {
-    #[sea_orm(primary_key)]
-    pub orbit: String,
     /// Sequence number
     pub seq: i64,
     #[sea_orm(primary_key)]
@@ -15,6 +13,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub epoch_seq: i64,
     pub event: Hash,
+
+    pub orbit: epoch::OrbitIdWrap,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -27,8 +27,8 @@ pub enum Relation {
     Revocation,
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::Epoch",
-        to = "epoch::Column::Id"
+        from = "(Column::Epoch, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Epoch,
 }

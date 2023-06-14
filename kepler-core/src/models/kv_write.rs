@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 #[sea_orm(table_name = "kv_write")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub orbit: String,
+    pub orbit: epoch::OrbitIdWrap,
     #[sea_orm(primary_key)]
     pub key: String,
     #[sea_orm(primary_key)]
@@ -17,7 +17,7 @@ pub struct Model {
     pub metadata: Metadata,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord, Hash)]
 pub struct Metadata(pub BTreeMap<String, String>);
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

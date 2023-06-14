@@ -7,7 +7,7 @@ use crate::{
     storage::{
         Content, ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore,
     },
-    util::{DelegationError, DelegationInfo, InvocationInfo, RevocationInfo},
+    util::{DelegationError, DelegationInfo, InvocationError, InvocationInfo, RevocationInfo},
 };
 use futures::io::AsyncRead;
 use kepler_lib::authorization::{
@@ -78,15 +78,17 @@ where
         &self,
         invocation: String,
         data: Option<(Metadata, R)>,
-    ) -> Result<(Commit, InvocationOutcome<B::Readable>), Error> {
-        let (i, ser) = <KeplerInvocation as HeaderEncode>::decode(&invocation)?;
-        let invocation = InvocationInfo::try_from(i)?;
-        let res: ResourceId = invocation.capability.resource.parse()?;
+    ) -> Result<(Commit, InvocationOutcome<B::Readable>), Error<InvocationError>> {
+        // let (i, ser) = <KeplerInvocation as HeaderEncode>::decode(&invocation)?;
+        // let invocation = InvocationInfo::try_from(i)?;
+        // if let Ok(res) = invocation.capability.resource.parse::<ResourceId>() {
+        //     match res.service() {}
+        // }
 
-        if let Some((metadata, data)) = data {
-            let mut stage = self.staging.stage().await?;
-        } else {
-        }
+        // if let Some((metadata, data)) = data {
+        //     let mut stage = self.staging.stage().await?;
+        // } else {
+        // }
         todo!()
     }
 }

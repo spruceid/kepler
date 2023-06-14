@@ -8,7 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub invocation_id: Hash,
     #[sea_orm(primary_key)]
-    pub orbit: String,
+    pub orbit: epoch::OrbitIdWrap,
 
     pub key: String,
     pub deleted_invocation_id: Hash,
