@@ -1,4 +1,5 @@
 use crate::hash::Hash;
+use crate::types::orbit_id_wrap::OrbitIdWrap;
 use crate::{models::*, relationships::*};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,7 @@ use std::collections::BTreeMap;
 #[sea_orm(table_name = "kv_write")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub orbit: epoch::OrbitIdWrap,
+    pub orbit: OrbitIdWrap,
     #[sea_orm(primary_key)]
     pub key: String,
     #[sea_orm(primary_key)]

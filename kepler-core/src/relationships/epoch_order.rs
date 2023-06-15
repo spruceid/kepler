@@ -1,5 +1,6 @@
 use super::super::models::epoch;
 use crate::hash::Hash;
+use crate::types::orbit_id_wrap::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -10,7 +11,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub child: Hash,
     #[sea_orm(primary_key)]
-    pub orbit: epoch::OrbitIdWrap,
+    pub orbit: OrbitIdWrap,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

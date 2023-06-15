@@ -5,7 +5,7 @@ use crate::relationships::*;
 use crate::util::{Capability, DelegationInfo};
 use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
-    resource::OrbitId,
+    resource::{KRIParseError, OrbitId},
 };
 use sea_orm::{
     entity::prelude::*, error::DbErr, query::*, ConnectionTrait, DatabaseTransaction,

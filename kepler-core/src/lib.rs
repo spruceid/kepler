@@ -8,6 +8,7 @@ pub mod models;
 pub mod orbit;
 pub mod relationships;
 pub mod storage;
+pub mod types;
 mod util;
 
 pub use db::Commit;

@@ -1,5 +1,6 @@
 use super::*;
 use crate::hash::Hash;
+use crate::types::orbit_id_wrap::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -8,7 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub invocation_id: Hash,
     #[sea_orm(primary_key)]
-    pub orbit: epoch::OrbitIdWrap,
+    pub orbit: OrbitIdWrap,
 
     pub key: String,
     pub deleted_invocation_id: Hash,

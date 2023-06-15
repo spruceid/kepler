@@ -1,25 +1,24 @@
+use crate::types::resource::Resource;
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
     libipld::Cid,
-    resource::{KRIParseError, OrbitId},
+    resource::{KRIParseError, OrbitId, ResourceId},
     siwe_recap::{extract_capabilities, verify_statement, Capability as SiweCap},
     ssi::ucan::Capability as UcanCap,
 };
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 use time::OffsetDateTime;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Capability {
-    pub resource: String,
+    pub resource: Resource,
     pub action: String,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum CapExtractError {
-    #[error(transparent)]
-    ResourceParse(#[from] KRIParseError),
     #[error("Default actions are not allowed for Kepler capabilities")]
     DefaultActions,
     #[error("Invalid Extra Fields")]
@@ -30,7 +29,7 @@ pub enum CapExtractError {
 
 fn extract_ucan_cap<T>(c: &UcanCap<T>) -> Result<Capability, CapExtractError> {
     Ok(Capability {
-        resource: c.with.to_string(),
+        resource: c.with.to_string().into(),
         action: c.can.capability.clone(),
     })
 }
@@ -45,7 +44,7 @@ fn extract_siwe_cap(c: SiweCap) -> Result<(Vec<Capability>, Vec<Cid>), CapExtrac
                 .flat_map(|(r, acs)| {
                     acs.into_iter()
                         .map(|action| Capability {
-                            resource: r.clone(),
+                            resource: Resource::from(r.clone()),
                             action,
                         })
                         .collect::<Vec<Capability>>()
