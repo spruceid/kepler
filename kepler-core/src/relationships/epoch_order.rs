@@ -1,6 +1,6 @@
 use super::super::models::epoch;
 use crate::hash::Hash;
-use crate::types::orbit_id_wrap::OrbitIdWrap;
+use crate::types::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]

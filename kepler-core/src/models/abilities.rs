@@ -1,11 +1,7 @@
 use super::*;
 use crate::hash::Hash;
-use crate::types::{caveats::Caveats, resource::Resource};
-use kepler_lib::resource::{OrbitId, ResourceId};
+use crate::types::{Caveats, Resource};
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::fmt::Display;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "ability")]

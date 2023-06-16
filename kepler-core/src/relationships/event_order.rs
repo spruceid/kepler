@@ -1,7 +1,6 @@
 use super::super::models::*;
 use crate::hash::Hash;
-use crate::relationships::*;
-use crate::types::orbit_id_wrap::OrbitIdWrap;
+use crate::types::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, PartialOrd, Ord)]
@@ -11,6 +10,7 @@ pub struct Model {
     pub seq: i64,
     #[sea_orm(primary_key)]
     pub epoch: Hash,
+    /// Sequence number of the event within the epoch
     #[sea_orm(primary_key)]
     pub epoch_seq: i64,
     pub event: Hash,

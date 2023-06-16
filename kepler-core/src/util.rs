@@ -1,14 +1,14 @@
-use crate::types::resource::Resource;
+use crate::types::Resource;
 use kepler_lib::{
     authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation},
     cacaos::siwe::Message,
     libipld::Cid,
-    resource::{KRIParseError, OrbitId, ResourceId},
+    resource::OrbitId,
     siwe_recap::{extract_capabilities, verify_statement, Capability as SiweCap},
     ssi::ucan::Capability as UcanCap,
 };
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, str::FromStr};
+use std::str::FromStr;
 use time::OffsetDateTime;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
@@ -84,10 +84,8 @@ pub struct DelegationInfo {
 }
 
 impl DelegationInfo {
-    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> + '_ {
-        self.capabilities
-            .iter()
-            .filter_map(|c| c.resource.parse().ok())
+    pub fn orbits(&self) -> impl Iterator<Item = &OrbitId> + '_ {
+        self.capabilities.iter().filter_map(|c| c.resource.orbit())
     }
 }
 
@@ -168,10 +166,8 @@ pub struct InvocationInfo {
 }
 
 impl InvocationInfo {
-    pub fn orbits(&self) -> impl Iterator<Item = OrbitId> + '_ {
-        self.capabilities
-            .iter()
-            .filter_map(|c| c.resource.parse().ok())
+    pub fn orbits(&self) -> impl Iterator<Item = &OrbitId> + '_ {
+        self.capabilities.iter().filter_map(|c| c.resource.orbit())
     }
 }
 

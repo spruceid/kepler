@@ -1,5 +1,6 @@
 use super::super::models::*;
 use crate::hash::Hash;
+use crate::types::Resource;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -8,36 +9,26 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub invocation: Hash,
     #[sea_orm(primary_key)]
-    pub resource: String,
+    pub resource: Resource,
     #[sea_orm(primary_key)]
     pub ability: String,
-    #[sea_orm(primary_key)]
-    pub delegation: Hash,
-    #[sea_orm(primary_key)]
-    pub orbit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     // inverse relation, delegations belong to delegators
-    // #[sea_orm(
-    //     belongs_to = "invocation::Entity",
-    //     from = "(Column::Invocation, Column::Orbit)",
-    //     to = "(invocation::Column::Id, invocation::Column::Orbit)"
-    // )]
-    // Invocation,
     #[sea_orm(
-        belongs_to = "abilities::Entity",
-        from = "(Column::Resource, Column::Ability, Column::Delegation)",
-        to = "(abilities::Column::Resource, abilities::Column::Ability, abilities::Column::Delegation)"
+        belongs_to = "invocation::Entity",
+        from = "Column::Invocation",
+        to = "invocation::Column::Id"
     )]
-    Ability,
-    #[sea_orm(
-        belongs_to = "delegation::Entity",
-        from = "(Column::Delegation, Column::Orbit)",
-        to = "(delegation::Column::Id, delegation::Column::Orbit)"
-    )]
-    Delegation,
+    Invocation,
+}
+
+impl Related<invocation::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Invocation.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}
