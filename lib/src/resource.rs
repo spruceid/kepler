@@ -84,7 +84,9 @@ impl TryFrom<DIDURL> for OrbitId {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
+#[derive(
+    Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord,
+)]
 pub struct ResourceId {
     orbit: OrbitId,
     service: Option<String>,

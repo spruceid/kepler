@@ -1,11 +1,9 @@
-use super::*;
-use crate::hash::Hash;
-use crate::relationships::*;
 use kepler_lib::resource::OrbitId;
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash, PartialOrd, Ord)]
 pub struct OrbitIdWrap(pub OrbitId);
 
 impl From<OrbitId> for OrbitIdWrap {
@@ -29,6 +27,12 @@ impl AsRef<OrbitId> for OrbitIdWrap {
 impl core::borrow::Borrow<OrbitId> for OrbitIdWrap {
     fn borrow(&self) -> &OrbitId {
         &self.0
+    }
+}
+
+impl PartialEq<OrbitId> for OrbitIdWrap {
+    fn eq(&self, other: &OrbitId) -> bool {
+        self.0 == *other
     }
 }
 
@@ -57,8 +61,9 @@ impl sea_orm::TryGetable for OrbitIdWrap {
 impl sea_orm::sea_query::ValueType for OrbitIdWrap {
     fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
         match v {
-            Value::String(Some(x)) => Ok(<OrbitIdWrap as std::str::FromStr>::from_str(&x)
-                .map_err(|_| sea_orm::sea_query::ValueTypeErr)?),
+            Value::String(Some(x)) => Ok(OrbitId::from_str(&x)
+                .map_err(|_| sea_orm::sea_query::ValueTypeErr)?
+                .into()),
             _ => Err(sea_orm::sea_query::ValueTypeErr),
         }
     }

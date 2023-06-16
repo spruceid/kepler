@@ -1,10 +1,6 @@
-use super::*;
-use crate::hash::Hash;
-use kepler_lib::resource::{OrbitId, ResourceId};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fmt::Display;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Default)]
 pub struct Caveats(pub BTreeMap<String, serde_json::Value>);
@@ -15,16 +11,7 @@ impl From<Caveats> for Value {
     }
 }
 
-impl sea_orm::TryGetable for Caveats {
-    fn try_get_by<I: sea_orm::ColIdx>(
-        res: &QueryResult,
-        idx: I,
-    ) -> Result<Self, sea_orm::TryGetError> {
-        let json: serde_json::Value = res.try_get_by(idx).map_err(sea_orm::TryGetError::DbErr)?;
-        serde_json::from_value(json)
-            .map_err(|e| sea_orm::TryGetError::DbErr(DbErr::Json(e.to_string())))
-    }
-}
+impl sea_orm::TryGetableFromJson for Caveats {}
 
 impl sea_orm::sea_query::ValueType for Caveats {
     fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {

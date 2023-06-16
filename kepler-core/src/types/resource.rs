@@ -1,12 +1,9 @@
-use super::*;
-use crate::hash::Hash;
 use kepler_lib::resource::{OrbitId, ResourceId};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::{fmt::Display, str::FromStr};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(untagged)]
 pub enum Resource {
     Kepler(ResourceId),
@@ -14,9 +11,24 @@ pub enum Resource {
 }
 
 impl Resource {
-    fn orbit(&self) -> Option<&OrbitId> {
+    pub fn orbit(&self) -> Option<&OrbitId> {
         match self {
-            Resource::Kepler(id) => Some(&id.orbit),
+            Resource::Kepler(id) => Some(id.orbit()),
+            Resource::Other(_) => None,
+        }
+    }
+
+    pub fn extends(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Resource::Kepler(a), Resource::Kepler(b)) => a.extends(b).is_ok(),
+            (Resource::Other(a), Resource::Other(b)) => a.starts_with(b),
+            _ => false,
+        }
+    }
+
+    pub fn kepler_resource(&self) -> Option<&ResourceId> {
+        match self {
+            Resource::Kepler(id) => Some(&id),
             Resource::Other(_) => None,
         }
     }
@@ -50,7 +62,7 @@ impl sea_orm::TryGetable for Resource {
 impl sea_orm::sea_query::ValueType for Resource {
     fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
         match v {
-            Value::String(Some(x)) => Ok(Resource::from(x)),
+            Value::String(Some(x)) => Ok(Resource::from(*x)),
             _ => Err(sea_orm::sea_query::ValueTypeErr),
         }
     }
