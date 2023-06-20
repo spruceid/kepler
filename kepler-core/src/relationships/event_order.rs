@@ -15,6 +15,7 @@ pub struct Model {
     pub epoch_seq: i64,
     pub event: Hash,
 
+    #[sea_orm(primary_key)]
     pub orbit: OrbitIdWrap,
 }
 

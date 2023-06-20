@@ -1,7 +1,7 @@
 use super::super::{events::Revocation, models::*, relationships::*};
 use crate::hash::{hash, Hash};
 use kepler_lib::authorization::KeplerRevocation;
-use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
+use sea_orm::{entity::prelude::*, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -103,17 +103,13 @@ pub(crate) async fn process<C: ConnectionTrait>(
     };
 
     let hash: Hash = hash(&serialization);
-    let r_hash: Hash = (*r.revoked.hash()).into();
+    let delegation = delegation::Entity::find_by_id(Hash::from(r.revoked))
+        .one(db)
+        .await?
+        .ok_or_else(|| RevocationError::MissingParents)?;
 
     // check the revoker is also the delegator
-    if delegation::Entity::find()
-        .filter(delegation::Column::Id.eq(r_hash))
-        .one(db)
-        .await
-        .map_err(|_| RevocationError::MissingParents)?
-        .delegator
-        != r.revoker
-    {
+    if &delegation.delegator != &r.revoker {
         return Err(RevocationError::UnauthorizedRevoker(r.revoker).into());
     };
 
@@ -121,7 +117,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
         id: hash,
         serialization,
         revoker: r.revoker,
-        revoked: (*r.revoked.hash()).into(),
+        revoked: delegation.id,
     }))
     .exec(db)
     .await?;

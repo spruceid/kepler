@@ -5,8 +5,9 @@ use super::super::{
     util,
 };
 use crate::hash::Hash;
+use crate::types::{OrbitIdWrap, Resource};
 use kepler_lib::{authorization::KeplerInvocation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait, QueryOrder};
+use sea_orm::{entity::prelude::*, ConnectionTrait, QueryOrder};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -18,8 +19,6 @@ pub struct Model {
     pub invoker: String,
     pub issued_at: OffsetDateTime,
     pub serialization: Vec<u8>,
-    pub resource: String,
-    pub ability: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -44,6 +43,8 @@ pub enum Relation {
         to = "parent_delegations::Column::Child"
     )]
     Parents,
+    #[sea_orm(has_many = "invoked_abilities::Entity")]
+    InvokedAbilities,
 }
 
 impl Related<actor::Entity> for Entity {
@@ -61,6 +62,12 @@ impl Related<event_order::Entity> for Entity {
 impl Related<delegation::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Parents.def()
+    }
+}
+
+impl Related<invoked_abilities::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::InvokedAbilities.def()
     }
 }
 
@@ -83,7 +90,7 @@ pub enum InvocationError {
     #[error("Unauthorized Invoker")]
     UnauthorizedInvoker(String),
     #[error("Unauthorized Capability")]
-    UnauthorizedCapability(String, String),
+    UnauthorizedCapability(Resource, String),
     #[error("Cannot find parent delegation")]
     MissingParents,
     #[error("No Such Key: {0}")]
@@ -123,15 +130,14 @@ async fn validate<C: ConnectionTrait>(
     time: Option<OffsetDateTime>,
 ) -> Result<(), Error> {
     // get caps which rely on delegated caps
-    let dependant_caps = invocation
+    let dependant_caps: Vec<_> = invocation
         .capabilities
         .iter()
         .filter(|c| {
             // remove caps for which the delegator is the root authority
             c.resource
-                .parse()
-                .ok()
-                .map(|r| r.did() != invocation.invoker)
+                .orbit()
+                .map(|o| o.did() != invocation.invoker)
                 .unwrap_or(true)
         })
         .collect();
@@ -140,7 +146,7 @@ async fn validate<C: ConnectionTrait>(
         // no dependant caps, no parents needed, must be valid
         (true, _) => Ok(()),
         // dependant caps, no parents, invalid
-        (false, true) => Err(InvocationError::MissingParents),
+        (false, true) => Err(InvocationError::MissingParents.into()),
         // dependant caps, parents, check parents
         (false, false) => {
             // get parents which have
@@ -150,12 +156,12 @@ async fn validate<C: ConnectionTrait>(
                     delegation::Column::Id.is_in(invocation.parents.iter().map(|c| Hash::from(*c))),
                 )
                 // the correct delegatee
-                .filter(delegation::Column::Delegatee.eq(invocation.invoker))
+                .filter(delegation::Column::Delegatee.eq(invocation.invoker.clone()))
                 .all(db)
                 .await?;
 
             let now = time.unwrap_or_else(OffsetDateTime::now_utc);
-            let parents = parents
+            let parents: Vec<_> = parents
                 .into_iter()
                 .filter(|p| {
                     // valid time bounds
@@ -164,17 +170,20 @@ async fn validate<C: ConnectionTrait>(
                 .collect();
 
             // get delegated abilities from each parent
-            let parent_abilities = parents.find_many(abilities::Entity, db).await?;
+            let parent_abilities = parents.load_many(abilities::Entity, db).await?;
 
             // check each dependant cap is supported by at least one parent cap
-            match !dependant_caps.iter().first(|c| {
+            match dependant_caps.iter().find(|c| {
                 !parent_abilities
                     .iter()
-                    .any(|pc| c.resource.starts_with(&pc.resource) && c.action == pc.ability)
+                    .flatten()
+                    .any(|pc| c.resource.extends(&pc.resource) && c.action == pc.ability)
             }) {
                 Some(c) => Err(InvocationError::UnauthorizedCapability(
-                    c.resource, c.ability,
-                )),
+                    c.resource.clone(),
+                    c.action.clone(),
+                )
+                .into()),
                 None => Ok(()),
             }
         }
@@ -186,7 +195,7 @@ async fn save<C: ConnectionTrait>(
     invocation: util::InvocationInfo,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
-    parameters: Option<(Operation, Hash)>,
+    parameters: Option<Operation>,
 ) -> Result<Hash, Error> {
     let hash = crate::hash::hash(&serialization);
     let issued_at = time.unwrap_or_else(OffsetDateTime::now_utc);
@@ -196,13 +205,21 @@ async fn save<C: ConnectionTrait>(
         issued_at,
         serialization,
         invoker: invocation.invoker,
-        resource: invocation.capability.resource,
-        ability: invocation.capability.action,
     }))
     .exec(db)
     .await?;
 
-    // TODO insert invoked_abilities
+    // save invoked abilities
+    invoked_abilities::Entity::insert_many(invocation.capabilities.into_iter().map(|c| {
+        invoked_abilities::ActiveModel::from(invoked_abilities::Model {
+            invocation: hash,
+            resource: c.resource,
+            ability: c.action,
+        })
+    }))
+    .exec(db)
+    .await?;
+
     // save parent relationships
     parent_delegations::Entity::insert_many(invocation.parents.into_iter().map(|p| {
         parent_delegations::ActiveModel::from(parent_delegations::Model {
@@ -224,7 +241,7 @@ async fn save<C: ConnectionTrait>(
                 invocation: hash,
                 key,
                 value,
-                orbit: orbit.to_string(),
+                orbit: orbit.into(),
                 metadata,
             }))
             .exec(db)
@@ -235,25 +252,32 @@ async fn save<C: ConnectionTrait>(
             version,
             orbit,
         }) => {
-            let orbit = orbit.to_string();
             let deleted_invocation_id = match version {
-                Some((seq, epoch_id)) => todo!("get invocation ID of kvwrite"),
-                None => {
-                    kv_write::Entity::find()
-                        .filter(kv_write::Column::Key.eq(key))
-                        .filter(kv_write::Column::Orbit.eq(orbit))
-                        .order_by_desc(kv_write::Column::Seq)
-                        .order_by_desc(kv_write::Column::EpochId)
+                Some((seq, epoch_id, epoch_seq)) => {
+                    event_order::Entity::find_by_id((epoch_id, epoch_seq, orbit.clone().into()))
                         .one(db)
                         .await?
                         .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?
+                        .event
+                }
+                None => {
+                    kv_write::Entity::find()
+                        .filter(kv_write::Column::Key.eq(key.clone()))
+                        .filter(kv_write::Column::Orbit.eq(OrbitIdWrap(orbit.clone())))
+                        .find_also_linked(kv_write::Ordering)
+                        .order_by_desc(event_order::Column::Seq)
+                        .order_by_desc(event_order::Column::Epoch)
+                        .one(db)
+                        .await?
+                        .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?
+                        .0
                         .invocation
                 }
             };
             kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
                 key,
                 invocation_id: hash,
-                orbit,
+                orbit: orbit.into(),
                 deleted_invocation_id,
             }))
             .exec(db)

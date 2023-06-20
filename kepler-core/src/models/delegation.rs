@@ -1,8 +1,8 @@
 use super::super::{events::Delegation, models::*, relationships::*, util};
 use crate::hash::Hash;
+use crate::types::Resource;
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, sea_query::Condition, ConnectionTrait};
-use serde_json::Value as JsonValue;
+use sea_orm::{entity::prelude::*, query::*, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -159,8 +159,8 @@ pub enum DelegationError {
     InvalidSignature,
     #[error("Unauthorized Delegator: {0}")]
     UnauthorizedDelegator(String),
-    #[error("Unauthorized Capability: {0}/{1}")]
-    UnauthorizedCapability(String, String),
+    #[error("Unauthorized Capability: {0}, {1}")]
+    UnauthorizedCapability(Resource, String),
     #[error("Cannot find parent delegation")]
     MissingParents,
 }
@@ -207,15 +207,14 @@ async fn validate<C: ConnectionTrait>(
     delegation: &util::DelegationInfo,
 ) -> Result<(), Error> {
     // get caps which rely on delegated caps
-    let dependant_caps = delegation
+    let dependant_caps: Vec<_> = delegation
         .capabilities
         .iter()
         .filter(|c| {
             // remove caps for which the delegator is the root authority
             c.resource
-                .parse()
-                .ok()
-                .map(|r| r.did() != delegation.delegator)
+                .orbit()
+                .map(|o| o.did() != delegation.delegator)
                 .unwrap_or(true)
         })
         .collect();
@@ -228,11 +227,11 @@ async fn validate<C: ConnectionTrait>(
         // dependant caps, parents, check parents
         (false, false) => {
             // get parents which have
-            let parents = Entity::find()
+            let parents: Vec<_> = Entity::find()
                 // the correct id
                 .filter(Column::Id.is_in(delegation.parents.iter().map(|c| Hash::from(*c))))
                 // the correct delegatee
-                .filter(Column::Delegatee.eq(delegation.delegator))
+                .filter(Column::Delegatee.eq(delegation.delegator.clone()))
                 .all(db)
                 .await?
                 .into_iter()
@@ -246,17 +245,20 @@ async fn validate<C: ConnectionTrait>(
                 .collect();
 
             // get delegated abilities from each parent
-            let parent_abilities = parents.find_many(abilities::Entity, db).await?;
+            let parent_abilities = parents.load_many(abilities::Entity, db).await?;
 
             // check each dependant cap is supported by at least one parent cap
-            match !dependant_caps.iter().first(|c| {
+            match dependant_caps.iter().find(|c| {
                 !parent_abilities
                     .iter()
-                    .any(|pc| c.resource.starts_with(&pc.resource) && c.action == pc.ability)
+                    .flatten()
+                    .any(|pc| c.resource.extends(&pc.resource) && c.action == pc.ability)
             }) {
-                Some(c) => {
-                    Err(DelegationError::UnauthorizedCapability(c.resource, c.ability).into())
-                }
+                Some(c) => Err(DelegationError::UnauthorizedCapability(
+                    c.resource.clone(),
+                    c.action.clone(),
+                )
+                .into()),
                 None => Ok(()),
             }
         }
