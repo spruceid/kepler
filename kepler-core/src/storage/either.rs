@@ -31,16 +31,20 @@ where
 {
     type Readable = AsyncEither<A::Readable, B::Readable>;
     type Error = EitherError<A::Error, B::Error>;
-    async fn contains(&self, id: &Hash) -> Result<bool, Self::Error> {
+    async fn contains(&self, orbit: &OrbitId, id: &Hash) -> Result<bool, Self::Error> {
         match self {
-            Self::A(l) => l.contains(id).await.map_err(Self::Error::A),
-            Self::B(r) => r.contains(id).await.map_err(Self::Error::B),
+            Self::A(l) => l.contains(orbit, id).await.map_err(Self::Error::A),
+            Self::B(r) => r.contains(orbit, id).await.map_err(Self::Error::B),
         }
     }
-    async fn read(&self, id: &Hash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+    async fn read(
+        &self,
+        orbit: &OrbitId,
+        id: &Hash,
+    ) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         match self {
             Self::A(l) => l
-                .read(id)
+                .read(orbit, id)
                 .await
                 .map(|o| {
                     o.map(|c| {
@@ -50,7 +54,7 @@ where
                 })
                 .map_err(Self::Error::A),
             Self::B(r) => r
-                .read(id)
+                .read(orbit, id)
                 .await
                 .map(|o| {
                     o.map(|c| {
@@ -71,15 +75,15 @@ where
 {
     type Writable = AsyncEither<A::Writable, B::Writable>;
     type Error = EitherError<A::Error, B::Error>;
-    async fn get_staging_buffer(&self) -> Result<Self::Writable, Self::Error> {
+    async fn get_staging_buffer(&self, orbit: &OrbitId) -> Result<Self::Writable, Self::Error> {
         match self {
             Self::A(l) => l
-                .get_staging_buffer()
+                .get_staging_buffer(orbit)
                 .await
                 .map(AsyncEither::Left)
                 .map_err(Self::Error::A),
             Self::B(r) => r
-                .get_staging_buffer()
+                .get_staging_buffer(orbit)
                 .await
                 .map(AsyncEither::Right)
                 .map_err(Self::Error::B),
@@ -96,10 +100,14 @@ where
     S::Writable: 'static,
 {
     type Error = EitherError<A::Error, B::Error>;
-    async fn persist(&self, staged: HashBuffer<S::Writable>) -> Result<Hash, Self::Error> {
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<S::Writable>,
+    ) -> Result<Hash, Self::Error> {
         match self {
-            Self::A(a) => a.persist(staged).await.map_err(Self::Error::A),
-            Self::B(b) => b.persist(staged).await.map_err(Self::Error::B),
+            Self::A(a) => a.persist(orbit, staged).await.map_err(Self::Error::A),
+            Self::B(b) => b.persist(orbit, staged).await.map_err(Self::Error::B),
         }
     }
 }
@@ -140,10 +148,10 @@ where
     B: ImmutableDeleteStore,
 {
     type Error = EitherError<A::Error, B::Error>;
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
+    async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
         match self {
-            Self::A(l) => l.remove(id).await.map_err(Self::Error::A),
-            Self::B(r) => r.remove(id).await.map_err(Self::Error::B),
+            Self::A(l) => l.remove(orbit, id).await.map_err(Self::Error::A),
+            Self::B(r) => r.remove(orbit, id).await.map_err(Self::Error::B),
         }
     }
 }

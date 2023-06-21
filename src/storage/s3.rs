@@ -28,16 +28,12 @@ fn aws_config() -> SdkConfig {
     block_on(async { aws_config::from_env().load().await })
 }
 
-// TODO we could use the same struct for both the block store and the data
-// (pin) store, but we need to remember that for now it will be two different
-// objects in rust-ipfs
 #[derive(Debug, Clone)]
 pub struct S3BlockStore {
     // TODO Remove is unused (orbit::delete is never called).
     // When that changes we will need to use a mutex, either local or in Dynamo
     pub client: Client,
     pub bucket: String,
-    pub orbit: String,
 }
 
 #[serde_as]
@@ -53,10 +49,10 @@ pub struct S3BlockConfig {
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = std::convert::Infallible;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
-        Ok(Some(S3BlockStore::new_(self, orbit)))
+        Ok(Some(S3BlockStore::new_(self)))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
-        Ok(S3BlockStore::new_(self, orbit))
+        Ok(S3BlockStore::new_(self))
     }
 }
 
@@ -175,18 +171,17 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
 }
 
 impl S3BlockStore {
-    pub fn new_(config: &S3BlockConfig, orbit: &OrbitId) -> Self {
+    pub fn new_(config: &S3BlockConfig) -> Self {
         S3BlockStore {
             client: new_client(config),
             bucket: config.bucket.clone(),
-            orbit: orbit.get_cid().to_string(),
         }
     }
 
-    fn key(&self, id: &Hash) -> String {
+    fn key(&self, orbit: &OrbitId, id: &Hash) -> String {
         format!(
             "{}/{}",
-            self.orbit,
+            orbit,
             base64::encode_config(id.as_ref(), base64::URL_SAFE)
         )
     }
@@ -212,12 +207,12 @@ pub enum S3StoreError {
 impl ImmutableReadStore for S3BlockStore {
     type Error = S3StoreError;
     type Readable = IntoAsyncRead<MapErr<ByteStream, fn(ByteStreamError) -> IoError>>;
-    async fn contains(&self, id: &Hash) -> Result<bool, Self::Error> {
+    async fn contains(&self, orbit: &OrbitId, id: &Hash) -> Result<bool, Self::Error> {
         match self
             .client
             .head_object()
             .bucket(&self.bucket)
-            .key(self.key(id))
+            .key(self.key(orbit, id))
             .send()
             .await
         {
@@ -233,12 +228,16 @@ impl ImmutableReadStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-    async fn read(&self, id: &Hash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+    async fn read(
+        &self,
+        orbit: &OrbitId,
+        id: &Hash,
+    ) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         let res = self
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(self.key(id))
+            .key(self.key(orbit, id))
             .send()
             .await;
         match res {
@@ -266,16 +265,17 @@ impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
     type Error = S3StoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
-        if !self.contains(&hash).await? {
+        if !self.contains(orbit, &hash).await? {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(self.key(&hash))
+                .key(self.key(orbit, &hash))
                 .body(ByteStream::from(f))
                 .send()
                 .await
@@ -290,17 +290,18 @@ impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
     type Error = S3StoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<file_system::TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
         let (_file, path) = f.into_inner();
 
-        if !self.contains(&hash).await? {
+        if !self.contains(orbit, &hash).await? {
             self.client
                 .put_object()
                 .bucket(&self.bucket)
-                .key(self.key(&hash))
+                .key(self.key(orbit, &hash))
                 .body(ByteStream::from_path(&path).await?)
                 .send()
                 .await
@@ -317,19 +318,20 @@ impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory
     type Error = S3StoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
-        if !self.contains(&hash).await? {
+        if !self.contains(orbit, &hash).await? {
             match f {
                 AsyncEither::Left(t_file) => {
                     let (_file, path) = t_file.into_inner();
                     self.client
                         .put_object()
                         .bucket(&self.bucket)
-                        .key(self.key(&hash))
+                        .key(self.key(orbit, &hash))
                         .body(ByteStream::from_path(&path).await?)
                         .send()
                         .await
@@ -339,7 +341,7 @@ impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory
                     self.client
                         .put_object()
                         .bucket(&self.bucket)
-                        .key(self.key(&hash))
+                        .key(self.key(orbit, &hash))
                         .body(ByteStream::from(b))
                         .send()
                         .await
@@ -354,12 +356,12 @@ impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory
 #[async_trait]
 impl ImmutableDeleteStore for S3BlockStore {
     type Error = S3StoreError;
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
+    async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
         match self
             .client
             .delete_object()
             .bucket(&self.bucket)
-            .key(self.key(id))
+            .key(self.key(orbit, id))
             .send()
             .await
         {

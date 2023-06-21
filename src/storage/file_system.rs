@@ -29,8 +29,9 @@ impl FileSystemStore {
         Self { path }
     }
 
-    fn get_path(&self, mh: &Hash) -> PathBuf {
+    fn get_path(&self, orbit: &OrbitId, mh: &Hash) -> PathBuf {
         self.path
+            .join(orbit.to_string())
             .join(base64::encode_config(mh.as_ref(), base64::URL_SAFE))
     }
 }
@@ -137,11 +138,15 @@ pub enum FileSystemStoreError {
 impl ImmutableReadStore for FileSystemStore {
     type Error = FileSystemStoreError;
     type Readable = Compat<File>;
-    async fn contains(&self, id: &Hash) -> Result<bool, Self::Error> {
-        Ok(self.get_path(id).exists())
+    async fn contains(&self, orbit: &OrbitId, id: &Hash) -> Result<bool, Self::Error> {
+        Ok(self.get_path(orbit, id).exists())
     }
-    async fn read(&self, id: &Hash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
-        match File::open(self.get_path(id)).await {
+    async fn read(
+        &self,
+        orbit: &OrbitId,
+        id: &Hash,
+    ) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+        match File::open(self.get_path(orbit, id)).await {
             Ok(f) => Ok(Some(Content::new(f.metadata().await?.len(), f.compat()))),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
@@ -186,7 +191,7 @@ impl AsyncWrite for TempFileStage {
 impl ImmutableStaging for TempFileSystemStage {
     type Error = FileSystemStoreError;
     type Writable = TempFileStage;
-    async fn get_staging_buffer(&self) -> Result<Self::Writable, Self::Error> {
+    async fn get_staging_buffer(&self, _: &OrbitId) -> Result<Self::Writable, Self::Error> {
         Ok(TempFileStage::new(NamedTempFile::new()?))
     }
 }
@@ -196,14 +201,15 @@ impl ImmutableWriteStore<TempFileSystemStage> for FileSystemStore {
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<TempFileSystemStage as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, f) = staged.into_inner();
         let (_, path) = f.into_inner();
 
         let hash = h.finalize();
-        if !self.contains(&hash).await? {
-            path.persist(self.get_path(&hash))?;
+        if !self.contains(orbit, &hash).await? {
+            path.persist(self.get_path(orbit, &hash))?;
         }
         Ok(hash)
     }
@@ -214,12 +220,13 @@ impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, v) = staged.into_inner();
         let hash = h.finalize();
-        if !self.contains(&hash).await? {
-            let file = File::create(self.get_path(&hash)).await?;
+        if !self.contains(orbit, &hash).await? {
+            let file = File::create(self.get_path(orbit, &hash)).await?;
             let mut writer = futures::io::BufWriter::new(file.compat());
             writer.write_all(&v).await?;
             writer.flush().await?;
@@ -235,19 +242,20 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
     type Error = FileSystemStoreError;
     async fn persist(
         &self,
+        orbit: &OrbitId,
         staged: HashBuffer<<either::Either<TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
     ) -> Result<Hash, Self::Error> {
         let (mut h, f) = staged.into_inner();
         let hash = h.finalize();
 
-        if !self.contains(&hash).await? {
+        if !self.contains(orbit, &hash).await? {
             match f {
                 AsyncEither::Left(t_file) => {
                     let (_, path) = t_file.into_inner();
-                    path.persist(self.get_path(&hash))?;
+                    path.persist(self.get_path(orbit, &hash))?;
                 }
                 AsyncEither::Right(v) => {
-                    let file = File::create(self.get_path(&hash)).await?;
+                    let file = File::create(self.get_path(orbit, &hash)).await?;
                     let mut writer = futures::io::BufWriter::new(file.compat());
                     writer.write_all(&v).await?;
                     writer.flush().await?;
@@ -261,8 +269,8 @@ impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStagi
 #[async_trait]
 impl ImmutableDeleteStore for FileSystemStore {
     type Error = FileSystemStoreError;
-    async fn remove(&self, id: &Hash) -> Result<Option<()>, Self::Error> {
-        match remove_file(self.get_path(id)).await {
+    async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
+        match remove_file(self.get_path(orbit, id)).await {
             Ok(()) => Ok(Some(())),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
