@@ -12,6 +12,9 @@ pub struct Model {
     pub key: String,
     #[sea_orm(primary_key)]
     pub invocation: Hash,
+    pub seq: i64,
+    pub epoch: Hash,
+    pub epoch_seq: i64,
     pub value: Hash,
     pub metadata: Metadata,
 }
@@ -26,6 +29,12 @@ pub enum Relation {
     Invocation,
     #[sea_orm(has_many = "kv_delete::Entity")]
     Deleted,
+    #[sea_orm(
+        belongs_to = "event_order::Entity",
+        from = "(Column::Epoch, Column::EpochSeq, Column::Orbit)",
+        to = "(event_order::Column::Epoch, event_order::Column::EpochSeq, event_order::Column::Orbit)"
+    )]
+    Ordering,
 }
 
 impl Related<invocation::Entity> for Entity {
@@ -40,19 +49,9 @@ impl Related<kv_delete::Entity> for Entity {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct Ordering;
-
-impl Linked for Ordering {
-    type FromEntity = Entity;
-
-    type ToEntity = event_order::Entity;
-
-    fn link(&self) -> Vec<RelationDef> {
-        vec![
-            Relation::Invocation.def(),
-            invocation::Relation::Ordering.def(),
-        ]
+impl Related<event_order::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Ordering.def()
     }
 }
 
