@@ -18,13 +18,11 @@ pub struct InvocationHeaders {
 impl InvocationHeaders {
     pub async fn from(
         session: Session,
-        service: String,
-        path: String,
-        action: String,
+        actions: Vec<(String, String, String)>,
     ) -> Result<Self, Error> {
         Ok(Self {
             invocation: session
-                .invoke(service, path, action)
+                .invoke(actions)
                 .await
                 .map_err(Error::FailedToMakeInvocation)?,
         })

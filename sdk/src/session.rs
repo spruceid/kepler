@@ -131,15 +131,13 @@ impl SessionConfig {
 impl Session {
     pub async fn invoke(
         self,
-        service: String,
-        path: String,
-        action: String,
+        actions: Vec<(String, String, String)>,
     ) -> Result<KeplerInvocation, InvocationError> {
-        let target = self
-            .orbit_id
-            .to_resource(Some(service), Some(path), Some(action));
+        let targets = actions
+            .into_iter()
+            .map(|(s, p, a)| self.orbit_id.clone().to_resource(Some(s), Some(p), Some(a)));
         make_invocation(
-            target,
+            targets.collect(),
             self.delegation_cid,
             &self.jwk,
             self.verification_method,

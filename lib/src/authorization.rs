@@ -92,7 +92,7 @@ impl HeaderEncode for KeplerRevocation {
 }
 
 pub async fn make_invocation(
-    invocation_target: ResourceId,
+    invocation_target: Vec<ResourceId>,
     delegation: Cid,
     jwk: &JWK,
     verification_method: String,
@@ -108,7 +108,10 @@ pub async fn make_invocation(
         nonce: Some(nonce.unwrap_or_else(|| format!("urn:uuid:{}", Uuid::new_v4()))),
         facts: None,
         proof: vec![delegation],
-        attenuation: vec![invocation_target.try_into()?],
+        attenuation: invocation_target
+            .into_iter()
+            .map(|t| t.try_into())
+            .collect::<Result<Vec<ssi::ucan::Capability>, _>>()?,
     }
     .sign(jwk.get_algorithm().unwrap_or_default(), jwk)?)
 }
