@@ -119,24 +119,24 @@ where
     B: StorageConfig<SB> + Sync,
 {
     type Error = EitherError<A::Error, B::Error>;
-    async fn open(&self, orbit: &OrbitId) -> Result<Option<Either<SA, SB>>, Self::Error> {
+    async fn open(&self) -> Result<Option<Either<SA, SB>>, Self::Error> {
         match self {
             Self::A(a) => a
-                .open(orbit)
+                .open()
                 .await
                 .map(|o| o.map(Either::A))
                 .map_err(Self::Error::A),
             Self::B(b) => b
-                .open(orbit)
+                .open()
                 .await
                 .map(|o| o.map(Either::B))
                 .map_err(Self::Error::B),
         }
     }
-    async fn create(&self, orbit: &OrbitId) -> Result<Either<SA, SB>, Self::Error> {
+    async fn create(&self) -> Result<Either<SA, SB>, Self::Error> {
         match self {
-            Self::A(a) => a.create(orbit).await.map(Either::A).map_err(Self::Error::A),
-            Self::B(b) => b.create(orbit).await.map(Either::B).map_err(Self::Error::B),
+            Self::A(a) => a.create().await.map(Either::A).map_err(Self::Error::A),
+            Self::B(b) => b.create().await.map(Either::B).map_err(Self::Error::B),
         }
     }
 }

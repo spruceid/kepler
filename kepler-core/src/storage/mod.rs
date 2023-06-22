@@ -53,7 +53,7 @@ pub trait ImmutableReadStore: Send + Sync {
         Self::Readable: Send,
     {
         use futures::io::AsyncReadExt;
-        let (l, r) = match self.read(id).await? {
+        let (l, r) = match self.read(orbit, id).await? {
             None => return Ok(None),
             Some(r) => r.into_inner(),
         };
