@@ -13,9 +13,7 @@ use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 pub mod allow_list;
 pub mod auth_guards;
 pub mod authorization;
-pub mod cas;
 pub mod config;
-pub mod orbit;
 pub mod prometheus;
 pub mod relay;
 pub mod routes;
@@ -26,9 +24,10 @@ pub mod transport;
 use config::{BlockStorage, Config, StagingStorage};
 use kepler_core::{
     migrations::Migrator,
-    sea_orm::Database,
+    sea_orm::{Database, DatabaseConnection},
     sea_orm_migration::MigratorTrait,
     storage::{either::Either, memory::MemoryStaging},
+    OrbitDatabase,
 };
 use libp2p::{identity::Keypair, PeerId};
 use orbit::ProviderUtils;
@@ -81,6 +80,8 @@ impl From<BlockStage> for StagingStorage {
     }
 }
 
+pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores, BlockStage>;
+
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config: Config = config.extract::<Config>()?;
 
@@ -89,8 +90,6 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kp = kepler_config.storage.blocks.relay_key_pair().await?;
 
     let relay_node = RelayNode::new(kepler_config.relay.port, kp).await?;
-    let db = Database::connect(&kepler_config.storage.database).await?;
-    Migrator::up(&db, None).await?;
 
     let routes = routes![
         healthcheck,
@@ -101,13 +100,20 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         delegate,
     ];
 
+    let kepler = OrbitDatabase::wrap(
+        Database::connect(&kepler_config.storage.database).await?,
+        kepler_config.storage.blocks.clone(),
+        kepler_config.storage.staging.clone(),
+    )
+    .await?;
+
     let rocket = rocket::custom(config)
         .mount("/", routes)
         .attach(AdHoc::config::<config::Config>())
         .attach(tracing::TracingFairing {
             header_name: kepler_config.log.tracing.traceheader,
         })
-        .manage(db)
+        .manage(kepler)
         .manage(relay_node)
         .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
