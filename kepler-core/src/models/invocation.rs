@@ -102,7 +102,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
     invocation: Invocation,
     ops: Vec<VersionedOperation>,
 ) -> Result<Hash, Error> {
-    let Invocation(i, serialized) = invocation;
+    let (i, serialized) = (invocation.0, invocation.1);
     verify(&i.invocation).await?;
 
     let now = OffsetDateTime::now_utc();

@@ -87,7 +87,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
     revocation: Revocation,
 ) -> Result<Hash, Error> {
-    let Revocation(r, serialization) = revocation;
+    let (r, serialization) = (revocation.0, revocation.1);
 
     let t = OffsetDateTime::now_utc();
 

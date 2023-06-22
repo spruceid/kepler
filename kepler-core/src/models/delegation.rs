@@ -169,7 +169,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
     delegation: Delegation,
 ) -> Result<Hash, Error> {
-    let Delegation(d, ser) = delegation;
+    let (d, ser) = (delegation.0, delegation.1);
     verify(&d.delegation).await?;
 
     validate(db, &d).await?;

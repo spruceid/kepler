@@ -9,7 +9,6 @@ pub mod storage;
 pub mod types;
 mod util;
 
-pub use db::Commit;
-pub use db::OrbitDatabase;
+pub use db::{Commit, InvocationOutcome, OrbitDatabase, TxError, TxStoreError};
 pub use sea_orm;
 pub use sea_orm_migration;
