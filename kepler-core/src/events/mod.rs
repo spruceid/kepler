@@ -21,11 +21,7 @@ pub struct Delegation(pub DelegationInfo, pub(crate) Vec<u8>);
 pub struct Revocation(pub RevocationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug)]
-pub struct Invocation(
-    pub InvocationInfo,
-    pub(crate) Vec<u8>,
-    pub(crate) Option<Operation>,
-);
+pub struct Invocation(pub InvocationInfo, pub(crate) Vec<u8>);
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) enum Operation {
@@ -42,9 +38,64 @@ pub(crate) enum Operation {
     },
 }
 
+impl Operation {
+    pub fn version(self, seq: i64, epoch: Hash, epoch_seq: i64) -> VersionedOperation {
+        match self {
+            Self::KvWrite {
+                orbit,
+                key,
+                value,
+                metadata,
+            } => VersionedOperation::KvWrite {
+                orbit,
+                key,
+                value,
+                metadata,
+                seq,
+                epoch,
+                epoch_seq,
+            },
+            Self::KvDelete {
+                orbit,
+                key,
+                version,
+            } => VersionedOperation::KvDelete {
+                orbit,
+                key,
+                version,
+            },
+        }
+    }
+
+    pub fn orbit(&self) -> &OrbitId {
+        match self {
+            Self::KvWrite { orbit, .. } => orbit,
+            Self::KvDelete { orbit, .. } => orbit,
+        }
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub(crate) enum VersionedOperation {
+    KvWrite {
+        orbit: OrbitId,
+        key: String,
+        value: Hash,
+        metadata: Metadata,
+        seq: i64,
+        epoch: Hash,
+        epoch_seq: i64,
+    },
+    KvDelete {
+        orbit: OrbitId,
+        key: String,
+        version: Option<(i64, Hash, i64)>,
+    },
+}
+
 #[derive(Debug)]
-pub enum Event {
-    Invocation(Box<Invocation>),
+pub(crate) enum Event {
+    Invocation(Box<Invocation>, Vec<Operation>),
     Delegation(Box<Delegation>),
     Revocation(Box<Revocation>),
 }
@@ -53,7 +104,7 @@ impl Event {
     pub fn hash(&self) -> Hash {
         match self {
             Event::Delegation(d) => hash(&d.1),
-            Event::Invocation(i) => hash(&i.1),
+            Event::Invocation(i, _) => hash(&i.1),
             Event::Revocation(r) => hash(&r.1),
         }
     }
@@ -80,7 +131,7 @@ pub enum HashError {
     HashError(#[from] MultihashError),
 }
 
-pub fn epoch_hash(
+pub(crate) fn epoch_hash(
     orbit: &OrbitId,
     events: &[&(Hash, Event)],
     parents: &[Hash],
@@ -91,7 +142,7 @@ pub fn epoch_hash(
             .iter()
             .map(|(h, e)| {
                 Ok(match e {
-                    Event::Invocation(i) => hash_inv(&h, &i, orbit)?,
+                    Event::Invocation(_, ops) => hash_inv(&h, orbit, ops)?,
                     Event::Delegation(_) => OneOrMany::One(h.to_cid(RAW_CODEC)),
                     Event::Revocation(_) => OneOrMany::One(h.to_cid(RAW_CODEC)),
                 })
@@ -103,7 +154,7 @@ pub fn epoch_hash(
 const CBOR_CODEC: u64 = 0x71;
 const RAW_CODEC: u64 = 0x55;
 
-fn hash_inv(inv_hash: &Hash, inv: &Invocation, o: &OrbitId) -> Result<OneOrMany, HashError> {
+fn hash_inv(inv_hash: &Hash, o: &OrbitId, ops: &[Operation]) -> Result<OneOrMany, HashError> {
     #[derive(Debug, Serialize)]
     #[serde(untagged)]
     enum Op<'a> {
@@ -118,35 +169,37 @@ fn hash_inv(inv_hash: &Hash, inv: &Invocation, o: &OrbitId) -> Result<OneOrMany,
         },
     }
 
-    Ok(match &inv.2 {
-        Some(Operation::KvWrite {
-            orbit,
-            key,
-            value,
-            metadata,
-        }) if orbit == o => OneOrMany::Many(vec![
-            inv_hash.to_cid(RAW_CODEC),
-            hash(&serde_ipld_dagcbor::to_vec(&Op::KvWrite {
+    let ops = ops
+        .iter()
+        .filter_map(|op| match op {
+            Operation::KvWrite {
+                orbit,
+                key,
+                value,
+                metadata,
+            } if orbit == o => Some(Op::KvWrite {
                 key,
                 value: value.to_cid(CBOR_CODEC),
                 metadata,
-            })?)
-            .to_cid(CBOR_CODEC),
-        ]),
-        Some(Operation::KvDelete {
-            orbit,
-            key,
-            version,
-        }) if orbit == o => OneOrMany::Many(vec![
-            inv_hash.to_cid(RAW_CODEC),
-            hash(&serde_ipld_dagcbor::to_vec(&Op::KvDelete {
+            }),
+            Operation::KvDelete {
+                orbit,
                 key,
-                version: version
-                    .as_ref()
-                    .map(|(seq, hash, es)| (*seq, hash.to_cid(CBOR_CODEC), *es)),
-            })?)
-            .to_cid(CBOR_CODEC),
-        ]),
-        _ => OneOrMany::One(inv_hash.to_cid(RAW_CODEC)),
+                version,
+            } if orbit == o => Some(Op::KvDelete {
+                key,
+                version: version.map(|(v, h, s)| (v, h.to_cid(CBOR_CODEC), s)),
+            }),
+            _ => None,
+        })
+        .map(|op| Ok(hash(&serde_ipld_dagcbor::to_vec(&op)?).to_cid(CBOR_CODEC)))
+        .collect::<Result<Vec<_>, HashError>>()?;
+
+    Ok(if ops.is_empty() {
+        OneOrMany::One(inv_hash.to_cid(RAW_CODEC))
+    } else {
+        let mut v = vec![inv_hash.to_cid(RAW_CODEC)];
+        v.extend(ops);
+        OneOrMany::Many(v)
     })
 }

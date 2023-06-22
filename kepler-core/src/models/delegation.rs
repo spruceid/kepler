@@ -2,7 +2,7 @@ use super::super::{events::Delegation, models::*, relationships::*, util};
 use crate::hash::Hash;
 use crate::types::Resource;
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, query::*, ConnectionTrait};
+use sea_orm::{entity::prelude::*, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]

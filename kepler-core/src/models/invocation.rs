@@ -1,5 +1,5 @@
 use super::super::{
-    events::{Invocation, Operation},
+    events::{Invocation, VersionedOperation},
     models::*,
     relationships::*,
     util,
@@ -100,14 +100,15 @@ pub enum InvocationError {
 pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
     invocation: Invocation,
+    ops: Vec<VersionedOperation>,
 ) -> Result<Hash, Error> {
-    let Invocation(i, serialized, parameters) = invocation;
+    let Invocation(i, serialized) = invocation;
     verify(&i.invocation).await?;
 
     let now = OffsetDateTime::now_utc();
     validate(db, &i, Some(now)).await?;
 
-    save(db, i, Some(now), serialized, parameters).await
+    save(db, i, Some(now), serialized, ops).await
 }
 
 async fn verify(invocation: &KeplerInvocation) -> Result<(), Error> {
@@ -195,7 +196,7 @@ async fn save<C: ConnectionTrait>(
     invocation: util::InvocationInfo,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
-    parameters: Option<Operation>,
+    parameters: Vec<VersionedOperation>,
 ) -> Result<Hash, Error> {
     let hash = crate::hash::hash(&serialization);
     let issued_at = time.unwrap_or_else(OffsetDateTime::now_utc);
@@ -230,61 +231,56 @@ async fn save<C: ConnectionTrait>(
     .exec(db)
     .await?;
 
-    match parameters {
-        Some(Operation::KvWrite {
-            key,
-            value,
-            metadata,
-            orbit,
-        }) => {
-            kv_write::Entity::insert(kv_write::ActiveModel::from(kv_write::Model {
-                invocation: hash,
+    for param in parameters {
+        match param {
+            VersionedOperation::KvWrite {
                 key,
                 value,
-                orbit: orbit.into(),
                 metadata,
-            }))
-            .exec(db)
-            .await?;
-        }
-        Some(Operation::KvDelete {
-            key,
-            version,
-            orbit,
-        }) => {
-            let deleted_invocation_id = match version {
-                Some((seq, epoch_id, epoch_seq)) => {
-                    event_order::Entity::find_by_id((epoch_id, epoch_seq, orbit.clone().into()))
-                        .one(db)
-                        .await?
-                        .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?
-                        .event
-                }
-                None => {
-                    kv_write::Entity::find()
-                        .filter(kv_write::Column::Key.eq(key.clone()))
-                        .filter(kv_write::Column::Orbit.eq(OrbitIdWrap(orbit.clone())))
-                        .find_also_linked(kv_write::Ordering)
-                        .order_by_desc(event_order::Column::Seq)
-                        .order_by_desc(event_order::Column::Epoch)
-                        .one(db)
-                        .await?
-                        .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?
-                        .0
-                        .invocation
-                }
-            };
-            kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
+                orbit,
+                seq,
+                epoch,
+                epoch_seq,
+            } => {
+                kv_write::Entity::insert(kv_write::ActiveModel::from(kv_write::Model {
+                    invocation: hash,
+                    key,
+                    value,
+                    orbit: orbit.into(),
+                    metadata,
+                    seq,
+                    epoch,
+                    epoch_seq,
+                }))
+                .exec(db)
+                .await?;
+            }
+            VersionedOperation::KvDelete {
                 key,
-                invocation_id: hash,
-                orbit: orbit.into(),
-                deleted_invocation_id,
-            }))
-            .exec(db)
-            .await?;
+                version,
+                orbit,
+            } => {
+                let deleted_invocation_id = kv_write::Entity::find()
+                    .filter(kv_write::Column::Key.eq(key.clone()))
+                    .filter(kv_write::Column::Orbit.eq(OrbitIdWrap(orbit.clone())))
+                    .order_by_desc(kv_write::Column::Seq)
+                    .order_by_desc(kv_write::Column::Epoch)
+                    .order_by_desc(kv_write::Column::EpochSeq)
+                    .one(db)
+                    .await?
+                    .ok_or_else(|| InvocationError::MissingKvWrite(key.clone()))?
+                    .invocation;
+                kv_delete::Entity::insert(kv_delete::ActiveModel::from(kv_delete::Model {
+                    key,
+                    invocation_id: hash,
+                    orbit: orbit.into(),
+                    deleted_invocation_id,
+                }))
+                .exec(db)
+                .await?;
+            }
         }
-        None => {}
-    };
+    }
 
     Ok(hash)
 }
