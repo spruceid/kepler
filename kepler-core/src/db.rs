@@ -405,9 +405,9 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         .map(|(orbit, (epoch, hashes, seq, parents))| {
             (
                 parents
-                    .into_iter()
+                    .iter()
                     .map(|parent| epoch_order::Model {
-                        parent,
+                        parent: *parent,
                         child: epoch,
                         orbit: orbit.clone().into(),
                     })
@@ -415,11 +415,16 @@ pub(crate) async fn transact<C: ConnectionTrait>(
                     .collect::<Vec<epoch_order::ActiveModel>>(),
                 (
                     orbit.clone(),
-                    hashes
-                        .iter()
-                        .enumerate()
-                        .map(|(i, (h, _))| (*h, (seq, epoch, i as i64)))
-                        .collect::<HashMap<_, _>>(),
+                    (
+                        seq,
+                        epoch,
+                        parents,
+                        hashes
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (h, _))| (*h, i as i64))
+                            .collect::<HashMap<_, _>>(),
+                    ),
                 ),
                 hashes
                     .into_iter()
@@ -438,7 +443,7 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         .fold(
             (
                 Vec::<epoch_order::ActiveModel>::new(),
-                HashMap::<OrbitId, HashMap<Hash, (i64, Hash, i64)>>::new(),
+                HashMap::<OrbitId, (i64, Hash, Vec<Hash>, HashMap<Hash, i64>)>::new(),
                 Vec::<event_order::ActiveModel>::new(),
             ),
             |(mut eo, mut oo, mut ev), (eo2, order, ev2)| {
@@ -468,8 +473,11 @@ pub(crate) async fn transact<C: ConnectionTrait>(
                     *i,
                     ops.into_iter()
                         .map(|op| {
-                            let v = orbit_order.get(op.orbit()).unwrap().get(&hash).unwrap();
-                            op.version(v.0, v.1, v.2)
+                            let v = orbit_order
+                                .get(op.orbit())
+                                .and_then(|(s, e, _, h)| Some((s, e, h.get(&hash)?)))
+                                .unwrap();
+                            op.version(*v.0, *v.1, *v.2)
                         })
                         .collect(),
                 )
@@ -479,7 +487,20 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         };
     }
 
-    todo!()
+    Ok(orbit_order
+        .into_iter()
+        .map(|(o, (seq, rev, consumed_epochs, h))| {
+            (
+                o,
+                Commit {
+                    seq,
+                    rev,
+                    consumed_epochs,
+                    committed_events: h.keys().cloned().collect(),
+                },
+            )
+        })
+        .collect())
 }
 
 async fn list<C: ConnectionTrait>(

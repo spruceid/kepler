@@ -15,7 +15,6 @@ pub mod auth_guards;
 pub mod authorization;
 pub mod cas;
 pub mod config;
-pub mod manifest;
 pub mod orbit;
 pub mod prometheus;
 pub mod relay;
