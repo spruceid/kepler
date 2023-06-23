@@ -1,4 +1,3 @@
-use crate::orbit::ProviderUtils;
 use core::pin::Pin;
 use futures::{
     future::Either as AsyncEither,
@@ -7,7 +6,6 @@ use futures::{
 };
 use kepler_core::{hash::Hash, storage::*};
 use kepler_lib::resource::OrbitId;
-use libp2p::identity::{DecodingError, Keypair};
 use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tempfile::{NamedTempFile, PathPersistError};
-use tokio::fs::{create_dir_all, read, remove_file, write, File};
+use tokio::fs::{create_dir_all, remove_file, File};
 
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
@@ -77,52 +75,6 @@ impl Default for FileSystemConfig {
         Self {
             path: PathBuf::from(r"/tmp/kepler/blocks"),
         }
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ProviderError {
-    #[error(transparent)]
-    Io(#[from] IoError),
-    #[error(transparent)]
-    KeypairDecode(#[from] DecodingError),
-}
-
-#[async_trait]
-impl ProviderUtils for FileSystemConfig {
-    type Error = ProviderError;
-    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
-        Ok(self
-            .path
-            .join(orbit.get_cid().to_string())
-            .join("blocks")
-            .is_dir())
-    }
-    async fn relay_key_pair(&self) -> Result<Keypair, Self::Error> {
-        let path = self.path.join("kp");
-        match read(&path).await {
-            Ok(k) => Ok(Keypair::from_protobuf_encoding(&k)?),
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                let k = Keypair::generate_ed25519();
-                write(&path, k.to_protobuf_encoding()?).await?;
-                Ok(k)
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Keypair>, Self::Error> {
-        match read(self.path.join(orbit.get_cid().to_string()).join("kp")).await {
-            Ok(k) => Ok(Some(Keypair::from_protobuf_encoding(&k)?)),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn setup_orbit(&self, orbit: &OrbitId, key: &Keypair) -> Result<(), Self::Error> {
-        let dir = self.path.join(orbit.get_cid().to_string());
-        create_dir_all(&dir).await?;
-        write(dir.join("kp"), key.to_protobuf_encoding()?).await?;
-        write(dir.join("id"), orbit.to_string()).await?;
-        Ok(())
     }
 }
 
