@@ -1,92 +1,23 @@
 use anyhow::Result;
-use futures::io::AsyncRead;
-use kepler_lib::{
-    authorization::{CapabilitiesQuery, EncodingError, HeaderEncode},
-    libipld::Cid,
-};
 use libp2p::{
     identity::{Keypair, PeerId},
     multiaddr::Protocol,
 };
-use rocket::{
-    data::{Data, ToByteUnit},
-    http::{Header, Status},
-    request::{FromRequest, Outcome, Request},
-    response::{Responder, Response},
-    serde::json::Json,
-    State,
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::RwLock,
-};
+use rocket::{http::Status, State};
+use std::{collections::HashMap, sync::RwLock};
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
+    auth_guards::{DataIn, DataOut, InvOut},
+    authorization::AuthHeaderGetter,
     relay::RelayNode,
     tracing::TracingSpan,
-    BlockStage, BlockStores,
+    BlockStores, Kepler,
 };
 use kepler_core::{
-    events::{Invocation, Operation},
-    models::{kv_write::Metadata, *},
-    storage::{
-        Content, ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging, ImmutableWriteStore,
-    },
-    util::Capability,
-    util::DelegationInfo,
-    TxError,
+    storage::ImmutableReadStore,
+    util::{DelegationInfo, InvocationInfo},
 };
-use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
-
-pub struct ObjectHeaders(pub Metadata);
-
-#[async_trait]
-impl<'r> FromRequest<'r> for ObjectHeaders {
-    type Error = anyhow::Error;
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let md: BTreeMap<String, String> = request
-            .headers()
-            .iter()
-            .map(|h| (h.name.into_string(), h.value.to_string()))
-            .collect();
-        Outcome::Success(ObjectHeaders(Metadata(md)))
-    }
-}
-
-impl<'r> Responder<'r, 'static> for ObjectHeaders {
-    fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut r = Response::build();
-        for (k, v) in self.0 .0 {
-            if k != "content-length" {
-                r.header(Header::new(k, v));
-            }
-        }
-        Ok(r.finalize())
-    }
-}
-
-pub struct KVResponse<R>(R, pub Metadata);
-
-impl<R> KVResponse<R> {
-    pub fn new(md: Metadata, reader: R) -> Self {
-        Self(reader, md)
-    }
-}
-
-impl<'r, R> Responder<'r, 'static> for KVResponse<R>
-where
-    R: 'static + AsyncRead + Send,
-{
-    fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
-        Ok(Response::build_from(ObjectHeaders(self.1).respond_to(r)?)
-            // must ensure that Metadata::respond_to does not set the body of the response
-            .streamed_body(self.0.compat())
-            .finalize())
-    }
-}
 
 #[allow(clippy::let_unit_value)]
 pub mod util_routes {
@@ -118,44 +49,29 @@ pub fn open_host_key(
 }
 
 #[post("/delegate")]
-pub fn delegate(d: DelegateAuthWrapper) -> DelegateAuthWrapper {
-    d
-}
-
-impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        match self {
-            DelegateAuthWrapper::OrbitCreation(orbit_id) => {
-                orbit_id.to_string().respond_to(request)
-            }
-            DelegateAuthWrapper::Delegation(c) => c.to_cid(0x55).to_string().respond_to(request),
-        }
-    }
-}
-
-#[post("/invoke", data = "<data>")]
-pub async fn invoke(
-    i: InvokeAuthWrapper<BlockStores, BlockStage>,
+pub async fn delegate(
+    d: AuthHeaderGetter<DelegationInfo>,
     req_span: TracingSpan,
-    data: Data<'_>,
-) -> Result<
-    InvocationResponse<Content<<BlockStores as ImmutableReadStore>::Readable>>,
-    (Status, String),
-> {
-    let action_label = i.prometheus_label().to_string();
-    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    kepler: &State<Kepler>,
+) -> Result<String, (Status, String)> {
+    let action_label = "delegation";
+    let span = info_span!(parent: &req_span.0, "delegate", action = %action_label);
     // Instrumenting async block to handle yielding properly
     async move {
         let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
-            .with_label_values(&[&action_label])
+            .with_label_values(&["delegate"])
             .start_timer();
-
-        let res = match i {
-            InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
-            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
-            InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
-        };
-
+        let res = kepler
+            .delegate(d.0)
+            .await
+            .map_err(|e| (Status::Unauthorized, e.to_string()))
+            .and_then(|c| {
+                c.into_iter()
+                    .next()
+                    .and_then(|(_, c)| c.committed_events.into_iter().next())
+                    .ok_or_else(|| (Status::Unauthorized, "Delegation not committed".to_string()))
+            })
+            .map(|h| h.to_cid(0x55).to_string());
         timer.observe_duration();
         res
     }
@@ -163,210 +79,40 @@ pub async fn invoke(
     .await
 }
 
-pub async fn handle_kv_action<B, S>(
-    action: KVAction<B, S>,
-    data: Data<'_>,
-) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
-where
-    B: 'static + ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore,
-    S: 'static + ImmutableStaging,
-    S::Writable: Unpin,
-{
-    use kepler_core::sea_orm::{EntityTrait, QuerySelect};
-    match action {
-        KVAction::Delete {
-            orbit,
-            key: _,
-            commit,
-        } => {
-            // get hash of just deleted content
-            let hash = kv_delete::Entity::find_by_id((
-                commit
-                    .committed_events
-                    .first()
-                    .ok_or_else(|| {
-                        (
-                            Status::InternalServerError,
-                            "No Committed Deletion Event".to_string(),
-                        )
-                    })?
-                    .to_owned(),
-                orbit.manifest.id().to_string(),
-                commit.seq,
-                commit.rev,
-            ))
-            .find_also_related(kv_write::Entity)
-            .column(kv_write::Column::Value)
-            .one(
-                &orbit
-                    .capabilities
-                    .readable()
-                    .await
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?,
-            )
+#[post("/invoke", data = "<data>")]
+pub async fn invoke(
+    i: AuthHeaderGetter<InvocationInfo>,
+    req_span: TracingSpan,
+    data: DataIn<'_>,
+    kepler: &State<Kepler>,
+) -> Result<DataOut<<BlockStores as ImmutableReadStore>::Readable>, (Status, String)> {
+    let action_label = "invocation";
+    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    // Instrumenting async block to handle yielding properly
+    async move {
+        let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+            .with_label_values(&["invoke"])
+            .start_timer();
+        let res = kepler
+            .invoke(i.0, data)
             .await
-            .map_err(|e| (Status::InternalServerError, e.to_string()))?
-            .ok_or_else(|| (Status::NotFound, "No such key".to_string()))?
-            .1
-            .ok_or_else(|| (Status::NotFound, "No such key".to_string()))?
-            .value;
-            // delete content from the store
-            orbit
-                .store
-                .remove(&hash)
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-            Ok(InvocationResponse::EmptySuccess)
-        }
-        KVAction::Get { orbit, key } => match orbit.get(&key, None).await {
-            Ok(Some((r, md))) => Ok(InvocationResponse::KVResponse(KVResponse::new(md, r))),
-            Err(e) => Err((Status::InternalServerError, e.to_string())),
-            Ok(None) => Ok(InvocationResponse::NotFound),
-        },
-        KVAction::List { orbit, prefix } => Ok(InvocationResponse::List(
-            orbit
-                .list(&prefix)
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?,
-        )),
-        KVAction::Metadata { orbit, key } => match orbit.metadata(&key, None).await {
-            Ok(Some(metadata)) => Ok(InvocationResponse::Metadata(metadata)),
-            Err(e) => Err((Status::InternalServerError, e.to_string())),
-            Ok(None) => Ok(InvocationResponse::NotFound),
-        },
-        KVAction::Put {
-            orbit,
-            inv,
-            ser,
-            key,
-            metadata,
-        } => {
-            let mut stage = orbit
-                .staging
-                .stage()
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-            let d = data.open(1u8.gigabytes()).compat();
-            futures::io::copy(d, &mut stage).await.map_err(|e| {
-                (
-                    Status::InternalServerError,
-                    format!("failed to copy data to staging: {}", e),
-                )
-            })?;
-            orbit
-                .capabilities
-                .invoke(Invocation(
-                    inv.invocation,
-                    ser,
-                    Some(Operation::KvWrite {
-                        key,
-                        value: stage.hash(),
-                        metadata,
-                    }),
-                ))
-                .await
-                .map_err(|e| match e {
-                    TxError::Db(e) => {
-                        warn!("Invoke error: {}", e);
-                        match e {
-                            kepler_core::sea_orm::DbErr::Conn(e) => {
-                                (Status::ServiceUnavailable, e.to_string())
-                            }
-                            e => (Status::InternalServerError, e.to_string()),
-                        }
+            .map(
+                |(_, outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {
+                    (None, None, _) => DataOut::None,
+                    (Some(o), None, _) => DataOut::One(InvOut(o)),
+                    (Some(o), Some(next), rest) => {
+                        let mut v = vec![InvOut(o), InvOut(next)];
+                        v.extend(rest.map(InvOut));
+                        DataOut::Many(v)
                     }
-                    e => (Status::Unauthorized, e.to_string()),
-                })?;
-            orbit
-                .store
-                .persist(stage)
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-            Ok(InvocationResponse::EmptySuccess)
-        }
-    }
-}
-
-pub async fn handle_cap_action<B, S>(
-    action: CapAction<B, S>,
-    _data: Data<'_>,
-) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
-where
-    B: 'static + ImmutableReadStore,
-{
-    match action {
-        CapAction::Query {
-            orbit,
-            query: CapabilitiesQuery::All,
-            invoker: _,
-        } => Ok(InvocationResponse::CapabilityQuery(
-            orbit
-                .capabilities
-                .get_valid_delegations()
-                .await
-                .map_err(|e| {
-                    (
-                        Status::InternalServerError,
-                        format!("failed to get valid delegations: {}", e),
-                    )
-                })?
-                .into_iter()
-                .map(|(h, d)| (h.to_cid(0x55), d))
-                .collect(),
-        )),
-    }
-}
-
-pub enum InvocationResponse<R> {
-    NotFound,
-    EmptySuccess,
-    KVResponse(KVResponse<R>),
-    List(Vec<String>),
-    Metadata(Metadata),
-    CapabilityQuery(HashMap<Cid, DelegationInfo>),
-    Revoked,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CapJsonRep {
-    pub capabilities: Vec<Capability>,
-    pub delegator: String,
-    pub delegate: String,
-    pub parents: Vec<Cid>,
-    raw: String,
-}
-
-impl CapJsonRep {
-    pub fn from_delegation(d: DelegationInfo) -> Result<Self, EncodingError> {
-        Ok(Self {
-            capabilities: d.capabilities,
-            delegator: d.delegator,
-            delegate: d.delegate,
-            parents: d.parents,
-            raw: d.delegation.encode()?,
-        })
-    }
-}
-
-impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
-where
-    R: 'static + AsyncRead + Send,
-{
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        match self {
-            InvocationResponse::NotFound => Option::<()>::None.respond_to(request),
-            InvocationResponse::EmptySuccess => ().respond_to(request),
-            InvocationResponse::KVResponse(response) => response.respond_to(request),
-            InvocationResponse::List(keys) => Json(keys).respond_to(request),
-            InvocationResponse::Metadata(metadata) => ObjectHeaders(metadata).respond_to(request),
-            InvocationResponse::Revoked => ().respond_to(request),
-            InvocationResponse::CapabilityQuery(caps) => Json(
-                caps.into_iter()
-                    .map(|(cid, del)| Ok((cid.to_string(), CapJsonRep::from_delegation(del)?)))
-                    .collect::<Result<HashMap<String, CapJsonRep>>>()
-                    .map_err(|_| Status::InternalServerError)?,
+                    _ => unreachable!(),
+                },
             )
-            .respond_to(request),
-        }
+            .map_err(|e| (Status::Unauthorized, e.to_string()));
+
+        timer.observe_duration();
+        res
     }
+    .instrument(span)
+    .await
 }

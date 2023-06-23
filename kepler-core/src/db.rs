@@ -267,6 +267,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub enum InvocationOutcome<R> {
     KvList(Vec<String>),
     KvDelete,

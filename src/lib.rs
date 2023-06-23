@@ -23,15 +23,11 @@ pub mod transport;
 
 use config::{BlockStorage, Config, StagingStorage};
 use kepler_core::{
-    migrations::Migrator,
     sea_orm::{Database, DatabaseConnection},
-    sea_orm_migration::MigratorTrait,
     storage::{either::Either, memory::MemoryStaging},
     OrbitDatabase,
 };
 use libp2p::{identity::Keypair, PeerId};
-use orbit::ProviderUtils;
-use relay::RelayNode;
 use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
@@ -87,10 +83,6 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     tracing::tracing_try_init(&kepler_config.log);
 
-    let kp = kepler_config.storage.blocks.relay_key_pair().await?;
-
-    let relay_node = RelayNode::new(kepler_config.relay.port, kp).await?;
-
     let routes = routes![
         healthcheck,
         cors,
@@ -114,7 +106,6 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(kepler)
-        .manage(relay_node)
         .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {

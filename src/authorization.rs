@@ -1,22 +1,15 @@
-use kepler_core::util::{DelegationInfo, InvocationInfo, RevocationInfo};
-use kepler_lib::authorization::{
-    EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
+use kepler_core::{
+    events::{FromReqErr, SerializedEvent},
+    util::{DelegationInfo, InvocationInfo, RevocationInfo},
 };
+use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation, KeplerRevocation};
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
 };
 use std::convert::TryFrom;
 
-#[derive(thiserror::Error, Debug)]
-pub enum FromReqErr<T> {
-    #[error(transparent)]
-    Encoding(#[from] EncodingError),
-    #[error(transparent)]
-    TryFrom(T),
-}
-
-pub struct AuthHeaderGetter<T>(pub Vec<u8>, pub T);
+pub struct AuthHeaderGetter<T>(pub SerializedEvent<T>);
 
 macro_rules! impl_fromreq {
     ($type:ident, $inter:ident, $name:tt) => {
@@ -24,14 +17,12 @@ macro_rules! impl_fromreq {
         impl<'r> FromRequest<'r> for AuthHeaderGetter<$type> {
             type Error = FromReqErr<<$type as TryFrom<$inter>>::Error>;
             async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-                match request.headers().get_one($name).map(|e| {
-                    <$inter as HeaderEncode>::decode(e)
-                        .map_err(FromReqErr::from)
-                        .and_then(|(i, s)| {
-                            Ok(($type::try_from(i).map_err(FromReqErr::TryFrom)?, s))
-                        })
-                }) {
-                    Some(Ok((item, s))) => Outcome::Success(AuthHeaderGetter(s, item)),
+                match request
+                    .headers()
+                    .get_one($name)
+                    .map(SerializedEvent::<$type>::from_header_ser::<$inter>)
+                {
+                    Some(Ok(e)) => Outcome::Success(AuthHeaderGetter(e)),
                     Some(Err(e)) => Outcome::Failure((Status::Unauthorized, e)),
                     None => Outcome::Forward(()),
                 }
