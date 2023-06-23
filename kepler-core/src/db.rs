@@ -4,12 +4,11 @@ use crate::migrations::Migrator;
 use crate::models::*;
 use crate::relationships::*;
 use crate::storage::{
-    either::EitherError, Content, ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging,
-    ImmutableWriteStore,
+    either::EitherError, Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore,
+    ImmutableStaging, ImmutableWriteStore,
 };
 use crate::types::{Metadata, OrbitIdWrap};
 use crate::util::{Capability, DelegationInfo};
-use futures::io::AsyncRead;
 use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
     resource::{KRIParseError, OrbitId},
@@ -22,10 +21,9 @@ use sea_orm_migration::MigratorTrait;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct OrbitDatabase<C, B, S> {
+pub struct OrbitDatabase<C, B> {
     conn: C,
     storage: B,
-    staging: S,
 }
 
 #[derive(Debug, Clone)]
@@ -74,8 +72,6 @@ where
     #[error(transparent)]
     StoreDelete(<B as ImmutableDeleteStore>::Error),
     #[error(transparent)]
-    Staging(<S as ImmutableStaging>::Error),
-    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("Missing Input for requested action")]
     MissingInput,
@@ -92,23 +88,16 @@ where
     }
 }
 
-impl<B, S> OrbitDatabase<DatabaseConnection, B, S> {
-    pub async fn wrap(conn: DatabaseConnection, storage: B, staging: S) -> Result<Self, DbErr> {
+impl<B> OrbitDatabase<DatabaseConnection, B> {
+    pub async fn wrap(conn: DatabaseConnection, storage: B) -> Result<Self, DbErr> {
         Migrator::up(&conn, None).await?;
-        Ok(Self {
-            conn,
-            storage,
-            staging,
-        })
+        Ok(Self { conn, storage })
     }
 }
 
-impl<C, B, S> OrbitDatabase<C, B, S>
+impl<C, B> OrbitDatabase<C, B>
 where
     C: TransactionTrait,
-    B: ImmutableWriteStore<S> + ImmutableDeleteStore + ImmutableReadStore,
-    S: ImmutableStaging,
-    S::Writable: 'static + Unpin,
 {
     async fn transact(&self, events: Vec<Event>) -> Result<HashMap<OrbitId, Commit>, TxError> {
         let tx = self
@@ -131,10 +120,25 @@ where
             .await
     }
 
-    pub async fn invoke<R>(
+    pub async fn revoke(
+        &self,
+        revocation: Revocation,
+    ) -> Result<HashMap<OrbitId, Commit>, TxError> {
+        self.transact(vec![Event::Revocation(Box::new(revocation))])
+            .await
+    }
+
+    // to allow users to make custom read queries
+    pub async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
+        self.conn
+            .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
+            .await
+    }
+
+    pub async fn invoke<S>(
         &self,
         invocation: Invocation,
-        mut inputs: HashMap<(OrbitId, String), (Metadata, R)>,
+        mut inputs: HashMap<(OrbitId, String), (Metadata, HashBuffer<S::Writable>)>,
     ) -> Result<
         (
             HashMap<OrbitId, Commit>,
@@ -143,7 +147,9 @@ where
         TxStoreError<B, S>,
     >
     where
-        R: AsyncRead + Unpin,
+        B: ImmutableWriteStore<S> + ImmutableDeleteStore + ImmutableReadStore,
+        S: ImmutableStaging,
+        S::Writable: 'static + Unpin,
     {
         let mut stages = HashMap::new();
         let mut ops = Vec::new();
@@ -156,16 +162,10 @@ where
             {
                 // stage inputs for content writes
                 Some(("kv", "put", orbit, path)) => {
-                    let (metadata, mut reader) = inputs
+                    let (metadata, mut stage) = inputs
                         .remove(&(orbit.clone(), path.to_string()))
                         .ok_or(TxStoreError::MissingInput)?;
-                    let mut stage = self
-                        .staging
-                        .stage(&orbit)
-                        .await
-                        .map_err(TxStoreError::Staging)?;
 
-                    futures::io::copy(&mut reader, &mut stage).await?;
                     let value = stage.hash();
 
                     stages.insert((orbit.clone(), path.to_string()), stage);
@@ -249,21 +249,6 @@ where
         // commit tx if all side effects worked
         tx.commit().await?;
         Ok((commit, results))
-    }
-
-    pub async fn revoke(
-        &self,
-        revocation: Revocation,
-    ) -> Result<HashMap<OrbitId, Commit>, TxError> {
-        self.transact(vec![Event::Revocation(Box::new(revocation))])
-            .await
-    }
-
-    // to allow users to make custom read queries
-    pub async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
-        self.conn
-            .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
-            .await
     }
 }
 
