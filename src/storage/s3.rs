@@ -26,8 +26,6 @@ fn aws_config() -> SdkConfig {
 
 #[derive(Debug, Clone)]
 pub struct S3BlockStore {
-    // TODO Remove is unused (orbit::delete is never called).
-    // When that changes we will need to use a mutex, either local or in Dynamo
     pub client: Client,
     pub bucket: String,
 }
@@ -44,11 +42,16 @@ pub struct S3BlockConfig {
 #[async_trait]
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = std::convert::Infallible;
-    async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
-        Ok(Some(S3BlockStore::new_(self)))
-    }
-    async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
+    async fn open(&self) -> Result<S3BlockStore, Self::Error> {
         Ok(S3BlockStore::new_(self))
+    }
+}
+
+#[async_trait]
+impl StorageSetup for S3BlockStore {
+    type Error = std::convert::Infallible;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 

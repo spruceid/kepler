@@ -24,7 +24,7 @@ pub mod transport;
 use config::{BlockStorage, Config, StagingStorage};
 use kepler_core::{
     sea_orm::{Database, DatabaseConnection},
-    storage::{either::Either, memory::MemoryStaging},
+    storage::{either::Either, memory::MemoryStaging, StorageConfig},
     OrbitDatabase,
 };
 use libp2p::{identity::Keypair, PeerId};
@@ -92,10 +92,10 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         delegate,
     ];
 
-    let kepler = OrbitDatabase::wrap(
+    let kepler = Kepler::wrap(
         Database::connect(&kepler_config.storage.database).await?,
-        kepler_config.storage.blocks.clone(),
-        kepler_config.storage.staging.clone(),
+        kepler_config.storage.blocks.open().await?,
+        kepler_config.storage.staging.open().await?,
     )
     .await?;
 

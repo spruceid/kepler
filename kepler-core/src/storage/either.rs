@@ -1,10 +1,4 @@
-use crate::{
-    hash::Hash,
-    storage::{
-        Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore, ImmutableStaging,
-        ImmutableWriteStore, StorageConfig,
-    },
-};
+use crate::{hash::Hash, storage::*};
 use futures::future::Either as AsyncEither;
 use kepler_lib::resource::OrbitId;
 use sea_orm_migration::async_trait::async_trait;
@@ -119,24 +113,25 @@ where
     B: StorageConfig<SB> + Sync,
 {
     type Error = EitherError<A::Error, B::Error>;
-    async fn open(&self) -> Result<Option<Either<SA, SB>>, Self::Error> {
+    async fn open(&self) -> Result<Either<SA, SB>, Self::Error> {
         match self {
-            Self::A(a) => a
-                .open()
-                .await
-                .map(|o| o.map(Either::A))
-                .map_err(Self::Error::A),
-            Self::B(b) => b
-                .open()
-                .await
-                .map(|o| o.map(Either::B))
-                .map_err(Self::Error::B),
+            Self::A(a) => a.open().await.map(Either::A).map_err(Self::Error::A),
+            Self::B(b) => b.open().await.map(Either::B).map_err(Self::Error::B),
         }
     }
-    async fn create(&self) -> Result<Either<SA, SB>, Self::Error> {
+}
+
+#[async_trait]
+impl<A, B> StorageSetup for Either<A, B>
+where
+    A: StorageSetup + Sync,
+    B: StorageSetup + Sync,
+{
+    type Error = EitherError<A::Error, B::Error>;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
         match self {
-            Self::A(a) => a.create().await.map(Either::A).map_err(Self::Error::A),
-            Self::B(b) => b.create().await.map(Either::B).map_err(Self::Error::B),
+            Self::A(a) => a.create(orbit).await.map_err(Self::Error::A),
+            Self::B(b) => b.create(orbit).await.map_err(Self::Error::B),
         }
     }
 }

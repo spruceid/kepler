@@ -11,8 +11,13 @@ pub use util::{Content, HashBuffer};
 #[async_trait]
 pub trait StorageConfig<S> {
     type Error: StdError;
-    async fn open(&self) -> Result<Option<S>, Self::Error>;
-    async fn create(&self) -> Result<S, Self::Error>;
+    async fn open(&self) -> Result<S, Self::Error>;
+}
+
+#[async_trait]
+pub trait StorageSetup {
+    type Error: StdError;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error>;
 }
 
 #[derive(thiserror::Error, Debug)]

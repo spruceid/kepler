@@ -53,20 +53,24 @@ impl FileSystemConfig {
 #[async_trait]
 impl StorageConfig<FileSystemStore> for FileSystemConfig {
     type Error = IoError;
-    async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
-        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        if path.is_dir() {
-            Ok(Some(FileSystemStore::new(path)))
+    async fn open(&self) -> Result<FileSystemStore, Self::Error> {
+        if self.path.is_dir() {
+            Ok(FileSystemStore::new(self.path.clone()))
         } else {
-            Ok(None)
+            Err(IoError::new(ErrorKind::NotFound, "path is not a directory"))
         }
     }
-    async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
-        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
+}
+
+#[async_trait]
+impl StorageSetup for FileSystemStore {
+    type Error = IoError;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
+        let path = self.path.join(orbit.to_string());
         if !path.is_dir() {
             create_dir_all(&path).await?;
         }
-        Ok(FileSystemStore::new(path))
+        Ok(())
     }
 }
 
@@ -233,10 +237,7 @@ impl ImmutableDeleteStore for FileSystemStore {
 #[async_trait]
 impl StorageConfig<TempFileSystemStage> for TempFileSystemStage {
     type Error = std::convert::Infallible;
-    async fn open(&self, _: &OrbitId) -> Result<Option<TempFileSystemStage>, Self::Error> {
-        Ok(Some(Self))
-    }
-    async fn create(&self, _: &OrbitId) -> Result<TempFileSystemStage, Self::Error> {
+    async fn open(&self) -> Result<TempFileSystemStage, Self::Error> {
         Ok(Self)
     }
 }

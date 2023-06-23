@@ -17,10 +17,7 @@ impl ImmutableStaging for MemoryStaging {
 #[async_trait]
 impl StorageConfig<MemoryStaging> for MemoryStaging {
     type Error = std::convert::Infallible;
-    async fn open(&self) -> Result<Option<MemoryStaging>, Self::Error> {
-        Ok(Some(Self))
-    }
-    async fn create(&self) -> Result<MemoryStaging, Self::Error> {
+    async fn open(&self) -> Result<MemoryStaging, Self::Error> {
         Ok(Self)
     }
 }
