@@ -3,19 +3,21 @@ use libp2p::{
     identity::{Keypair, PeerId},
     multiaddr::Protocol,
 };
-use rocket::{http::Status, State};
+use rocket::{data::ToByteUnit, http::Status, State};
 use std::{collections::HashMap, sync::RwLock};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth_guards::{DataIn, DataOut, InvOut},
+    auth_guards::{DataIn, DataOut, InvOut, ObjectHeaders},
     authorization::AuthHeaderGetter,
     relay::RelayNode,
     tracing::TracingSpan,
-    BlockStores, Kepler,
+    BlockStage, BlockStores, Kepler,
 };
 use kepler_core::{
-    storage::ImmutableReadStore,
+    storage::{ImmutableReadStore, ImmutableStaging},
+    types::Resource,
     util::{DelegationInfo, InvocationInfo},
 };
 
@@ -83,7 +85,9 @@ pub async fn delegate(
 pub async fn invoke(
     i: AuthHeaderGetter<InvocationInfo>,
     req_span: TracingSpan,
+    headers: ObjectHeaders,
     data: DataIn<'_>,
+    staging: &State<BlockStage>,
     kepler: &State<Kepler>,
 ) -> Result<DataOut<<BlockStores as ImmutableReadStore>::Readable>, (Status, String)> {
     let action_label = "invocation";
@@ -93,11 +97,47 @@ pub async fn invoke(
         let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
             .with_label_values(&["invoke"])
             .start_timer();
+
+        let mut put_iter =
+            i.0 .0
+                .capabilities
+                .iter()
+                .filter_map(|c| match (&c.resource, c.action.as_str()) {
+                    (Resource::Kepler(r), "put") if r.service() == Some("kv") => {
+                        r.path().map(|p| (r.orbit().clone(), p.to_string()))
+                    }
+                    _ => None,
+                });
+
+        let inputs = match (data, put_iter.next(), put_iter.next()) {
+            (DataIn::None, None, _) => HashMap::new(),
+            (DataIn::One(d), Some((orbit, path)), None) => {
+                let mut stage = staging
+                    .stage(&orbit)
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                futures::io::copy(d.open(1u32.gibibytes()).compat(), &mut stage)
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                let mut inputs = HashMap::new();
+                inputs.insert((orbit, path), (headers.0, stage));
+                inputs
+            }
+            (DataIn::Many(_), Some(_), Some(_)) => {
+                return Err((
+                    Status::BadRequest,
+                    "Multipart not yet supported".to_string(),
+                ));
+            }
+            _ => {
+                return Err((Status::BadRequest, "Invalid inputs".to_string()));
+            }
+        };
         let res = kepler
-            .invoke(i.0, data)
+            .invoke::<BlockStage>(i.0, inputs)
             .await
             .map(
-                |(_, outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {
+                |(_, mut outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {
                     (None, None, _) => DataOut::None,
                     (Some(o), None, _) => DataOut::One(InvOut(o)),
                     (Some(o), Some(next), rest) => {

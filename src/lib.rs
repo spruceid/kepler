@@ -76,7 +76,7 @@ impl From<BlockStage> for StagingStorage {
     }
 }
 
-pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores, BlockStage>;
+pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores>;
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config: Config = config.extract::<Config>()?;
@@ -86,7 +86,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let routes = routes![
         healthcheck,
         cors,
-        relay_addr,
+        // relay_addr,
         open_host_key,
         invoke,
         delegate,
@@ -95,7 +95,6 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler = Kepler::wrap(
         Database::connect(&kepler_config.storage.database).await?,
         kepler_config.storage.blocks.open().await?,
-        kepler_config.storage.staging.open().await?,
     )
     .await?;
 
@@ -106,6 +105,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(kepler)
+        .manage(kepler_config.storage.staging.open().await?)
         .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {

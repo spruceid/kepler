@@ -7,12 +7,13 @@ use kepler_core::{
 use kepler_lib::{
     authorization::{EncodingError, HeaderEncode},
     libipld::cid::Cid,
-    resource::ResourceId,
+    resource::{OrbitId, ResourceId},
 };
 use rocket::{
     data::{Capped, FromData},
     futures::io::AsyncRead,
     http::{ContentType, Header, Status},
+    outcome::Outcome as DataOutcome,
     request::{FromRequest, Outcome, Request},
     response::{Responder, Response},
     serde::json::Json,
@@ -75,23 +76,26 @@ pub fn check_orbit_and_service(
 }
 
 #[derive(Debug)]
-pub enum DataHolder<D> {
+pub enum DataHolder<O, M = O> {
     None,
-    One(D),
-    Many(Vec<D>),
+    One(O),
+    Many(Vec<M>),
 }
 
 #[derive(Debug)]
 pub struct InvOut<R>(pub InvocationOutcome<R>);
 
-pub type DataIn<'a> = DataHolder<(String, Metadata, Capped<&'a [u8]>)>;
+pub type DataIn<'a> = DataHolder<Data<'a>, (OrbitId, String, Metadata, Capped<&'a [u8]>)>;
 pub type DataOut<R> = DataHolder<InvOut<R>>;
 
 #[async_trait]
 impl<'r> FromData<'r> for DataIn<'r> {
     type Error = anyhow::Error;
 
-    async fn from_data(req: &'r Request<'_>, data: Data<'r>) -> Outcome<Self, Self::Error> {
+    async fn from_data(
+        req: &'r Request<'_>,
+        data: Data<'r>,
+    ) -> DataOutcome<Self, (Status, Self::Error), Data<'r>> {
         let req_span = req
             .local_cache(|| Option::<crate::tracing::TracingSpan>::None)
             .as_ref()
@@ -103,19 +107,13 @@ impl<'r> FromData<'r> for DataIn<'r> {
                 .with_label_values(&["invoke"])
                 .start_timer();
 
-            let res = match &ContentType::from_request(req).await.succeeded() {
-                Some(ContentType::FormData) => Outcome::Failure((
+            let res = match <&'r ContentType>::from_request(req).await.succeeded() {
+                Some(ref c) if c.is_form_data() => DataOutcome::Failure((
                     Status::BadRequest,
                     anyhow!("Multipart uploads not yet supported"),
                 )),
-                Some(_) => {
-                    let metadata = ObjectHeaders::from_request(req).await?.0;
-                    let name = "";
-                    Capped::from_data(req, data)
-                        .await
-                        .map(|v| DataHolder::One(v.0))
-                }
-                None => Outcome::Success(DataHolder::None),
+                Some(_) => DataOutcome::Success(DataIn::One(data)),
+                None => DataOutcome::Forward(data),
             };
 
             timer.observe_duration();
@@ -134,7 +132,7 @@ where
         match self.0 {
             InvocationOutcome::KvList(list) => Json(list).respond_to(request),
             InvocationOutcome::KvDelete => ().respond_to(request),
-            InvocationOutcome::KvMetadata(meta) => meta.respond_to(request),
+            InvocationOutcome::KvMetadata(meta) => meta.map(ObjectHeaders).respond_to(request),
             InvocationOutcome::KvWrite => ().respond_to(request),
             InvocationOutcome::KvRead(data) => {
                 data.map(|(md, c)| KVResponse(c, md)).respond_to(request)
@@ -150,7 +148,8 @@ where
                     })
                     .collect::<Result<HashMap<String, CapJsonRep>>>()
                     .map_err(|_| Status::InternalServerError)?,
-            ),
+            )
+            .respond_to(request),
         }
     }
 }
@@ -163,7 +162,7 @@ where
         match self {
             DataHolder::None => ().respond_to(request),
             DataHolder::One(inv) => inv.respond_to(request),
-            DataHolder::Many(invs) => Err(Status::NotImplemented),
+            DataHolder::Many(_invs) => Err(Status::NotImplemented),
         }
     }
 }
