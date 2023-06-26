@@ -374,14 +374,20 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         .map(orbit::ActiveModel::from)
         .collect::<Vec<_>>();
 
-    orbit::Entity::insert_many(new_orbits)
+    match orbit::Entity::insert_many(new_orbits)
         .on_conflict(
             OnConflict::column(orbit::Column::Id)
                 .do_nothing()
                 .to_owned(),
         )
         .exec(db)
-        .await?;
+        .await
+    {
+        Err(DbErr::RecordNotInserted) => (),
+        r => {
+            r?;
+        }
+    };
 
     // get max sequence for each of the orbits
     let mut max_seqs = event_order::Entity::find()
