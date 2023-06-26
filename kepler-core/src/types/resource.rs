@@ -28,7 +28,7 @@ impl Resource {
 
     pub fn kepler_resource(&self) -> Option<&ResourceId> {
         match self {
-            Resource::Kepler(id) => Some(&id),
+            Resource::Kepler(id) => Some(id),
             Resource::Other(_) => None,
         }
     }

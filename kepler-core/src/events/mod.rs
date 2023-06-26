@@ -162,7 +162,7 @@ pub(crate) fn epoch_hash(
             .iter()
             .map(|(h, e)| {
                 Ok(match e {
-                    Event::Invocation(_, ops) => hash_inv(&h, orbit, ops)?,
+                    Event::Invocation(_, ops) => hash_inv(h, orbit, ops)?,
                     Event::Delegation(_) => OneOrMany::One(h.to_cid(RAW_CODEC)),
                     Event::Revocation(_) => OneOrMany::One(h.to_cid(RAW_CODEC)),
                 })

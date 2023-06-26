@@ -95,6 +95,8 @@ impl<B> OrbitDatabase<DatabaseConnection, B> {
     }
 }
 
+pub type InvocationInputs<W> = HashMap<(OrbitId, String), (Metadata, HashBuffer<W>)>;
+
 impl<C, B> OrbitDatabase<C, B>
 where
     C: TransactionTrait,
@@ -138,7 +140,7 @@ where
     pub async fn invoke<S>(
         &self,
         invocation: Invocation,
-        mut inputs: HashMap<(OrbitId, String), (Metadata, HashBuffer<S::Writable>)>,
+        mut inputs: InvocationInputs<S::Writable>,
     ) -> Result<
         (
             HashMap<OrbitId, Commit>,
@@ -207,7 +209,7 @@ where
                 cap.action.as_str(),
             ) {
                 (Some((orbit, "kv", path)), "get") => results.push(InvocationOutcome::KvRead(
-                    get_kv(&tx, &self.storage, &orbit, &path)
+                    get_kv(&tx, &self.storage, orbit, path)
                         .await
                         .map_err(|e| match e {
                             EitherError::A(e) => TxStoreError::Tx(e.into()),
@@ -215,13 +217,13 @@ where
                         })?,
                 )),
                 (Some((orbit, "kv", path)), "list") => {
-                    results.push(InvocationOutcome::KvList(list(&tx, &orbit, &path).await?))
+                    results.push(InvocationOutcome::KvList(list(&tx, orbit, path).await?))
                 }
                 (Some((orbit, "kv", path)), "delete") => {
-                    let kv = get_kv_entity(&tx, &orbit, &path).await?;
+                    let kv = get_kv_entity(&tx, orbit, path).await?;
                     if let Some(kv) = kv {
                         self.storage
-                            .remove(&orbit, &kv.value)
+                            .remove(orbit, &kv.value)
                             .await
                             .map_err(TxStoreError::StoreDelete)?;
                     }
@@ -230,17 +232,17 @@ where
                 (Some((orbit, "kv", path)), "put") => {
                     if let Some(stage) = stages.remove(&(orbit.clone(), path.to_string())) {
                         self.storage
-                            .persist(&orbit, stage)
+                            .persist(orbit, stage)
                             .await
                             .map_err(TxStoreError::StoreWrite)?;
                         results.push(InvocationOutcome::KvWrite)
                     }
                 }
                 (Some((orbit, "kv", path)), "metadata") => results.push(
-                    InvocationOutcome::KvMetadata(metadata(&tx, &orbit, &path).await?),
+                    InvocationOutcome::KvMetadata(metadata(&tx, orbit, path).await?),
                 ),
                 (Some((orbit, "capabilities", "")), "read") => results.push(
-                    InvocationOutcome::OpenSessions(get_valid_delegations(&tx, &orbit).await?),
+                    InvocationOutcome::OpenSessions(get_valid_delegations(&tx, orbit).await?),
                 ),
                 _ => {}
             }
@@ -309,7 +311,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
             Event::Delegation(d) => {
                 for orbit in d.0.orbits() {
                     let entry = orbits.entry(orbit.clone()).or_insert_with(Vec::new);
-                    if entry.iter().find(|(h, _)| h == &e.0).is_none() {
+                    if !entry.iter().any(|(h, _)| h == &e.0) {
                         entry.push(e);
                     }
                 }
@@ -317,7 +319,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
             Event::Invocation(i, _) => {
                 for orbit in i.0.orbits() {
                     let entry = orbits.entry(orbit.clone()).or_insert_with(Vec::new);
-                    if entry.iter().find(|(h, _)| h == &e.0).is_none() {
+                    if !entry.iter().any(|(h, _)| h == &e.0) {
                         entry.push(e);
                     }
                 }
@@ -329,7 +331,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
                         let entry = orbits
                             .entry(revoked.orbit.0.clone())
                             .or_insert_with(Vec::new);
-                        if entry.iter().find(|(h, _)| h == &e.0).is_none() {
+                        if !entry.iter().any(|(h, _)| h == &e.0) {
                             entry.push(e);
                         }
                     }
@@ -411,7 +413,7 @@ pub(crate) async fn transact<C: ConnectionTrait>(
     let (epoch_order, orbit_order, event_order, epochs) = event_orbits
         .into_iter()
         .map(|(orbit, events)| {
-            let parents = most_recent.remove(&orbit).unwrap_or_else(Vec::new);
+            let parents = most_recent.remove(&orbit).unwrap_or_default();
             let epoch = epoch_hash(&orbit, &events, &parents)?;
             let seq = max_seqs.remove(&orbit).unwrap_or(0);
             Ok((orbit, (epoch, events, seq, parents)))
@@ -457,7 +459,7 @@ pub(crate) async fn transact<C: ConnectionTrait>(
                 epoch::Model {
                     seq,
                     id: epoch,
-                    orbit: orbit.clone().into(),
+                    orbit: orbit.into(),
                 },
             )
         })

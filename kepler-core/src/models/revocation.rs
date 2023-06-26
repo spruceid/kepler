@@ -106,10 +106,10 @@ pub(crate) async fn process<C: ConnectionTrait>(
     let delegation = delegation::Entity::find_by_id(Hash::from(r.revoked))
         .one(db)
         .await?
-        .ok_or_else(|| RevocationError::MissingParents)?;
+        .ok_or(RevocationError::MissingParents)?;
 
     // check the revoker is also the delegator
-    if &delegation.delegator != &r.revoker {
+    if delegation.delegator != r.revoker {
         return Err(RevocationError::UnauthorizedRevoker(r.revoker).into());
     };
 
