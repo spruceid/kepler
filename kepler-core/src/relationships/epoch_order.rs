@@ -1,5 +1,5 @@
-use super::super::models::epoch;
 use crate::hash::Hash;
+use crate::models::*;
 use crate::types::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
@@ -29,11 +29,23 @@ pub enum Relation {
         to = "epoch::Column::Id"
     )]
     Child,
+    #[sea_orm(
+        belongs_to = "orbit::Entity",
+        from = "Column::Orbit",
+        to = "orbit::Column::Id"
+    )]
+    Orbit,
 }
 
 impl Related<epoch::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Parent.def()
+    }
+}
+
+impl Related<orbit::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Orbit.def()
     }
 }
 

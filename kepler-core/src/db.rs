@@ -7,15 +7,15 @@ use crate::storage::{
     either::EitherError, Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore,
     ImmutableStaging, ImmutableWriteStore,
 };
-use crate::types::{Metadata, OrbitIdWrap};
+use crate::types::{Metadata, OrbitIdWrap, Resource};
 use crate::util::{Capability, DelegationInfo};
 use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
     resource::{KRIParseError, OrbitId},
 };
 use sea_orm::{
-    entity::prelude::*, error::DbErr, query::*, ConnectionTrait, DatabaseTransaction,
-    TransactionTrait,
+    entity::prelude::*, error::DbErr, query::*, sea_query::OnConflict, ConnectionTrait,
+    DatabaseTransaction, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
 use std::collections::HashMap;
@@ -350,6 +350,36 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         .map(|e| (e.hash(), e))
         .collect::<Vec<(Hash, Event)>>();
     let event_orbits = event_orbits(db, &event_hashes).await?;
+    let new_orbits = event_hashes
+        .iter()
+        .filter_map(|(_, e)| match e {
+            Event::Delegation(d) => Some(d.0.capabilities.iter().filter_map(|c| {
+                match (&c.resource, c.action.as_str()) {
+                    (Resource::Kepler(r), "host")
+                        if r.path().is_none()
+                            && r.service().is_none()
+                            && r.fragment().is_none() =>
+                    {
+                        Some(OrbitIdWrap(r.orbit().clone()))
+                    }
+                    _ => None,
+                }
+            })),
+            _ => None,
+        })
+        .flatten()
+        .map(|id| orbit::Model { id })
+        .map(orbit::ActiveModel::from)
+        .collect::<Vec<_>>();
+
+    orbit::Entity::insert_many(new_orbits)
+        .on_conflict(
+            OnConflict::column(orbit::Column::Id)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec(db)
+        .await?;
 
     // get max sequence for each of the orbits
     let mut max_seqs = event_order::Entity::find()
@@ -378,7 +408,7 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         });
 
     // get all the orderings and associated data
-    let (epoch_order, orbit_order, event_order) = event_orbits
+    let (epoch_order, orbit_order, event_order, epochs) = event_orbits
         .into_iter()
         .map(|(orbit, events)| {
             let parents = most_recent.remove(&orbit).unwrap_or_else(Vec::new);
@@ -424,6 +454,11 @@ pub(crate) async fn transact<C: ConnectionTrait>(
                     })
                     .map(event_order::ActiveModel::from)
                     .collect::<Vec<event_order::ActiveModel>>(),
+                epoch::Model {
+                    seq,
+                    id: epoch,
+                    orbit: orbit.clone().into(),
+                },
             )
         })
         .fold(
@@ -431,14 +466,19 @@ pub(crate) async fn transact<C: ConnectionTrait>(
                 Vec::<epoch_order::ActiveModel>::new(),
                 HashMap::<OrbitId, (i64, Hash, Vec<Hash>, HashMap<Hash, i64>)>::new(),
                 Vec::<event_order::ActiveModel>::new(),
+                Vec::<epoch::ActiveModel>::new(),
             ),
-            |(mut eo, mut oo, mut ev), (eo2, order, ev2)| {
+            |(mut eo, mut oo, mut ev, mut ep), (eo2, order, ev2, ep2)| {
                 eo.extend(eo2);
                 ev.extend(ev2);
                 oo.insert(order.0, order.1);
-                (eo, oo, ev)
+                ep.push(ep2.into());
+                (eo, oo, ev, ep)
             },
         );
+
+    // save epochs
+    epoch::Entity::insert_many(epochs).exec(db).await?;
 
     // save epoch orderings
     epoch_order::Entity::insert_many(epoch_order)
@@ -516,7 +556,7 @@ async fn metadata<C: ConnectionTrait>(
     db: &C,
     orbit: &OrbitId,
     key: &str,
-    // version: Option<(i64, Hash, i64)>,
+    // TODO version: Option<(i64, Hash, i64)>,
 ) -> Result<Option<Metadata>, DbErr> {
     match get_kv_entity(db, orbit, key).await? {
         Some(entry) => Ok(Some(entry.metadata)),
@@ -529,7 +569,7 @@ async fn get_kv<C: ConnectionTrait, B: ImmutableReadStore>(
     store: &B,
     orbit: &OrbitId,
     key: &str,
-    // version: Option<(i64, Hash, i64)>,
+    // TODO version: Option<(i64, Hash, i64)>,
 ) -> Result<Option<(Metadata, Content<B::Readable>)>, EitherError<DbErr, B::Error>> {
     let e = match get_kv_entity(db, orbit, key)
         .await
@@ -549,7 +589,7 @@ async fn get_kv_entity<C: ConnectionTrait>(
     db: &C,
     orbit: &OrbitId,
     key: &str,
-    // version: Option<(i64, Hash, i64)>,
+    // TODO version: Option<(i64, Hash, i64)>,
 ) -> Result<Option<kv_write::Model>, DbErr> {
     // Ok(if let Some((seq, epoch, epoch_seq)) = version {
     //     event_order::Entity::find_by_id((epoch, epoch_seq, orbit.clone().into()))

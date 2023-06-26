@@ -35,6 +35,12 @@ pub enum Relation {
     Epoch,
     #[sea_orm(has_many = "kv_write::Entity")]
     KvWrite,
+    #[sea_orm(
+        belongs_to = "orbit::Entity",
+        from = "Column::Orbit",
+        to = "orbit::Column::Id"
+    )]
+    Orbit,
 }
 
 impl Related<delegation::Entity> for Entity {
@@ -64,6 +70,12 @@ impl Related<epoch::Entity> for Entity {
 impl Related<kv_write::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::KvWrite.def()
+    }
+}
+
+impl Related<orbit::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Orbit.def()
     }
 }
 

@@ -1,38 +1,28 @@
-use crate::hash::Hash;
 use crate::models::*;
 use crate::relationships::*;
 use crate::types::OrbitIdWrap;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, PartialOrd, Ord)]
-#[sea_orm(table_name = "epoch")]
+#[sea_orm(table_name = "orbit")]
 pub struct Model {
-    /// Sequence number
-    pub seq: i64,
-    /// Hash-based ID
-    #[sea_orm(primary_key)]
-    pub id: Hash,
-
-    #[sea_orm(primary_key)]
-    pub orbit: OrbitIdWrap,
+    #[sea_orm(primary_key, auto_increment = false, unique)]
+    pub id: OrbitIdWrap,
 }
+
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "event_order::Entity")]
     Events,
+    #[sea_orm(has_many = "epoch::Entity")]
+    Epochs,
     #[sea_orm(has_many = "epoch_order::Entity")]
-    Children,
-    #[sea_orm(
-        belongs_to = "orbit::Entity",
-        from = "Column::Orbit",
-        to = "orbit::Column::Id"
-    )]
-    Orbit,
+    EpochOrdering,
 }
 
 impl Related<epoch_order::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Children.def()
+        Relation::EpochOrdering.def()
     }
 }
 
@@ -42,9 +32,9 @@ impl Related<event_order::Entity> for Entity {
     }
 }
 
-impl Related<orbit::Entity> for Entity {
+impl Related<epoch::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Orbit.def()
+        Relation::Epochs.def()
     }
 }
 

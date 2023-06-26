@@ -11,6 +11,9 @@ impl MigrationTrait for Migration {
         let schema = Schema::new(manager.get_database_backend());
 
         manager
+            .create_table(schema.create_table_from_entity(orbit::Entity))
+            .await?;
+        manager
             .create_table(schema.create_table_from_entity(actor::Entity))
             .await?;
         manager
@@ -52,6 +55,9 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(orbit::Entity).to_owned())
+            .await?;
         manager
             .drop_table(Table::drop().table(epoch::Entity).to_owned())
             .await?;
