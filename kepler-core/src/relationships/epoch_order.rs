@@ -19,14 +19,14 @@ pub enum Relation {
     // inverse relation, delegations belong to delegators
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::Parent",
-        to = "epoch::Column::Id"
+        from = "(Column::Parent, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Parent,
     #[sea_orm(
         belongs_to = "epoch::Entity",
-        from = "Column::Child",
-        to = "epoch::Column::Id"
+        from = "(Column::Child, Column::Orbit)",
+        to = "(epoch::Column::Id, epoch::Column::Orbit)"
     )]
     Child,
     #[sea_orm(

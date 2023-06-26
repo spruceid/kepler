@@ -21,12 +21,6 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "delegation::Entity")]
-    Delegation,
-    #[sea_orm(has_many = "invocation::Entity")]
-    Invocation,
-    #[sea_orm(has_many = "revocation::Entity")]
-    Revocation,
     #[sea_orm(
         belongs_to = "epoch::Entity",
         from = "(Column::Epoch, Column::Orbit)",
@@ -41,24 +35,6 @@ pub enum Relation {
         to = "orbit::Column::Id"
     )]
     Orbit,
-}
-
-impl Related<delegation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Delegation.def()
-    }
-}
-
-impl Related<invocation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Invocation.def()
-    }
-}
-
-impl Related<revocation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Revocation.def()
-    }
 }
 
 impl Related<epoch::Entity> for Entity {

@@ -1,5 +1,5 @@
-use super::super::models::delegation;
 use crate::hash::Hash;
+use crate::models::*;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -19,8 +19,6 @@ pub enum Relation {
         to = "delegation::Column::Id"
     )]
     Parent,
-    #[sea_orm(has_many = "delegation::Entity")]
-    Child,
 }
 
 impl Related<delegation::Entity> for Entity {

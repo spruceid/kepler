@@ -1,6 +1,6 @@
-use super::super::{events::Delegation, models::*, relationships::*, util};
 use crate::hash::Hash;
 use crate::types::Resource;
+use crate::{events::Delegation, models::*, relationships::*, util};
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, ConnectionTrait};
 use time::OffsetDateTime;
@@ -34,34 +34,17 @@ pub enum Relation {
         to = "actor::Column::Id"
     )]
     Delegatee,
-    // inverse relation, delegations belong to epochs
-    #[sea_orm(
-        belongs_to = "event_order::Entity",
-        from = "Column::Id",
-        to = "event_order::Column::Event"
-    )]
-    Ordering,
     #[sea_orm(has_many = "revocation::Entity")]
     Revocation,
     #[sea_orm(has_many = "abilities::Entity")]
     Abilities,
-    #[sea_orm(
-        belongs_to = "parent_delegations::Entity",
-        from = "Column::Id",
-        to = "parent_delegations::Column::Child"
-    )]
+    #[sea_orm(has_many = "parent_delegations::Entity")]
     Parents,
 }
 
 impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Delegator.def()
-    }
-}
-
-impl Related<event_order::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Ordering.def()
     }
 }
 
@@ -80,38 +63,6 @@ impl Related<abilities::Entity> for Entity {
 impl Related<parent_delegations::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Parents.def()
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ParentToChildren;
-
-impl Linked for ParentToChildren {
-    type FromEntity = Entity;
-
-    type ToEntity = Entity;
-
-    fn link(&self) -> Vec<RelationDef> {
-        vec![
-            parent_delegations::Relation::Parent.def().rev(),
-            parent_delegations::Relation::Child.def(),
-        ]
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ChildToParents;
-
-impl Linked for ChildToParents {
-    type FromEntity = Entity;
-
-    type ToEntity = Entity;
-
-    fn link(&self) -> Vec<RelationDef> {
-        vec![
-            parent_delegations::Relation::Child.def().rev(),
-            parent_delegations::Relation::Parent.def(),
-        ]
     }
 }
 

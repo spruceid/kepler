@@ -23,13 +23,19 @@ impl MigrationTrait for Migration {
             .create_table(schema.create_table_from_entity(delegation::Entity))
             .await?;
         manager
-            .create_table(schema.create_table_from_entity(abilities::Entity))
-            .await?;
-        manager
             .create_table(schema.create_table_from_entity(invocation::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(revocation::Entity))
+            .await?;
+        manager
+            .create_table(schema.create_table_from_entity(event_order::Entity))
+            .await?;
+        manager
+            .create_table(schema.create_table_from_entity(parent_delegations::Entity))
+            .await?;
+        manager
+            .create_table(schema.create_table_from_entity(abilities::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(kv_write::Entity))
@@ -39,13 +45,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         manager
-            .create_table(schema.create_table_from_entity(event_order::Entity))
-            .await?;
-        manager
             .create_table(schema.create_table_from_entity(epoch_order::Entity))
-            .await?;
-        manager
-            .create_table(schema.create_table_from_entity(parent_delegations::Entity))
             .await?;
         manager
             .create_table(schema.create_table_from_entity(invoked_abilities::Entity))

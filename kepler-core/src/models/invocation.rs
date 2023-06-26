@@ -30,19 +30,6 @@ pub enum Relation {
         to = "actor::Column::Id"
     )]
     Invoker,
-    // inverse relation, invocations belong to epochs
-    #[sea_orm(
-        belongs_to = "event_order::Entity",
-        from = "Column::Id",
-        to = "event_order::Column::Event"
-    )]
-    Ordering,
-    #[sea_orm(
-        belongs_to = "parent_delegations::Entity",
-        from = "Column::Id",
-        to = "parent_delegations::Column::Child"
-    )]
-    Parents,
     #[sea_orm(has_many = "invoked_abilities::Entity")]
     InvokedAbilities,
 }
@@ -50,18 +37,6 @@ pub enum Relation {
 impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Invoker.def()
-    }
-}
-
-impl Related<event_order::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Ordering.def()
-    }
-}
-
-impl Related<delegation::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Parents.def()
     }
 }
 

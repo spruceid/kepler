@@ -24,34 +24,16 @@ pub enum Relation {
     )]
     Revoker,
     #[sea_orm(
-        belongs_to = "event_order::Entity",
-        from = "Column::Id",
-        to = "event_order::Column::Event"
-    )]
-    Ordering,
-    #[sea_orm(
         belongs_to = "delegation::Entity",
         from = "Column::Revoked",
         to = "delegation::Column::Id"
     )]
     Delegation,
-    #[sea_orm(
-        belongs_to = "parent_delegations::Entity",
-        from = "Column::Id",
-        to = "parent_delegations::Column::Child"
-    )]
-    Parents,
 }
 
 impl Related<actor::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Revoker.def()
-    }
-}
-
-impl Related<event_order::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Ordering.def()
     }
 }
 
