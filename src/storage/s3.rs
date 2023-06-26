@@ -50,7 +50,7 @@ impl StorageConfig<S3BlockStore> for S3BlockConfig {
 #[async_trait]
 impl StorageSetup for S3BlockStore {
     type Error = std::convert::Infallible;
-    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
+    async fn create(&self, _orbit: &OrbitId) -> Result<(), Self::Error> {
         Ok(())
     }
 }

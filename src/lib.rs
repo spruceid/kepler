@@ -28,7 +28,7 @@ use kepler_core::{
     OrbitDatabase,
 };
 use libp2p::{identity::Keypair, PeerId};
-use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
+use routes::{delegate, invoke, open_host_key, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
     file_system::{FileSystemConfig, FileSystemStore, TempFileSystemStage},

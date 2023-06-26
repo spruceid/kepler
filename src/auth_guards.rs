@@ -234,23 +234,3 @@ where
             .finalize())
     }
 }
-
-fn bad_request<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
-    Outcome::Failure((Status::BadRequest, e.into()))
-}
-
-fn conflict<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
-    Outcome::Failure((Status::Conflict, e.into()))
-}
-
-pub fn internal_server_error<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
-    Outcome::Failure((Status::InternalServerError, e.into()))
-}
-
-fn not_found<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
-    Outcome::Failure((Status::NotFound, e.into()))
-}
-
-fn unauthorized<T, E: Into<anyhow::Error>>(e: E) -> Outcome<T, anyhow::Error> {
-    Outcome::Failure((Status::Unauthorized, e.into()))
-}
