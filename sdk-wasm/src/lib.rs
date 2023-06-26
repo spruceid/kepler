@@ -73,9 +73,7 @@ pub fn invoke(session: String, service: String, path: String, action: String) ->
     map_async_jsvalue(async move {
         authorization::InvocationHeaders::from(
             serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
-            service,
-            path,
-            action,
+            vec![(service, path, action)],
         )
         .await
         .and_then(|headers| {

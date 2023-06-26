@@ -108,7 +108,7 @@ impl<'r> FromData<'r> for DataIn<'r> {
                 .start_timer();
 
             let res = match <&'r ContentType>::from_request(req).await.succeeded() {
-                Some(ref c) if c.is_form_data() => DataOutcome::Failure((
+                Some(c) if c.is_form_data() => DataOutcome::Failure((
                     Status::BadRequest,
                     anyhow!("Multipart uploads not yet supported"),
                 )),

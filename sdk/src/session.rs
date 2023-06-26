@@ -253,7 +253,7 @@ pub mod test {
     async fn create_session_and_invoke() {
         test_session()
             .await
-            .invoke("kv".into(), "path".into(), "get".into())
+            .invoke(vec![("kv".into(), "path".into(), "get".into())])
             .await
             .expect("failed to create invocation");
     }
