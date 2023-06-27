@@ -221,8 +221,7 @@ async fn save<C: ConnectionTrait>(
     delegation: util::DelegationInfo,
     serialization: Vec<u8>,
 ) -> Result<Hash, Error> {
-    save_actor(delegation.delegate.clone(), db).await?;
-    save_actor(delegation.delegator.clone(), db).await?;
+    save_actors(&[&delegation.delegator, &delegation.delegate], db).await?;
 
     let hash: Hash = crate::hash::hash(&serialization);
 
@@ -268,16 +267,20 @@ async fn save<C: ConnectionTrait>(
     Ok(hash)
 }
 
-async fn save_actor<C: ConnectionTrait>(id: String, db: &C) -> Result<(), DbErr> {
+async fn save_actors<C: ConnectionTrait>(actors: &[&str], db: &C) -> Result<(), DbErr> {
     use sea_orm::sea_query::OnConflict;
-    match actor::Entity::insert(actor::ActiveModel::from(actor::Model { id }))
-        .on_conflict(
-            OnConflict::column(actor::Column::Id)
-                .do_nothing()
-                .to_owned(),
-        )
-        .exec(db)
-        .await
+    match actor::Entity::insert_many(
+        actors
+            .into_iter()
+            .map(|a| actor::ActiveModel::from(actor::Model { id: a.to_string() })),
+    )
+    .on_conflict(
+        OnConflict::column(actor::Column::Id)
+            .do_nothing()
+            .to_owned(),
+    )
+    .exec(db)
+    .await
     {
         Err(DbErr::RecordNotInserted) => (),
         r => {
