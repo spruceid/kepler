@@ -374,26 +374,29 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         .map(orbit::ActiveModel::from)
         .collect::<Vec<_>>();
 
-    match orbit::Entity::insert_many(new_orbits)
-        .on_conflict(
-            OnConflict::column(orbit::Column::Id)
-                .do_nothing()
-                .to_owned(),
-        )
-        .exec(db)
-        .await
-    {
-        Err(DbErr::RecordNotInserted) => (),
-        r => {
-            r?;
-        }
-    };
+    if !new_orbits.is_empty() {
+        match orbit::Entity::insert_many(new_orbits)
+            .on_conflict(
+                OnConflict::column(orbit::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(db)
+            .await
+        {
+            Err(DbErr::RecordNotInserted) => (),
+            r => {
+                r?;
+            }
+        };
+    }
 
     // get max sequence for each of the orbits
     let mut max_seqs = event_order::Entity::find()
         .filter(event_order::Column::Orbit.is_in(event_orbits.keys().cloned().map(OrbitIdWrap)))
-        .group_by(event_order::Column::Orbit)
+        .select_only()
         .column_as(event_order::Column::Seq.max(), "max_seq")
+        .group_by(event_order::Column::Orbit)
         .all(db)
         .await?
         .into_iter()
@@ -489,9 +492,11 @@ pub(crate) async fn transact<C: ConnectionTrait>(
     epoch::Entity::insert_many(epochs).exec(db).await?;
 
     // save epoch orderings
-    epoch_order::Entity::insert_many(epoch_order)
-        .exec(db)
-        .await?;
+    if !epoch_order.is_empty() {
+        epoch_order::Entity::insert_many(epoch_order)
+            .exec(db)
+            .await?;
+    }
 
     // save event orderings
     event_order::Entity::insert_many(event_order)

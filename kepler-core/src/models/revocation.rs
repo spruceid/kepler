@@ -104,13 +104,13 @@ pub(crate) async fn process<C: ConnectionTrait>(
     .exec(db)
     .await?;
 
-    for parent in r.parents {
-        parent_delegations::Entity::insert(parent_delegations::ActiveModel::from(
-            parent_delegations::Model {
+    if !r.parents.is_empty() {
+        parent_delegations::Entity::insert_many(r.parents.into_iter().map(|p| {
+            parent_delegations::ActiveModel::from(parent_delegations::Model {
                 child: hash,
-                parent: parent.into(),
-            },
-        ))
+                parent: p.into(),
+            })
+        }))
         .exec(db)
         .await?;
     }

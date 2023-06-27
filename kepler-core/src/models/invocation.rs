@@ -186,25 +186,28 @@ async fn save<C: ConnectionTrait>(
     .await?;
 
     // save invoked abilities
-    invoked_abilities::Entity::insert_many(invocation.capabilities.into_iter().map(|c| {
-        invoked_abilities::ActiveModel::from(invoked_abilities::Model {
-            invocation: hash,
-            resource: c.resource,
-            ability: c.action,
-        })
-    }))
-    .exec(db)
-    .await?;
-
+    if !invocation.capabilities.is_empty() {
+        invoked_abilities::Entity::insert_many(invocation.capabilities.into_iter().map(|c| {
+            invoked_abilities::ActiveModel::from(invoked_abilities::Model {
+                invocation: hash,
+                resource: c.resource,
+                ability: c.action,
+            })
+        }))
+        .exec(db)
+        .await?;
+    }
     // save parent relationships
-    parent_delegations::Entity::insert_many(invocation.parents.into_iter().map(|p| {
-        parent_delegations::ActiveModel::from(parent_delegations::Model {
-            child: hash,
-            parent: p.into(),
-        })
-    }))
-    .exec(db)
-    .await?;
+    if !invocation.parents.is_empty() {
+        parent_delegations::Entity::insert_many(invocation.parents.into_iter().map(|p| {
+            parent_delegations::ActiveModel::from(parent_delegations::Model {
+                child: hash,
+                parent: p.into(),
+            })
+        }))
+        .exec(db)
+        .await?;
+    }
 
     for param in parameters {
         match param {

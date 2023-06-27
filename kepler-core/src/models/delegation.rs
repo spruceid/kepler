@@ -240,26 +240,30 @@ async fn save<C: ConnectionTrait>(
     .await?;
 
     // save abilities
-    abilities::Entity::insert_many(delegation.capabilities.into_iter().map(|ab| {
-        abilities::ActiveModel::from(abilities::Model {
-            delegation: hash,
-            resource: ab.resource,
-            ability: ab.action,
-            caveats: Default::default(),
-        })
-    }))
-    .exec(db)
-    .await?;
+    if !delegation.capabilities.is_empty() {
+        abilities::Entity::insert_many(delegation.capabilities.into_iter().map(|ab| {
+            abilities::ActiveModel::from(abilities::Model {
+                delegation: hash,
+                resource: ab.resource,
+                ability: ab.action,
+                caveats: Default::default(),
+            })
+        }))
+        .exec(db)
+        .await?;
+    }
 
     // save parent relationships
-    parent_delegations::Entity::insert_many(delegation.parents.into_iter().map(|p| {
-        parent_delegations::ActiveModel::from(parent_delegations::Model {
-            child: hash,
-            parent: p.into(),
-        })
-    }))
-    .exec(db)
-    .await?;
+    if !delegation.parents.is_empty() {
+        parent_delegations::Entity::insert_many(delegation.parents.into_iter().map(|p| {
+            parent_delegations::ActiveModel::from(parent_delegations::Model {
+                child: hash,
+                parent: p.into(),
+            })
+        }))
+        .exec(db)
+        .await?;
+    }
 
     Ok(hash)
 }
