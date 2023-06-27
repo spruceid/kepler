@@ -110,7 +110,7 @@ pub async fn invoke(
                 });
 
         let inputs = match (data, put_iter.next(), put_iter.next()) {
-            (DataIn::None, None, _) => HashMap::new(),
+            (DataIn::None | DataIn::One(_), None, _) => HashMap::new(),
             (DataIn::One(d), Some((orbit, path)), None) => {
                 let mut stage = staging
                     .stage(&orbit)
