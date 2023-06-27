@@ -64,8 +64,8 @@ pub enum InvocationError {
     InvalidSignature,
     #[error("Unauthorized Invoker")]
     UnauthorizedInvoker(String),
-    #[error("Unauthorized Capability")]
-    UnauthorizedCapability(Resource, String),
+    #[error("Unauthorized Action: {0} / {1}")]
+    UnauthorizedAction(Resource, String),
     #[error("Cannot find parent delegation")]
     MissingParents,
     #[error("No Such Key: {0}")]
@@ -110,7 +110,7 @@ async fn validate<C: ConnectionTrait>(
         .capabilities
         .iter()
         .filter(|c| {
-            // remove caps for which the delegator is the root authority
+            // remove caps for which the invoker is the root authority
             c.resource
                 .orbit()
                 .map(|o| o.did() != invocation.invoker)
@@ -131,31 +131,47 @@ async fn validate<C: ConnectionTrait>(
                 .filter(
                     delegation::Column::Id.is_in(invocation.parents.iter().map(|c| Hash::from(*c))),
                 )
-                // the correct delegatee
-                .filter(delegation::Column::Delegatee.eq(invocation.invoker.clone()))
+                // and also get their abilities
+                .find_with_related(abilities::Entity)
                 .all(db)
                 .await?;
 
+            // check parent identifies correct invoker
+            parents
+                .iter()
+                .map(|(p, _)| {
+                    if p.delegatee != invocation.invoker
+                        && !invocation.invoker.starts_with(&p.delegatee)
+                    {
+                        Err(InvocationError::UnauthorizedInvoker(
+                            invocation.invoker.clone(),
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
             let now = time.unwrap_or_else(OffsetDateTime::now_utc);
+
+            // only use parents which are valid at the time of invocation
             let parents: Vec<_> = parents
                 .into_iter()
-                .filter(|p| {
-                    // valid time bounds
-                    p.expiry < Some(now) && p.not_before.map(|pnbf| pnbf > now).unwrap_or(false)
+                .filter(|(p, _)| {
+                    p.expiry.map(|pexp| now < pexp).unwrap_or(true)
+                        && p.not_before.map(|pnbf| now >= pnbf).unwrap_or(true)
                 })
                 .collect();
 
-            // get delegated abilities from each parent
-            let parent_abilities = parents.load_many(abilities::Entity, db).await?;
-
             // check each dependant cap is supported by at least one parent cap
             match dependant_caps.iter().find(|c| {
-                !parent_abilities
+                !parents
                     .iter()
+                    .map(|(_, a)| a)
                     .flatten()
                     .any(|pc| c.resource.extends(&pc.resource) && c.action == pc.ability)
             }) {
-                Some(c) => Err(InvocationError::UnauthorizedCapability(
+                Some(c) => Err(InvocationError::UnauthorizedAction(
                     c.resource.clone(),
                     c.action.clone(),
                 )
