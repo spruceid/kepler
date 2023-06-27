@@ -395,26 +395,35 @@ pub(crate) async fn transact<C: ConnectionTrait>(
     let mut max_seqs = event_order::Entity::find()
         .filter(event_order::Column::Orbit.is_in(event_orbits.keys().cloned().map(OrbitIdWrap)))
         .select_only()
+        .column(event_order::Column::Orbit)
         .column_as(event_order::Column::Seq.max(), "max_seq")
         .group_by(event_order::Column::Orbit)
+        .into_tuple::<(OrbitIdWrap, i64)>()
         .all(db)
         .await?
         .into_iter()
-        .fold(HashMap::new(), |mut m, order| {
-            m.insert(order.orbit, order.seq + 1);
+        .fold(HashMap::new(), |mut m, (orbit, seq)| {
+            m.insert(orbit, seq + 1);
             m
         });
 
     // get 'most recent' epochs for each of the orbits
     let mut most_recent = epoch::Entity::find()
-        .filter(epoch::Column::Orbit.is_in(event_orbits.keys().cloned().map(OrbitIdWrap)))
+        .select_only()
         .left_join(epoch_order::Entity)
-        .column_as(epoch_order::Column::Child.is_null(), "r0")
+        .filter(
+            Condition::all()
+                .add(epoch::Column::Orbit.is_in(event_orbits.keys().cloned().map(OrbitIdWrap)))
+                .add(epoch_order::Column::Child.is_null()),
+        )
+        .column(epoch::Column::Orbit)
+        .column(epoch::Column::Id)
+        .into_tuple::<(OrbitIdWrap, Hash)>()
         .all(db)
         .await?
         .into_iter()
-        .fold(HashMap::new(), |mut m, epoch| {
-            m.entry(epoch.orbit).or_insert_with(Vec::new).push(epoch.id);
+        .fold(HashMap::new(), |mut m, (orbit, epoch)| {
+            m.entry(orbit).or_insert_with(Vec::new).push(epoch);
             m
         });
 
