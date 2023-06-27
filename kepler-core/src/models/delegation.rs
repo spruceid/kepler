@@ -271,7 +271,7 @@ async fn save_actors<C: ConnectionTrait>(actors: &[&str], db: &C) -> Result<(), 
     use sea_orm::sea_query::OnConflict;
     match actor::Entity::insert_many(
         actors
-            .into_iter()
+            .iter()
             .map(|a| actor::ActiveModel::from(actor::Model { id: a.to_string() })),
     )
     .on_conflict(

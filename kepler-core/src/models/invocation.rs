@@ -167,8 +167,7 @@ async fn validate<C: ConnectionTrait>(
             match dependant_caps.iter().find(|c| {
                 !parents
                     .iter()
-                    .map(|(_, a)| a)
-                    .flatten()
+                    .flat_map(|(_, a)| a)
                     .any(|pc| c.resource.extends(&pc.resource) && c.action == pc.ability)
             }) {
                 Some(c) => Err(InvocationError::UnauthorizedAction(
