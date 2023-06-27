@@ -5,7 +5,7 @@ use crate::models::*;
 use crate::relationships::*;
 use crate::storage::{
     either::EitherError, Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore,
-    ImmutableStaging, ImmutableWriteStore,
+    ImmutableStaging, ImmutableWriteStore, StorageSetup,
 };
 use crate::types::{Metadata, OrbitIdWrap, Resource};
 use crate::util::{Capability, DelegationInfo};
@@ -35,7 +35,7 @@ pub struct Commit {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum TxError {
+pub enum TxError<S: StorageSetup> {
     #[error("database error: {0}")]
     Db(#[from] DbErr),
     #[error(transparent)]
@@ -54,17 +54,19 @@ pub enum TxError {
     Encoding(#[from] EncodingError),
     #[error(transparent)]
     ParseError(#[from] KRIParseError),
+    #[error(transparent)]
+    StoreSetup(S::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxStoreError<B, S>
 where
-    B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore,
+    B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore + StorageSetup,
     S: ImmutableStaging,
     S::Writable: 'static + Unpin,
 {
     #[error(transparent)]
-    Tx(#[from] TxError),
+    Tx(#[from] TxError<B>),
     #[error(transparent)]
     StoreRead(<B as ImmutableReadStore>::Error),
     #[error(transparent)]
@@ -79,7 +81,7 @@ where
 
 impl<B, S> From<DbErr> for TxStoreError<B, S>
 where
-    B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore,
+    B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore + StorageSetup,
     S: ImmutableStaging,
     S::Writable: 'static + Unpin,
 {
@@ -100,14 +102,15 @@ pub type InvocationInputs<W> = HashMap<(OrbitId, String), (Metadata, HashBuffer<
 impl<C, B> OrbitDatabase<C, B>
 where
     C: TransactionTrait,
+    B: StorageSetup,
 {
-    async fn transact(&self, events: Vec<Event>) -> Result<HashMap<OrbitId, Commit>, TxError> {
+    async fn transact(&self, events: Vec<Event>) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
         let tx = self
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
 
-        let commit = transact(&tx, events).await?;
+        let commit = transact(&tx, &self.storage, events).await?;
 
         tx.commit().await?;
 
@@ -117,7 +120,7 @@ where
     pub async fn delegate(
         &self,
         delegation: Delegation,
-    ) -> Result<HashMap<OrbitId, Commit>, TxError> {
+    ) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
         self.transact(vec![Event::Delegation(Box::new(delegation))])
             .await
     }
@@ -125,7 +128,7 @@ where
     pub async fn revoke(
         &self,
         revocation: Revocation,
-    ) -> Result<HashMap<OrbitId, Commit>, TxError> {
+    ) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
         self.transact(vec![Event::Revocation(Box::new(revocation))])
             .await
     }
@@ -197,7 +200,12 @@ where
             .await?;
         let caps = invocation.0.capabilities.clone();
         //  verify and commit invocation and kv operations
-        let commit = transact(&tx, vec![Event::Invocation(Box::new(invocation), ops)]).await?;
+        let commit = transact(
+            &tx,
+            &self.storage,
+            vec![Event::Invocation(Box::new(invocation), ops)],
+        )
+        .await?;
 
         let mut results = Vec::new();
         // perform and record side effects
@@ -264,7 +272,7 @@ pub enum InvocationOutcome<R> {
     OpenSessions(HashMap<Hash, DelegationInfo>),
 }
 
-impl From<delegation::Error> for TxError {
+impl<S: StorageSetup> From<delegation::Error> for TxError<S> {
     fn from(e: delegation::Error) -> Self {
         match e {
             delegation::Error::InvalidDelegation(e) => Self::InvalidDelegation(e),
@@ -273,7 +281,7 @@ impl From<delegation::Error> for TxError {
     }
 }
 
-impl From<invocation::Error> for TxError {
+impl<S: StorageSetup> From<invocation::Error> for TxError<S> {
     fn from(e: invocation::Error) -> Self {
         match e {
             invocation::Error::InvalidInvocation(e) => Self::InvalidInvocation(e),
@@ -282,7 +290,7 @@ impl From<invocation::Error> for TxError {
     }
 }
 
-impl From<revocation::Error> for TxError {
+impl<S: StorageSetup> From<revocation::Error> for TxError<S> {
     fn from(e: revocation::Error) -> Self {
         match e {
             revocation::Error::InvalidRevocation(e) => Self::InvalidRevocation(e),
@@ -342,17 +350,18 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     Ok(orbits)
 }
 
-pub(crate) async fn transact<C: ConnectionTrait>(
+pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup>(
     db: &C,
+    store_setup: &S,
     events: Vec<Event>,
-) -> Result<HashMap<OrbitId, Commit>, TxError> {
+) -> Result<HashMap<OrbitId, Commit>, TxError<S>> {
     // for each event, get the hash and the relevent orbit(s)
     let event_hashes = events
         .into_iter()
         .map(|e| (e.hash(), e))
         .collect::<Vec<(Hash, Event)>>();
     let event_orbits = event_orbits(db, &event_hashes).await?;
-    let new_orbits = event_hashes
+    let mut new_orbits = event_hashes
         .iter()
         .filter_map(|(_, e)| match e {
             Event::Delegation(d) => Some(d.0.capabilities.iter().filter_map(|c| {
@@ -370,19 +379,24 @@ pub(crate) async fn transact<C: ConnectionTrait>(
             _ => None,
         })
         .flatten()
-        .map(|id| orbit::Model { id })
-        .map(orbit::ActiveModel::from)
-        .collect::<Vec<_>>();
+        .collect::<Vec<OrbitIdWrap>>();
+    new_orbits.dedup();
 
     if !new_orbits.is_empty() {
-        match orbit::Entity::insert_many(new_orbits)
-            .on_conflict(
-                OnConflict::column(orbit::Column::Id)
-                    .do_nothing()
-                    .to_owned(),
-            )
-            .exec(db)
-            .await
+        match orbit::Entity::insert_many(
+            new_orbits
+                .iter()
+                .cloned()
+                .map(|id| orbit::Model { id })
+                .map(orbit::ActiveModel::from),
+        )
+        .on_conflict(
+            OnConflict::column(orbit::Column::Id)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec(db)
+        .await
         {
             Err(DbErr::RecordNotInserted) => (),
             r => {
@@ -535,6 +549,13 @@ pub(crate) async fn transact<C: ConnectionTrait>(
         };
     }
 
+    for orbit in new_orbits {
+        store_setup
+            .create(&orbit.0)
+            .await
+            .map_err(TxError::StoreSetup)?;
+    }
+
     Ok(orbit_order
         .into_iter()
         .map(|(o, (seq, rev, consumed_epochs, h))| {
@@ -645,10 +666,10 @@ async fn get_kv_entity<C: ConnectionTrait>(
     // })
 }
 
-async fn get_valid_delegations<C: ConnectionTrait>(
+async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup>(
     db: &C,
     orbit: &OrbitId,
-) -> Result<HashMap<Hash, DelegationInfo>, TxError> {
+) -> Result<HashMap<Hash, DelegationInfo>, TxError<S>> {
     let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
         delegation::Entity::find()
             .left_join(revocation::Entity)
