@@ -173,20 +173,22 @@ where
 
                     let value = stage.hash();
 
-                    stages.insert((orbit.clone(), path.to_string()), stage);
+                    let norm_path = normalize_path(path);
+
+                    stages.insert((orbit.clone(), norm_path.to_string()), stage);
                     // add write for tx
                     ops.push(Operation::KvWrite {
                         orbit: orbit.clone(),
-                        key: path.to_string(),
+                        key: norm_path.to_string(),
                         metadata,
                         value,
                     });
                 }
                 // add delete for tx
-                Some(("kv", "delete", orbit, path)) => {
+                Some(("kv", "del", orbit, path)) => {
                     ops.push(Operation::KvDelete {
                         orbit: orbit.clone(),
-                        key: path.to_string(),
+                        key: normalize_path(path).to_string(),
                         version: None,
                     });
                 }
@@ -213,7 +215,7 @@ where
             match (
                 cap.resource
                     .kepler_resource()
-                    .and_then(|r| Some((r.orbit(), r.service()?, r.path()?))),
+                    .and_then(|r| Some((r.orbit(), r.service()?, normalize_path(r.path()?)))),
                 cap.action.as_str(),
             ) {
                 (Some((orbit, "kv", path)), "get") => results.push(InvocationOutcome::KvRead(
@@ -227,7 +229,7 @@ where
                 (Some((orbit, "kv", path)), "list") => {
                     results.push(InvocationOutcome::KvList(list(&tx, orbit, path).await?))
                 }
-                (Some((orbit, "kv", path)), "delete") => {
+                (Some((orbit, "kv", path)), "del") => {
                     let kv = get_kv_entity(&tx, orbit, path).await?;
                     if let Some(kv) = kv {
                         self.storage
@@ -717,6 +719,14 @@ async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup>(
             }
         })
         .collect::<Result<HashMap<Hash, DelegationInfo>, EncodingError>>()?)
+}
+
+fn normalize_path(p: &str) -> &str {
+    if p.starts_with('/') {
+        &p.get(1..).unwrap_or("")
+    } else {
+        p
+    }
 }
 
 #[cfg(test)]

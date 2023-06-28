@@ -104,7 +104,7 @@ pub async fn invoke(
                 .iter()
                 .filter_map(|c| match (&c.resource, c.action.as_str()) {
                     (Resource::Kepler(r), "put") if r.service() == Some("kv") => {
-                        r.path().map(|p| (r.orbit().clone(), p.to_string()))
+                        r.path().map(|p| (r.orbit(), p))
                     }
                     _ => None,
                 });
@@ -113,14 +113,14 @@ pub async fn invoke(
             (DataIn::None | DataIn::One(_), None, _) => HashMap::new(),
             (DataIn::One(d), Some((orbit, path)), None) => {
                 let mut stage = staging
-                    .stage(&orbit)
+                    .stage(orbit)
                     .await
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?;
                 futures::io::copy(d.open(1u32.gibibytes()).compat(), &mut stage)
                     .await
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?;
                 let mut inputs = HashMap::new();
-                inputs.insert((orbit, path), (headers.0, stage));
+                inputs.insert((orbit.clone(), path.to_string()), (headers.0, stage));
                 inputs
             }
             (DataIn::Many(_), Some(_), Some(_)) => {
