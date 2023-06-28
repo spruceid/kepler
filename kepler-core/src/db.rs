@@ -734,7 +734,7 @@ async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup>(
 
 fn normalize_path(p: &str) -> &str {
     if p.starts_with('/') {
-        &p.get(1..).unwrap_or("")
+        p.get(1..).unwrap_or("")
     } else {
         p
     }
