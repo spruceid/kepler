@@ -251,7 +251,7 @@ where
                 (Some((orbit, "kv", path)), "metadata") => results.push(
                     InvocationOutcome::KvMetadata(metadata(&tx, orbit, path).await?),
                 ),
-                (Some((orbit, "capabilities", "")), "read") => results.push(
+                (Some((orbit, "capabilities", "all")), "read") => results.push(
                     InvocationOutcome::OpenSessions(get_valid_delegations(&tx, orbit).await?),
                 ),
                 _ => {}
