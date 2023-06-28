@@ -11,11 +11,14 @@ use crate::types::{Metadata, OrbitIdWrap, Resource};
 use crate::util::{Capability, DelegationInfo};
 use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
-    resource::{KRIParseError, OrbitId},
+    resource::OrbitId,
 };
 use sea_orm::{
-    entity::prelude::*, error::DbErr, query::*, sea_query::OnConflict, ConnectionTrait,
-    DatabaseTransaction, TransactionTrait,
+    entity::prelude::*,
+    error::{DbErr, RuntimeErr, SqlxError},
+    query::*,
+    sea_query::OnConflict,
+    ConnectionTrait, DatabaseTransaction, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
 use std::collections::HashMap;
@@ -34,6 +37,7 @@ pub struct Commit {
     pub consumed_epochs: Vec<Hash>,
 }
 
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum TxError<S: StorageSetup> {
     #[error("database error: {0}")]
@@ -48,16 +52,17 @@ pub enum TxError<S: StorageSetup> {
     InvalidInvocation(#[from] invocation::InvocationError),
     #[error(transparent)]
     InvalidRevocation(#[from] revocation::RevocationError),
-    #[error("Epoch Hashing Err")]
+    #[error("Epoch Hashing Err: {0}")]
     EpochHashingErr(#[from] HashError),
     #[error(transparent)]
     Encoding(#[from] EncodingError),
     #[error(transparent)]
-    ParseError(#[from] KRIParseError),
-    #[error(transparent)]
     StoreSetup(S::Error),
+    #[error("Orbit not found")]
+    OrbitNotFound,
 }
 
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum TxStoreError<B, S>
 where
@@ -514,7 +519,13 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup>(
         );
 
     // save epochs
-    epoch::Entity::insert_many(epochs).exec(db).await?;
+    epoch::Entity::insert_many(epochs)
+        .exec(db)
+        .await
+        .map_err(|e| match e {
+            DbErr::Exec(RuntimeErr::SqlxError(SqlxError::Database(_))) => TxError::OrbitNotFound,
+            _ => e.into(),
+        })?;
 
     // save epoch orderings
     if !epoch_order.is_empty() {

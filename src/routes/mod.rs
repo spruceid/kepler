@@ -19,6 +19,7 @@ use kepler_core::{
     storage::{ImmutableReadStore, ImmutableStaging},
     types::Resource,
     util::{DelegationInfo, InvocationInfo},
+    TxError,
 };
 
 #[allow(clippy::let_unit_value)]
@@ -66,7 +67,15 @@ pub async fn delegate(
         let res = kepler
             .delegate(d.0)
             .await
-            .map_err(|e| (Status::Unauthorized, e.to_string()))
+            .map_err(|e| {
+                (
+                    match e {
+                        TxError::OrbitNotFound => Status::NotFound,
+                        _ => Status::Unauthorized,
+                    },
+                    e.to_string(),
+                )
+            })
             .and_then(|c| {
                 c.into_iter()
                     .next()

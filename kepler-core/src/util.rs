@@ -17,6 +17,7 @@ pub struct Capability {
     pub action: String,
 }
 
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum CapExtractError {
     #[error("Default actions are not allowed for Kepler capabilities")]
@@ -89,6 +90,7 @@ impl DelegationInfo {
     }
 }
 
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum DelegationError {
     #[error(transparent)]
@@ -171,6 +173,7 @@ impl InvocationInfo {
     }
 }
 
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum InvocationError {
     #[error("Missing Resource")]

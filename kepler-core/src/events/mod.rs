@@ -19,6 +19,7 @@ use serde_ipld_dagcbor::EncodeError;
 #[derive(Debug)]
 pub struct SerializedEvent<T>(pub T, pub(crate) Vec<u8>);
 
+#[non_exhaustive]
 #[derive(thiserror::Error, Debug)]
 pub enum FromReqErr<T> {
     #[error(transparent)]
@@ -143,6 +144,7 @@ struct Epoch {
     pub events: Vec<OneOrMany>,
 }
 
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum HashError {
     #[error("encoding error: {0}")]
