@@ -5,6 +5,8 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
+default = ["sqlite", "postgres", "mysql", "tokio"]
+
 sqlite = ["sea-orm/sqlx-sqlite"]
 postgres = ["sea-orm/sqlx-postgres"]
 mysql = ["sea-orm/sqlx-mysql"]
@@ -13,7 +15,7 @@ tokio = ["sea-orm/runtime-tokio-rustls"]
 async-std = ["sea-orm/runtime-async-std-rustls"]
 
 [dependencies]
-sea-orm = { version = "^0", default-features = false, features = ["macros", "with-time", "with-json"] }
+sea-orm = { version = "0.11", default-features = false, features = ["macros", "with-time", "with-json", "sqlx", "sea-orm-internal", "sqlx-dep"] }
 sea-orm-migration = { version = "0.11", default-features = false }
 futures = { default-features = false, version = "0.3", features = ["alloc", "std"] }
 pin-project = "1"
@@ -27,5 +29,5 @@ serde_json = "1"
 serde_ipld_dagcbor = "0.3"
 
 [dev-dependencies]
-sea-orm = { version = "^0", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }
+sea-orm = { version = "0.11", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }
 async-std = { version = "1", features = ["attributes"] }
