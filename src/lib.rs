@@ -19,7 +19,6 @@ pub mod relay;
 pub mod routes;
 pub mod storage;
 mod tracing;
-pub mod transport;
 
 use config::{BlockStorage, Config, StagingStorage};
 use kepler_core::{
