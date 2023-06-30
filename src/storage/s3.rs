@@ -7,7 +7,6 @@ use aws_sdk_s3::{
 use aws_smithy_http::{byte_stream::Error as ByteStreamError, endpoint::Endpoint};
 use aws_types::sdk_config::SdkConfig;
 use futures::{
-    executor::block_on,
     future::Either as AsyncEither,
     stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
@@ -20,8 +19,8 @@ use std::io::Error as IoError;
 
 use super::file_system;
 
-fn aws_config() -> SdkConfig {
-    block_on(async { aws_config::from_env().load().await })
+async fn aws_config() -> SdkConfig {
+    aws_config::from_env().load().await
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +42,7 @@ pub struct S3BlockConfig {
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = std::convert::Infallible;
     async fn open(&self) -> Result<S3BlockStore, Self::Error> {
-        Ok(S3BlockStore::new_(self))
+        Ok(S3BlockStore::new_(self).await)
     }
 }
 
@@ -55,8 +54,8 @@ impl StorageSetup for S3BlockStore {
     }
 }
 
-pub fn new_client(config: &S3BlockConfig) -> Client {
-    let general_config = aws_config();
+async fn new_client(config: &S3BlockConfig) -> Client {
+    let general_config = aws_config().await;
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
     let sdk_config = match &config.endpoint {
         Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e.clone())),
@@ -67,9 +66,9 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
 }
 
 impl S3BlockStore {
-    pub fn new_(config: &S3BlockConfig) -> Self {
+    async fn new_(config: &S3BlockConfig) -> Self {
         S3BlockStore {
-            client: new_client(config),
+            client: new_client(config).await,
             bucket: config.bucket.clone(),
         }
     }
