@@ -141,6 +141,7 @@ impl Session {
         let now = OffsetDateTime::now_utc();
         let nanos = now.nanosecond();
         let unix = now.unix_timestamp();
+        // 60 seconds in the future
         let exp = (unix.seconds() + Duration::nanoseconds(nanos.into()) + Duration::MINUTE)
             .as_seconds_f64();
         make_invocation(
@@ -148,7 +149,6 @@ impl Session {
             self.delegation_cid,
             &self.jwk,
             self.verification_method,
-            // 60 seconds in the future
             exp,
             None,
             None,
