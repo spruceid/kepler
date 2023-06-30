@@ -37,7 +37,6 @@ tracing = "0.1"
 tracing-log = "0.1"
 tracing-opentelemetry = "0.17.2"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter", "json"] }
-uuid = "1"
 
 [dependencies.kepler-core]
 path = "kepler-core/"
