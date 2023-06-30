@@ -91,11 +91,10 @@ async fn verify(invocation: &KeplerInvocation) -> Result<(), Error> {
         .verify_signature(DID_METHODS.to_resolver())
         .await
         .map_err(|_| InvocationError::InvalidSignature)?;
-    // TODO bug in kepler-sdk, it doesnt take all nanoseconds, just the offset from current second
-    // invocation
-    //     .payload
-    //     .validate_time(None)
-    //     .map_err(|_| InvocationError::InvalidTime)?;
+    invocation
+        .payload
+        .validate_time(None)
+        .map_err(|_| InvocationError::InvalidTime)?;
     Ok(())
 }
 
