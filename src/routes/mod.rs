@@ -1,8 +1,5 @@
 use anyhow::Result;
-use libp2p::{
-    identity::{Keypair, PeerId},
-    multiaddr::Protocol,
-};
+use libp2p::identity::{Keypair, PeerId};
 use rocket::{data::ToByteUnit, http::Status, State};
 use std::{collections::HashMap, sync::RwLock};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -11,7 +8,6 @@ use tracing::{info_span, Instrument};
 use crate::{
     auth_guards::{DataIn, DataOut, InvOut, ObjectHeaders},
     authorization::AuthHeaderGetter,
-    relay::RelayNode,
     tracing::TracingSpan,
     BlockStage, BlockStores, Kepler,
 };
@@ -29,14 +25,6 @@ pub mod util_routes {
 
     #[get("/healthz")]
     pub fn healthcheck() {}
-}
-
-#[get("/peer/relay")]
-pub fn relay_addr(relay: &State<RelayNode>) -> String {
-    relay
-        .external()
-        .with(Protocol::P2p(relay.id.into()))
-        .to_string()
 }
 
 #[get("/peer/generate")]

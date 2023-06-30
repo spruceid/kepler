@@ -15,7 +15,6 @@ pub mod auth_guards;
 pub mod authorization;
 pub mod config;
 pub mod prometheus;
-pub mod relay;
 pub mod routes;
 pub mod storage;
 mod tracing;
@@ -82,14 +81,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     tracing::tracing_try_init(&kepler_config.log);
 
-    let routes = routes![
-        healthcheck,
-        cors,
-        // relay_addr,
-        open_host_key,
-        invoke,
-        delegate,
-    ];
+    let routes = routes![healthcheck, cors, open_host_key, invoke, delegate,];
 
     let kepler = Kepler::wrap(
         Database::connect(&kepler_config.storage.database).await?,
