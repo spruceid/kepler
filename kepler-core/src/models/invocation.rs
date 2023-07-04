@@ -5,7 +5,7 @@ use super::super::{
     util,
 };
 use crate::hash::Hash;
-use crate::types::{OrbitIdWrap, Resource};
+use crate::types::{Facts, OrbitIdWrap, Resource};
 use kepler_lib::{authorization::KeplerInvocation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, Condition, ConnectionTrait, QueryOrder};
 use time::OffsetDateTime;
@@ -18,6 +18,7 @@ pub struct Model {
 
     pub invoker: String,
     pub issued_at: OffsetDateTime,
+    pub facts: Option<Facts>,
     pub serialization: Vec<u8>,
 }
 
@@ -194,6 +195,7 @@ async fn save<C: ConnectionTrait>(
         id: hash,
         issued_at,
         serialization,
+        facts: None,
         invoker: invocation.invoker,
     }))
     .exec(db)

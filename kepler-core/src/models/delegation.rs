@@ -1,5 +1,5 @@
 use crate::hash::Hash;
-use crate::types::Resource;
+use crate::types::{Facts, Resource};
 use crate::{events::Delegation, models::*, relationships::*, util};
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
 use sea_orm::{entity::prelude::*, ConnectionTrait};
@@ -16,6 +16,7 @@ pub struct Model {
     pub expiry: Option<OffsetDateTime>,
     pub issued_at: Option<OffsetDateTime>,
     pub not_before: Option<OffsetDateTime>,
+    pub facts: Option<Facts>,
     pub serialization: Vec<u8>,
 }
 
@@ -233,6 +234,7 @@ async fn save<C: ConnectionTrait>(
         expiry: delegation.expiry,
         issued_at: delegation.issued_at,
         not_before: delegation.not_before,
+        facts: None,
         serialization,
     }))
     .exec(db)
