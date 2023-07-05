@@ -15,7 +15,7 @@ use kepler_lib::{
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use std::collections::HashMap;
-use time::OffsetDateTime;
+use time::{ext::NumericalDuration, Duration, OffsetDateTime};
 
 #[serde_as]
 #[derive(Deserialize, Clone)]
@@ -138,13 +138,18 @@ impl Session {
         let target = self
             .orbit_id
             .to_resource(Some(service), Some(path), Some(action));
+        let now = OffsetDateTime::now_utc();
+        let nanos = now.nanosecond();
+        let unix = now.unix_timestamp();
+        // 60 seconds in the future
+        let exp = (unix.seconds() + Duration::nanoseconds(nanos.into()) + Duration::MINUTE)
+            .as_seconds_f64();
         make_invocation(
             target,
             self.delegation_cid,
             &self.jwk,
             self.verification_method,
-            // 60 seconds in the future
-            (OffsetDateTime::now_utc().nanosecond() as f64 / 1e+9_f64) + 60.0,
+            exp,
             None,
             None,
         )

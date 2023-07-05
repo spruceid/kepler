@@ -121,7 +121,7 @@ impl<B> Store<B> {
     }
 
     #[instrument(name = "kv::list", skip_all)]
-    pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
+    pub async fn list(&self) -> impl Iterator<Item = Result<Vec<u8>>> {
         let elements = match self.index.elements().await {
             Ok(e) => e,
             Err(e) => return vec![Err(e)].into_iter(),
