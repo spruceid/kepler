@@ -31,9 +31,12 @@ use crate::{
     relay::RelayNode,
     storage::{Content, ImmutableStore},
     tracing::TracingSpan,
-    BlockStores,
+    BlockStores, Config,
 };
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+
+pub mod util;
+use util::LimitedReader;
 
 pub struct Metadata(pub BTreeMap<String, String>);
 
@@ -132,6 +135,7 @@ pub async fn invoke(
     i: InvokeAuthWrapper<BlockStores>,
     req_span: TracingSpan,
     data: Data<'_>,
+    config: &State<Config>,
 ) -> Result<InvocationResponse<Content<<BlockStores as ImmutableStore>::Readable>>, (Status, String)>
 {
     let action_label = i.prometheus_label().to_string();
@@ -144,7 +148,7 @@ pub async fn invoke(
 
         let res = match i {
             InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
-            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data).await,
+            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data, config).await,
             InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
         };
 
@@ -158,6 +162,7 @@ pub async fn invoke(
 pub async fn handle_kv_action<B>(
     action: KVAction<B>,
     data: Data<'_>,
+    config: &Config,
 ) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
 where
     B: 'static + ImmutableStore,
@@ -222,12 +227,41 @@ where
         } => {
             let rm: [([u8; 0], _, _); 0] = [];
 
+            let data = data.open(1u8.gigabytes()).compat();
+
+            let reader = if let Some(limit) = config.storage.limit {
+                let current_size = orbit
+                    .service
+                    .store
+                    .blocks()
+                    .total_size()
+                    .await
+                    .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+
+                // get the remaining allocated space for the given orbit storage
+                match limit.as_u64().checked_sub(current_size) {
+                    // the current size is already equal or greater than the limit
+                    None | Some(0) => {
+                        return Err((
+                            Status::PayloadTooLarge,
+                            "The data storage limit has been reached".into(),
+                        ))
+                    }
+                    Some(remaining) => {
+                        futures::future::Either::Right(LimitedReader::new(data, remaining))
+                    }
+                }
+            } else {
+                // no limit on storage, just use the data as is
+                futures::future::Either::Left(data)
+            };
+
             orbit
                 .service
                 .write(
                     [(
                         ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        data.open(1u8.gigabytes()).compat(),
+                        reader,
                     )],
                     rm,
                 )

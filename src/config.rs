@@ -3,7 +3,7 @@ use crate::{
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
     BlockConfig,
 };
-use rocket::http::hyper::Uri;
+use rocket::{data::ByteUnit, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr, FromInto};
 use std::path::PathBuf;
@@ -49,6 +49,7 @@ pub struct Storage {
     #[serde_as(as = "FromInto<BlockStorage>")]
     pub blocks: BlockConfig,
     pub indexes: IndexStorage,
+    pub limit: Option<ByteUnit>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]

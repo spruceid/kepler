@@ -2,6 +2,7 @@ use crate::{
     orbit::ProviderUtils,
     storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
 };
+use futures::{future::TryFutureExt, stream::TryStreamExt};
 use kepler_lib::{
     libipld::cid::{
         multibase::{encode, Base},
@@ -14,24 +15,42 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 use tempfile::{NamedTempFile, PathPersistError};
-use tokio::fs::{create_dir_all, read, remove_file, write, File};
+use tokio::fs::{create_dir_all, metadata, read, remove_file, write, File};
+use tokio_stream::wrappers::ReadDirStream;
 
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 #[derive(Debug, Clone)]
 pub struct FileSystemStore {
     path: PathBuf,
+    size: Arc<AtomicU64>,
 }
 
 impl FileSystemStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    async fn new(path: PathBuf) -> Result<Self, IoError> {
+        // get the size of the directory
+        let size = dir_size(&path).await?;
+        Ok(Self {
+            path,
+            size: Arc::new(AtomicU64::new(size)),
+        })
     }
 
     fn get_path(&self, mh: &Multihash) -> PathBuf {
         self.path.join(encode(Base::Base64Url, mh.to_bytes()))
+    }
+
+    fn increment_size(&self, size: u64) {
+        self.size.fetch_add(size, Ordering::SeqCst);
+    }
+    fn decrement_size(&self, size: u64) {
+        self.size.fetch_sub(size, Ordering::SeqCst);
     }
 }
 
@@ -56,18 +75,17 @@ impl StorageConfig<FileSystemStore> for FileSystemConfig {
     type Error = IoError;
     async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        if path.is_dir() {
-            Ok(Some(FileSystemStore::new(path)))
-        } else {
-            Ok(None)
+        if !path.is_dir() {
+            return Ok(None);
         }
+        Ok(Some(FileSystemStore::new(path).await?))
     }
     async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
         let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
         if !path.is_dir() {
             create_dir_all(&path).await?;
-        }
-        Ok(FileSystemStore::new(path))
+        };
+        Ok(FileSystemStore::new(path).await?)
     }
 }
 
@@ -148,7 +166,10 @@ impl ImmutableStore for FileSystemStore {
         hash_type: Code,
     ) -> Result<Multihash, Self::Error> {
         let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type).await?;
+        let (multihash, _, written) =
+            copy_in(data, File::from_std(file).compat(), hash_type).await?;
+
+        self.increment_size(written);
 
         if !self.contains(&multihash).await? {
             path.persist(self.get_path(&multihash))?;
@@ -170,7 +191,7 @@ impl ImmutableStore for FileSystemStore {
         let (file, path) = NamedTempFile::new()
             .map_err(FileSystemStoreError::Io)?
             .into_parts();
-        let (multihash, _) = copy_in(data, File::from_std(file).compat(), hash_type)
+        let (multihash, _, written) = copy_in(data, File::from_std(file).compat(), hash_type)
             .await
             .map_err(FileSystemStoreError::from)?;
 
@@ -180,14 +201,20 @@ impl ImmutableStore for FileSystemStore {
 
         path.persist(self.get_path(&multihash))
             .map_err(FileSystemStoreError::from)?;
+        self.increment_size(written);
         Ok(())
     }
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        match remove_file(self.get_path(id)).await {
-            Ok(()) => Ok(Some(())),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let path = self.get_path(id);
+        let size = match metadata(&path).await {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        // this shouldnt be not found, because we checked earlier when getting the size
+        remove_file(self.get_path(id)).await?;
+        self.decrement_size(size);
+        Ok(Some(()))
     }
     async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         match File::open(self.get_path(id)).await {
@@ -195,5 +222,60 @@ impl ImmutableStore for FileSystemStore {
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        Ok(self.size.load(Ordering::Relaxed))
+    }
+}
+
+async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
+    // get the sum size of all files in this directory (do not recurse into subdirectories)
+    ReadDirStream::new(tokio::fs::read_dir(path).await?)
+        .try_fold(0, |acc, entry| async move {
+            entry
+                .metadata()
+                .map_ok(|m| if m.is_dir() { acc } else { acc + m.len() })
+                .await
+        })
+        .await
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use futures::io::AsyncReadExt;
+
+    #[test]
+    async fn test_file_system_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = FileSystemConfig::new(dir.path().to_path_buf());
+        let store = cfg
+            .create(&"kepler:example://default".parse().unwrap())
+            .await
+            .unwrap();
+        let data = b"hello world";
+        assert_eq!(store.total_size().await.unwrap(), 0);
+        let hash = store.write(&data[..], Code::Sha2_256).await.unwrap();
+
+        assert_eq!(store.contains(&hash).await.unwrap(), true);
+        assert_eq!(store.total_size().await.unwrap(), data.len() as u64);
+
+        let mut buf = Vec::new();
+        store
+            .read(&hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .read_to_end(&mut buf)
+            .await
+            .unwrap();
+
+        assert_eq!(buf, data);
+        assert_eq!(store.read_to_vec(&hash).await.unwrap().unwrap(), data);
+        assert_eq!(store.remove(&hash).await.unwrap(), Some(()));
+        assert_eq!(store.remove(&hash).await.unwrap(), None);
+        assert_eq!(store.contains(&hash).await.unwrap(), false);
+        assert_eq!(store.total_size().await.unwrap(), 0);
+        assert_eq!(store.read(&hash).await.unwrap().map(|_| ()), None);
     }
 }

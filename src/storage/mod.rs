@@ -96,19 +96,34 @@ where
 pub trait ImmutableStore: Send + Sync {
     type Error: StdError + Send + Sync;
     type Readable: futures::io::AsyncRead + Send + Sync;
+
+    /// Check for the existence of a key in the store
     async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error>;
+
+    /// Write a value to the store, generating a hash of the given hash type
     async fn write(
         &self,
         data: impl futures::io::AsyncRead + Send,
         hash_type: Code,
     ) -> Result<Multihash, Self::Error>;
+
+    /// Write a value to the store corrosponding to the expected hash
+    ///
+    /// This is useful for when the content hash is already known. It will throw
+    /// an error if the hash does not match the content.
     async fn write_keyed(
         &self,
         data: impl futures::io::AsyncRead + Send,
         hash: &Multihash,
     ) -> Result<(), KeyedWriteError<Self::Error>>;
+
+    /// Removes a value from the store
     async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error>;
+
+    /// Read a value from the store
     async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error>;
+
+    /// Reads a value from the store into a Vec<u8>
     async fn read_to_vec(
         &self,
         id: &Multihash,
@@ -128,6 +143,9 @@ pub trait ImmutableStore: Send + Sync {
             .map_err(VecReadError::Read)?;
         Ok(Some(v))
     }
+
+    /// Returns the sum total size of all the objects in the store
+    async fn total_size(&self) -> Result<u64, Self::Error>;
 }
 
 #[async_trait]
@@ -174,6 +192,9 @@ where
         Self::Readable: Send,
     {
         self.read_to_vec(id).await
+    }
+    async fn total_size(&self) -> Result<u64, Self::Error> {
+        self.total_size().await
     }
 }
 
