@@ -17,18 +17,14 @@ impl OrbitSizes {
         self.0.write().await.insert(orbit, 0);
     }
     pub async fn increment_size(&self, orbit: &OrbitId, size: u64) {
-        self.0
-            .write()
-            .await
-            .get_mut(orbit)
-            .map(|s| s.add_assign(size));
+        if let Some(s) = self.0.write().await.get_mut(orbit) {
+            s.add_assign(size)
+        }
     }
     pub async fn decrement_size(&self, orbit: &OrbitId, size: u64) {
-        self.0
-            .write()
-            .await
-            .get_mut(orbit)
-            .map(|s| s.sub_assign(size));
+        if let Some(s) = self.0.write().await.get_mut(orbit) {
+            s.sub_assign(size)
+        }
     }
     pub async fn get_size(&self, orbit: &OrbitId) -> Option<u64> {
         self.0.read().await.get(orbit).copied()
