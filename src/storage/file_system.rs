@@ -306,7 +306,11 @@ impl ImmutableDeleteStore for FileSystemStore {
     type Error = FileSystemStoreError;
     async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
         let path = self.get_path(orbit, id);
-        let size = metadata(&path).await?.len();
+        let size = match metadata(&path).await {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
         match remove_file(path).await {
             Ok(()) => {
                 self.decrement_size(orbit, size).await;
@@ -335,20 +339,29 @@ mod test {
     async fn test_file_system_store() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = FileSystemConfig::new(dir.path().to_path_buf());
-        let store = cfg
-            .create(&"kepler:example://default".parse().unwrap())
+        let store = cfg.open().await.unwrap();
+        let data = b"hello world";
+        let orbit: OrbitId = "kepler:example://default".parse().unwrap();
+        assert_eq!(store.total_size(&orbit).await.unwrap(), None);
+        store.create(&orbit).await.unwrap();
+        assert_eq!(store.total_size(&orbit).await.unwrap(), Some(0));
+        let tfs = TempFileSystemStage;
+        let mut stage = tfs.stage(&orbit).await.unwrap();
+        futures::io::copy(&mut &data[..], &mut stage).await.unwrap();
+
+        let hash = ImmutableWriteStore::<TempFileSystemStage>::persist(&store, &orbit, stage)
             .await
             .unwrap();
-        let data = b"hello world";
-        assert_eq!(store.total_size().await.unwrap(), 0);
-        let hash = store.write(&data[..], Code::Sha2_256).await.unwrap();
 
-        assert_eq!(store.contains(&hash).await.unwrap(), true);
-        assert_eq!(store.total_size().await.unwrap(), data.len() as u64);
+        assert_eq!(store.contains(&orbit, &hash).await.unwrap(), true);
+        assert_eq!(
+            store.total_size(&orbit).await.unwrap(),
+            Some(data.len() as u64)
+        );
 
         let mut buf = Vec::new();
         store
-            .read(&hash)
+            .read(&orbit, &hash)
             .await
             .unwrap()
             .unwrap()
@@ -357,11 +370,14 @@ mod test {
             .unwrap();
 
         assert_eq!(buf, data);
-        assert_eq!(store.read_to_vec(&hash).await.unwrap().unwrap(), data);
-        assert_eq!(store.remove(&hash).await.unwrap(), Some(()));
-        assert_eq!(store.remove(&hash).await.unwrap(), None);
-        assert_eq!(store.contains(&hash).await.unwrap(), false);
-        assert_eq!(store.total_size().await.unwrap(), 0);
-        assert_eq!(store.read(&hash).await.unwrap().map(|_| ()), None);
+        assert_eq!(
+            store.read_to_vec(&orbit, &hash).await.unwrap().unwrap(),
+            data
+        );
+        assert_eq!(store.remove(&orbit, &hash).await.unwrap(), Some(()));
+        assert_eq!(store.remove(&orbit, &hash).await.unwrap(), None);
+        assert_eq!(store.contains(&orbit, &hash).await.unwrap(), false);
+        assert_eq!(store.total_size(&orbit).await.unwrap(), Some(0));
+        assert_eq!(store.read(&orbit, &hash).await.unwrap().map(|_| ()), None);
     }
 }
