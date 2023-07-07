@@ -26,9 +26,7 @@ use kepler_core::{
     storage::{either::Either, memory::MemoryStaging, StorageConfig},
     OrbitDatabase,
 };
-use libp2p::{identity::Keypair, PeerId};
 use routes::{delegate, invoke, open_host_key, util_routes::*};
-use std::{collections::HashMap, sync::RwLock};
 use storage::{
     file_system::{FileSystemConfig, FileSystemStore, TempFileSystemStage},
     s3::{S3BlockConfig, S3BlockStore},
@@ -102,8 +100,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(kepler)
-        .manage(kepler_config.storage.staging.open().await?)
-        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
+        .manage(kepler_config.storage.staging.open().await?);
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

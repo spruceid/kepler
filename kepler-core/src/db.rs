@@ -134,7 +134,7 @@ where
     }
 }
 
-impl<C, B> OrbitDatabase<C, B>
+impl<C, B, K> OrbitDatabase<C, B, K>
 where
     B: StoreSize,
 {
