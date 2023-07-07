@@ -108,7 +108,7 @@ When `keys.type` is `Static` the instance will use an array of bytes as a static
 |:------------|:-------------------|:-----------------------------------------------------------------------------|
 | keys.secret | KEPLER_KEYS_SECRET | Unpadded base64Url-encoded byte string from which key pairs will be derived. |
 
-It is STRONGLY RECOMMENDED that the secret be given via environment variables and NOT in the `kepler.toml` config file.
+It is STRONGLY RECOMMENDED that the secret be given via environment variables and NOT in the `kepler.toml` config file. Additionally it is STRONGLY RECOMMENDED that the secret be backed up in a secure place if used in production. Loss of the secret will result in total loss of function for the Kepler instance.
 
 ## Running
 
