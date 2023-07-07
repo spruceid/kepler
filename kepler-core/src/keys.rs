@@ -56,7 +56,7 @@ impl Secrets for StaticSecret {
         Ok(EdKP::from(SecretKey::try_from_bytes(derived)?).into())
     }
     async fn stage_keypair(&self, orbit: &OrbitId) -> Result<PublicKey, Self::Error> {
-        self.get_pubkey(&orbit).await
+        self.get_pubkey(orbit).await
     }
     async fn save_keypair(&self, _orbit: &OrbitId) -> Result<(), Self::Error> {
         Ok(())
