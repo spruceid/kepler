@@ -1,89 +1,26 @@
 use anyhow::Result;
-use futures::io::AsyncRead;
-use kepler_lib::{
-    authorization::{EncodingError, HeaderEncode},
-    libipld::Cid,
-};
-use libp2p::{
-    core::PeerId,
-    identity::{ed25519::Keypair as Ed25519Keypair, PublicKey},
-    multiaddr::Protocol,
-};
-use rocket::{
-    data::{Data, ToByteUnit},
-    http::{Header, Status},
-    request::{FromRequest, Outcome, Request},
-    response::{Responder, Response},
-    serde::json::Json,
-    State,
-};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::RwLock,
-};
+use libp2p::identity::{Keypair, PeerId};
+use rocket::{data::ToByteUnit, http::Status, State};
+use std::{collections::HashMap, sync::RwLock};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, Instrument};
 
 use crate::{
-    auth_guards::{CapAction, DelegateAuthWrapper, InvokeAuthWrapper, KVAction},
-    authorization::{Capability, Delegation},
-    kv::{ObjectBuilder, ReadResponse},
-    relay::RelayNode,
-    storage::{Content, ImmutableStore},
+    auth_guards::{DataIn, DataOut, InvOut, ObjectHeaders},
+    authorization::AuthHeaderGetter,
+    config::Config,
     tracing::TracingSpan,
-    BlockStores, Config,
+    BlockStage, BlockStores, Kepler,
 };
-use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use kepler_core::{
+    storage::{ImmutableReadStore, ImmutableStaging},
+    types::Resource,
+    util::{DelegationInfo, InvocationInfo},
+    TxError,
+};
 
 pub mod util;
 use util::LimitedReader;
-
-pub struct Metadata(pub BTreeMap<String, String>);
-
-#[async_trait]
-impl<'r> FromRequest<'r> for Metadata {
-    type Error = anyhow::Error;
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let md: BTreeMap<String, String> = request
-            .headers()
-            .iter()
-            .map(|h| (h.name.into_string(), h.value.to_string()))
-            .collect();
-        Outcome::Success(Metadata(md))
-    }
-}
-
-impl<'r> Responder<'r, 'static> for Metadata {
-    fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut r = Response::build();
-        for (k, v) in self.0 {
-            if k != "content-length" {
-                r.header(Header::new(k, v));
-            }
-        }
-        Ok(r.finalize())
-    }
-}
-
-pub struct KVResponse<R>(R, pub Metadata);
-
-impl<R> KVResponse<R> {
-    pub fn new(md: Metadata, reader: R) -> Self {
-        Self(reader, md)
-    }
-}
-
-impl<'r, R> Responder<'r, 'static> for KVResponse<R>
-where
-    R: 'static + AsyncRead + Send,
-{
-    fn respond_to(self, r: &'r Request<'_>) -> rocket::response::Result<'static> {
-        Ok(Response::build_from(self.1.respond_to(r)?)
-            // must ensure that Metadata::respond_to does not set the body of the response
-            .streamed_body(self.0.compat())
-            .finalize())
-    }
-}
 
 #[allow(clippy::let_unit_value)]
 pub mod util_routes {
@@ -94,20 +31,12 @@ pub mod util_routes {
     pub fn healthcheck() {}
 }
 
-#[get("/peer/relay")]
-pub fn relay_addr(relay: &State<RelayNode>) -> String {
-    relay
-        .external()
-        .with(Protocol::P2p(relay.id.into()))
-        .to_string()
-}
-
 #[get("/peer/generate")]
 pub fn open_host_key(
-    s: &State<RwLock<HashMap<PeerId, Ed25519Keypair>>>,
+    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
 ) -> Result<String, (Status, &'static str)> {
-    let keypair = Ed25519Keypair::generate();
-    let id = PublicKey::Ed25519(keypair.public()).to_peer_id();
+    let keypair = Keypair::generate_ed25519();
+    let id = keypair.public().to_peer_id();
     s.write()
         .map_err(|_| (Status::InternalServerError, "cant read keys"))?
         .insert(id, keypair);
@@ -115,43 +44,37 @@ pub fn open_host_key(
 }
 
 #[post("/delegate")]
-pub fn delegate(d: DelegateAuthWrapper) -> DelegateAuthWrapper {
-    d
-}
-
-impl<'r> Responder<'r, 'static> for DelegateAuthWrapper {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        match self {
-            DelegateAuthWrapper::OrbitCreation(orbit_id) => {
-                orbit_id.to_string().respond_to(request)
-            }
-            DelegateAuthWrapper::Delegation(c) => c.to_string().respond_to(request),
-        }
-    }
-}
-
-#[post("/invoke", data = "<data>")]
-pub async fn invoke(
-    i: InvokeAuthWrapper<BlockStores>,
+pub async fn delegate(
+    d: AuthHeaderGetter<DelegationInfo>,
     req_span: TracingSpan,
-    data: Data<'_>,
-    config: &State<Config>,
-) -> Result<InvocationResponse<Content<<BlockStores as ImmutableStore>::Readable>>, (Status, String)>
-{
-    let action_label = i.prometheus_label().to_string();
-    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    kepler: &State<Kepler>,
+) -> Result<String, (Status, String)> {
+    let action_label = "delegation";
+    let span = info_span!(parent: &req_span.0, "delegate", action = %action_label);
     // Instrumenting async block to handle yielding properly
     async move {
         let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
-            .with_label_values(&[&action_label])
+            .with_label_values(&["delegate"])
             .start_timer();
-
-        let res = match i {
-            InvokeAuthWrapper::Revocation => Ok(InvocationResponse::Revoked),
-            InvokeAuthWrapper::KV(action) => handle_kv_action(*action, data, config).await,
-            InvokeAuthWrapper::CapabilityQuery(action) => handle_cap_action(*action, data).await,
-        };
-
+        let res = kepler
+            .delegate(d.0)
+            .await
+            .map_err(|e| {
+                (
+                    match e {
+                        TxError::OrbitNotFound => Status::NotFound,
+                        _ => Status::Unauthorized,
+                    },
+                    e.to_string(),
+                )
+            })
+            .and_then(|c| {
+                c.into_iter()
+                    .next()
+                    .and_then(|(_, c)| c.committed_events.into_iter().next())
+                    .ok_or_else(|| (Status::Unauthorized, "Delegation not committed".to_string()))
+            })
+            .map(|h| h.to_cid(0x55).to_string());
         timer.observe_duration();
         res
     }
@@ -159,191 +82,106 @@ pub async fn invoke(
     .await
 }
 
-pub async fn handle_kv_action<B>(
-    action: KVAction<B>,
-    data: Data<'_>,
-    config: &Config,
-) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
-where
-    B: 'static + ImmutableStore,
-{
-    match action {
-        KVAction::Delete {
-            orbit,
-            key,
-            auth_ref,
-        } => {
-            let add: Vec<(&[u8], Cid)> = vec![];
-            orbit
-                .service
-                .index(add, vec![(key, None, auth_ref)])
-                .await
-                .map_err(|e| {
-                    (
-                        Status::InternalServerError,
-                        format!("Failed to delete content: {e}"),
-                    )
-                })?;
-            Ok(InvocationResponse::EmptySuccess)
-        }
-        KVAction::Get { orbit, key } => match orbit.service.read(key).await {
-            Ok(Some(ReadResponse(md, r))) => Ok(InvocationResponse::KVResponse(KVResponse::new(
-                Metadata(md),
-                r,
-            ))),
-            Err(e) => Err((Status::InternalServerError, e.to_string())),
-            Ok(None) => Ok(InvocationResponse::NotFound),
-        },
-        KVAction::List { orbit, prefix } => {
-            Ok(InvocationResponse::List(
-                orbit
-                    .service
-                    .list()
-                    .await
-                    .filter_map(|r| {
-                        // filter out non-utf8 keys and those not matching the prefix
-                        r.map(|v| {
-                            std::str::from_utf8(v.as_ref())
-                                .ok()
-                                .map(|s| s.to_string())
-                                .filter(|key| key.starts_with(&prefix))
-                        })
-                        .transpose()
-                    })
-                    .collect::<Result<Vec<String>>>()
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?,
-            ))
-        }
-        KVAction::Metadata { orbit, key } => match orbit.service.get(key).await {
-            Ok(Some(content)) => Ok(InvocationResponse::Metadata(Metadata(content.metadata))),
-            Err(e) => Err((Status::InternalServerError, e.to_string())),
-            Ok(None) => Ok(InvocationResponse::NotFound),
-        },
-        KVAction::Put {
-            orbit,
-            key,
-            metadata,
-            auth_ref,
-        } => {
-            let rm: [([u8; 0], _, _); 0] = [];
+#[post("/invoke", data = "<data>")]
+pub async fn invoke(
+    i: AuthHeaderGetter<InvocationInfo>,
+    req_span: TracingSpan,
+    headers: ObjectHeaders,
+    data: DataIn<'_>,
+    staging: &State<BlockStage>,
+    kepler: &State<Kepler>,
+    config: &State<Config>,
+) -> Result<DataOut<<BlockStores as ImmutableReadStore>::Readable>, (Status, String)> {
+    let action_label = "invocation";
+    let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
+    // Instrumenting async block to handle yielding properly
+    async move {
+        let timer = crate::prometheus::AUTHORIZED_INVOKE_HISTOGRAM
+            .with_label_values(&["invoke"])
+            .start_timer();
 
-            let data = data.open(1u8.gigabytes()).compat();
+        let mut put_iter =
+            i.0 .0
+                .capabilities
+                .iter()
+                .filter_map(|c| match (&c.resource, c.action.as_str()) {
+                    (Resource::Kepler(r), "put") if r.service() == Some("kv") => {
+                        r.path().map(|p| (r.orbit(), p))
+                    }
+                    _ => None,
+                });
 
-            let reader = if let Some(limit) = config.storage.limit {
-                let current_size = orbit
-                    .service
-                    .store
-                    .blocks()
-                    .total_size()
+        let inputs = match (data, put_iter.next(), put_iter.next()) {
+            (DataIn::None | DataIn::One(_), None, _) => HashMap::new(),
+            (DataIn::One(d), Some((orbit, path)), None) => {
+                let mut stage = staging
+                    .stage(orbit)
                     .await
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                let open_data = d.open(1u8.gigabytes()).compat();
 
-                // get the remaining allocated space for the given orbit storage
-                match limit.as_u64().checked_sub(current_size) {
-                    // the current size is already equal or greater than the limit
-                    None | Some(0) => {
-                        return Err((
-                            Status::PayloadTooLarge,
-                            "The data storage limit has been reached".into(),
-                        ))
+                if let Some(limit) = config.storage.limit {
+                    let current_size = kepler
+                        .store_size(orbit)
+                        .await
+                        .map_err(|e| (Status::InternalServerError, e.to_string()))?
+                        .ok_or_else(|| (Status::NotFound, "orbit not found".to_string()))?;
+                    // get the remaining allocated space for the given orbit storage
+                    match limit.as_u64().checked_sub(current_size) {
+                        // the current size is already equal or greater than the limit
+                        None | Some(0) => {
+                            return Err((
+                                Status::PayloadTooLarge,
+                                "The data storage limit has been reached".into(),
+                            ))
+                        }
+                        Some(remaining) => {
+                            futures::io::copy(LimitedReader::new(open_data, remaining), &mut stage)
+                                .await
+                                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                        }
                     }
-                    Some(remaining) => {
-                        futures::future::Either::Right(LimitedReader::new(data, remaining))
-                    }
-                }
-            } else {
-                // no limit on storage, just use the data as is
-                futures::future::Either::Left(data)
-            };
+                } else {
+                    // no limit on storage, just use the data as is
+                    futures::io::copy(open_data, &mut stage)
+                        .await
+                        .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                };
 
-            orbit
-                .service
-                .write(
-                    [(
-                        ObjectBuilder::new(key.as_bytes().to_vec(), metadata.0, auth_ref),
-                        reader,
-                    )],
-                    rm,
-                )
-                .await
-                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-            Ok(InvocationResponse::EmptySuccess)
-        }
-    }
-}
-
-pub async fn handle_cap_action<B>(
-    action: CapAction<B>,
-    _data: Data<'_>,
-) -> Result<InvocationResponse<Content<B::Readable>>, (Status, String)>
-where
-    B: 'static + ImmutableStore,
-{
-    match action {
-        CapAction::Query {
-            orbit,
-            query,
-            invoker,
-        } => orbit
-            .capabilities
-            .store
-            .query(query, &invoker)
+                let mut inputs = HashMap::new();
+                inputs.insert((orbit.clone(), path.to_string()), (headers.0, stage));
+                inputs
+            }
+            (DataIn::Many(_), Some(_), Some(_)) => {
+                return Err((
+                    Status::BadRequest,
+                    "Multipart not yet supported".to_string(),
+                ));
+            }
+            _ => {
+                return Err((Status::BadRequest, "Invalid inputs".to_string()));
+            }
+        };
+        let res = kepler
+            .invoke::<BlockStage>(i.0, inputs)
             .await
-            .map(InvocationResponse::CapabilityQuery)
-            .map_err(|e| (Status::InternalServerError, e.to_string())),
-    }
-}
-
-pub enum InvocationResponse<R> {
-    NotFound,
-    EmptySuccess,
-    KVResponse(KVResponse<R>),
-    List(Vec<String>),
-    Metadata(Metadata),
-    CapabilityQuery(HashMap<Cid, Delegation>),
-    Revoked,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CapJsonRep {
-    pub capabilities: Vec<Capability>,
-    pub delegator: String,
-    pub delegate: String,
-    pub parents: Vec<Cid>,
-    raw: String,
-}
-
-impl CapJsonRep {
-    pub fn from_delegation(d: Delegation) -> Result<Self, EncodingError> {
-        Ok(Self {
-            capabilities: d.capabilities,
-            delegator: d.delegator,
-            delegate: d.delegate,
-            parents: d.parents,
-            raw: d.delegation.encode()?,
-        })
-    }
-}
-
-impl<'r, R> Responder<'r, 'static> for InvocationResponse<R>
-where
-    R: 'static + AsyncRead + Send,
-{
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        match self {
-            InvocationResponse::NotFound => Option::<()>::None.respond_to(request),
-            InvocationResponse::EmptySuccess => ().respond_to(request),
-            InvocationResponse::KVResponse(response) => response.respond_to(request),
-            InvocationResponse::List(keys) => Json(keys).respond_to(request),
-            InvocationResponse::Metadata(metadata) => metadata.respond_to(request),
-            InvocationResponse::Revoked => ().respond_to(request),
-            InvocationResponse::CapabilityQuery(caps) => Json(
-                caps.into_iter()
-                    .map(|(cid, del)| Ok((cid.to_string(), CapJsonRep::from_delegation(del)?)))
-                    .collect::<Result<HashMap<String, CapJsonRep>>>()
-                    .map_err(|_| Status::InternalServerError)?,
+            .map(
+                |(_, mut outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {
+                    (None, None, _) => DataOut::None,
+                    (Some(o), None, _) => DataOut::One(InvOut(o)),
+                    (Some(o), Some(next), rest) => {
+                        let mut v = vec![InvOut(o), InvOut(next)];
+                        v.extend(rest.map(InvOut));
+                        DataOut::Many(v)
+                    }
+                    _ => unreachable!(),
+                },
             )
-            .respond_to(request),
-        }
+            .map_err(|e| (Status::Unauthorized, e.to_string()));
+
+        timer.observe_duration();
+        res
     }
+    .instrument(span)
+    .await
 }

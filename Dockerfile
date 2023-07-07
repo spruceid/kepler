@@ -10,6 +10,7 @@ COPY ./sdk-wasm/ ./sdk-wasm/
 COPY ./src/ ./src/
 COPY ./lib/ ./lib/
 COPY ./sdk/ ./sdk/
+COPY ./kepler-core/ ./kepler-core/
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder

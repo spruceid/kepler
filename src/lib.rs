@@ -13,47 +13,33 @@ use rocket::{fairing::AdHoc, figment::Figment, http::Header, Build, Rocket};
 pub mod allow_list;
 pub mod auth_guards;
 pub mod authorization;
-pub mod capabilities;
-pub mod cas;
 pub mod config;
-pub mod indexes;
-pub mod kv;
-pub mod manifest;
-pub mod orbit;
 pub mod prometheus;
-pub mod relay;
 pub mod routes;
 pub mod storage;
 mod tracing;
-pub mod transport;
 
-use config::{BlockStorage, Config};
-use libp2p::{
-    identity::{ed25519::Keypair as Ed25519Keypair, Keypair},
-    PeerId,
+use config::{BlockStorage, Config, StagingStorage};
+use kepler_core::{
+    sea_orm::{Database, DatabaseConnection},
+    storage::{either::Either, memory::MemoryStaging, StorageConfig},
+    OrbitDatabase,
 };
-use orbit::ProviderUtils;
-use relay::RelayNode;
-use routes::{delegate, invoke, open_host_key, relay_addr, util_routes::*};
+use libp2p::{identity::Keypair, PeerId};
+use routes::{delegate, invoke, open_host_key, util_routes::*};
 use std::{collections::HashMap, sync::RwLock};
 use storage::{
-    either::Either,
-    file_system::{FileSystemConfig, FileSystemStore},
+    file_system::{FileSystemConfig, FileSystemStore, TempFileSystemStage},
     s3::{S3BlockConfig, S3BlockStore},
 };
 
 pub type Block = OBlock<DefaultParams>;
 pub type BlockStores = Either<S3BlockStore, FileSystemStore>;
 pub type BlockConfig = Either<S3BlockConfig, FileSystemConfig>;
-
-impl Default for BlockConfig {
-    fn default() -> Self {
-        Self::B(FileSystemConfig::default())
-    }
-}
+pub type BlockStage = Either<TempFileSystemStage, MemoryStaging>;
 
 impl From<BlockStorage> for BlockConfig {
-    fn from(c: BlockStorage) -> Self {
+    fn from(c: BlockStorage) -> BlockConfig {
         match c {
             BlockStorage::S3(s) => Self::A(s),
             BlockStorage::Local(l) => Self::B(l),
@@ -70,24 +56,38 @@ impl From<BlockConfig> for BlockStorage {
     }
 }
 
+impl From<StagingStorage> for BlockStage {
+    fn from(c: StagingStorage) -> Self {
+        match c {
+            StagingStorage::Memory => Self::B(MemoryStaging::default()),
+            StagingStorage::FileSystem => Self::A(TempFileSystemStage::default()),
+        }
+    }
+}
+
+impl From<BlockStage> for StagingStorage {
+    fn from(c: BlockStage) -> Self {
+        match c {
+            BlockStage::B(_) => Self::Memory,
+            BlockStage::A(_) => Self::FileSystem,
+        }
+    }
+}
+
+pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores>;
+
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config: Config = config.extract::<Config>()?;
 
     tracing::tracing_try_init(&kepler_config.log);
 
-    storage::KV::healthcheck(kepler_config.storage.indexes.clone()).await?;
-    let kp = kepler_config.storage.blocks.relay_key_pair().await?;
+    let routes = routes![healthcheck, cors, open_host_key, invoke, delegate,];
 
-    let relay_node = RelayNode::new(kepler_config.relay.port, Keypair::Ed25519(kp)).await?;
-
-    let routes = routes![
-        healthcheck,
-        cors,
-        relay_addr,
-        open_host_key,
-        invoke,
-        delegate,
-    ];
+    let kepler = Kepler::wrap(
+        Database::connect(&kepler_config.storage.database).await?,
+        kepler_config.storage.blocks.open().await?,
+    )
+    .await?;
 
     let rocket = rocket::custom(config)
         .mount("/", routes)
@@ -95,8 +95,9 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         .attach(tracing::TracingFairing {
             header_name: kepler_config.log.tracing.traceheader,
         })
-        .manage(relay_node)
-        .manage(RwLock::new(HashMap::<PeerId, Ed25519Keypair>::new()));
+        .manage(kepler)
+        .manage(kepler_config.storage.staging.open().await?)
+        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

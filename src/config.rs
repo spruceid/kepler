@@ -1,12 +1,11 @@
 use crate::{
     allow_list::OrbitAllowListService,
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
-    BlockConfig,
+    BlockConfig, BlockStage,
 };
-use rocket::{data::ByteUnit, http::hyper::Uri};
+use rocket::data::ByteUnit;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr, FromInto};
-use std::path::PathBuf;
+use serde_with::{serde_as, FromInto};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
@@ -44,12 +43,40 @@ pub struct OrbitsConfig {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Storage {
     #[serde_as(as = "FromInto<BlockStorage>")]
+    #[serde(default = "fs_store")]
     pub blocks: BlockConfig,
-    pub indexes: IndexStorage,
+    #[serde_as(as = "FromInto<StagingStorage>")]
+    #[serde(default = "memory_stage")]
+    pub staging: BlockStage,
+    #[serde(default = "memory_db")]
+    pub database: String,
     pub limit: Option<ByteUnit>,
+}
+
+impl Default for Storage {
+    fn default() -> Self {
+        Self {
+            blocks: BlockStorage::default().into(),
+            staging: StagingStorage::default().into(),
+            database: memory_db(),
+            limit: None,
+        }
+    }
+}
+
+fn memory_db() -> String {
+    "sqlite::memory:".to_string()
+}
+
+fn memory_stage() -> BlockStage {
+    StagingStorage::Memory.into()
+}
+
+fn fs_store() -> BlockConfig {
+    BlockStorage::default().into()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -59,25 +86,11 @@ pub enum BlockStorage {
     S3(S3BlockConfig),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-#[serde(tag = "type")]
-pub enum IndexStorage {
-    Local(LocalIndexStorage),
-    DynamoDB(DynamoStorage),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct LocalIndexStorage {
-    pub path: PathBuf,
-}
-
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct DynamoStorage {
-    pub table: String,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[serde(default)]
-    pub endpoint: Option<Uri>,
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub enum StagingStorage {
+    FileSystem,
+    #[default]
+    Memory,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -103,20 +116,6 @@ impl Default for Tracing {
 impl Default for BlockStorage {
     fn default() -> BlockStorage {
         BlockStorage::Local(FileSystemConfig::default())
-    }
-}
-
-impl Default for IndexStorage {
-    fn default() -> IndexStorage {
-        IndexStorage::Local(LocalIndexStorage::default())
-    }
-}
-
-impl Default for LocalIndexStorage {
-    fn default() -> LocalIndexStorage {
-        LocalIndexStorage {
-            path: PathBuf::from(r"/tmp/kepler/indexes"),
-        }
     }
 }
 

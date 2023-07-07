@@ -12,7 +12,7 @@ pub use libipld::Cid;
 
 pub trait HeaderEncode {
     fn encode(&self) -> Result<String, EncodingError>;
-    fn decode(s: &str) -> Result<Self, EncodingError>
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError>
     where
         Self: Sized;
 }
@@ -34,14 +34,27 @@ impl HeaderEncode for KeplerDelegation {
         })
     }
 
-    fn decode(s: &str) -> Result<Self, EncodingError> {
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         Ok(if s.contains('.') {
-            Self::Ucan(Box::new(Ucan::decode(s)?))
+            (
+                Self::Ucan(Box::new(Ucan::decode(s)?)),
+                s.as_bytes().to_vec(),
+            )
         } else {
-            Self::Cacao(Box::new(
-                DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
-            ))
+            let v = base64::decode_config(s, base64::URL_SAFE)?;
+            (Self::Cacao(Box::new(DagCborCodec.decode(&v)?)), v)
         })
+    }
+}
+
+impl KeplerDelegation {
+    pub fn from_bytes(b: &[u8]) -> Result<Self, EncodingError> {
+        match DagCborCodec.decode(b) {
+            Ok(cacao) => Ok(Self::Cacao(Box::new(cacao))),
+            Err(_) => Ok(Self::Ucan(Box::new(Ucan::decode(
+                &String::from_utf8_lossy(b),
+            )?))),
+        }
     }
 }
 
@@ -53,8 +66,8 @@ impl HeaderEncode for KeplerInvocation {
     fn encode(&self) -> Result<String, EncodingError> {
         Ok(self.encode()?)
     }
-    fn decode(s: &str) -> Result<Self, EncodingError> {
-        Ok(Self::decode(s)?)
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
+        Ok((Self::decode(s)?, s.as_bytes().to_vec()))
     }
 }
 
@@ -72,15 +85,14 @@ impl HeaderEncode for KeplerRevocation {
             )),
         }
     }
-    fn decode(s: &str) -> Result<Self, EncodingError> {
-        Ok(Self::Cacao(
-            DagCborCodec.decode(&base64::decode_config(s, base64::URL_SAFE)?)?,
-        ))
+    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
+        let v = base64::decode_config(s, base64::URL_SAFE)?;
+        Ok((Self::Cacao(DagCborCodec.decode(&v)?), v))
     }
 }
 
 pub async fn make_invocation(
-    invocation_target: ResourceId,
+    invocation_target: Vec<ResourceId>,
     delegation: Cid,
     jwk: &JWK,
     verification_method: String,
@@ -96,7 +108,10 @@ pub async fn make_invocation(
         nonce: Some(nonce.unwrap_or_else(|| format!("urn:uuid:{}", Uuid::new_v4()))),
         facts: None,
         proof: vec![delegation],
-        attenuation: vec![invocation_target.try_into()?],
+        attenuation: invocation_target
+            .into_iter()
+            .map(|t| t.try_into())
+            .collect::<Result<Vec<ssi::ucan::Capability>, _>>()?,
     }
     .sign(jwk.get_algorithm().unwrap_or_default(), jwk)?)
 }

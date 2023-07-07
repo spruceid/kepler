@@ -4,16 +4,21 @@
 # port = 8000
 # cors = true
 
-## Example of nest config variable: KEPLER_DATABASE_PATH
+## Example of nest config variable: KEPLER_STORAGE_DATABASE
 [global.storage]
+    ## Set the SQL deployment for kepler
+    # database = "sqlite:./caps.db"
+
+    ## Set the file-staging system for kepler to use
+    # staging = "FileSystem"
+
+    ## Set the default limit for KV storage per Orbit
     # limit = "10 MiB"
+
     ###### Document shared aws config (`aws_config::from_env()`)
     [global.storage.blocks]
     # type = "Local"
-    # path = "/tmp/kepler/blocks"
-    [global.storage.indexes]
-    # type = "Local"
-    # path = "/tmp/kepler/indexes"
+    # path = "./kepler/blocks"
 
 [global.orbits]
 ## Orbit allow list api endpoint

@@ -1,27 +1,22 @@
-use crate::{
-    orbit::ProviderUtils,
-    storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
+use super::size::OrbitSizes;
+use core::pin::Pin;
+use futures::{
+    future::{Either as AsyncEither, TryFutureExt},
+    io::{AsyncWrite, AsyncWriteExt},
+    stream::TryStreamExt,
+    task::{Context, Poll},
 };
-use futures::{future::TryFutureExt, stream::TryStreamExt};
-use kepler_lib::{
-    libipld::cid::{
-        multibase::{encode, Base},
-        multihash::{Code, Error as MultihashError, Multihash},
-    },
-    resource::OrbitId,
-};
-use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use kepler_core::{hash::Hash, storage::*};
+use kepler_lib::resource::OrbitId;
+use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
 };
 use tempfile::{NamedTempFile, PathPersistError};
-use tokio::fs::{create_dir_all, metadata, read, remove_file, write, File};
+use tokio::fs::{create_dir_all, metadata, remove_file, File};
 use tokio_stream::wrappers::ReadDirStream;
 
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
@@ -29,28 +24,28 @@ use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 #[derive(Debug, Clone)]
 pub struct FileSystemStore {
     path: PathBuf,
-    size: Arc<AtomicU64>,
+    sizes: OrbitSizes,
 }
 
 impl FileSystemStore {
     async fn new(path: PathBuf) -> Result<Self, IoError> {
         // get the size of the directory
-        let size = dir_size(&path).await?;
-        Ok(Self {
-            path,
-            size: Arc::new(AtomicU64::new(size)),
-        })
+        let sizes = store_sizes(&path).await?.into();
+        Ok(Self { path, sizes })
     }
 
-    fn get_path(&self, mh: &Multihash) -> PathBuf {
-        self.path.join(encode(Base::Base64Url, mh.to_bytes()))
+    fn get_path(&self, orbit: &OrbitId, mh: &Hash) -> PathBuf {
+        self.path
+            .join(orbit.suffix())
+            .join(orbit.name())
+            .join(base64::encode_config(mh.as_ref(), base64::URL_SAFE))
     }
 
-    fn increment_size(&self, size: u64) {
-        self.size.fetch_add(size, Ordering::SeqCst);
+    async fn increment_size(&self, orbit: &OrbitId, size: u64) {
+        self.sizes.increment_size(orbit, size).await;
     }
-    fn decrement_size(&self, size: u64) {
-        self.size.fetch_sub(size, Ordering::SeqCst);
+    async fn decrement_size(&self, orbit: &OrbitId, size: u64) {
+        self.sizes.decrement_size(orbit, size).await;
     }
 }
 
@@ -73,19 +68,25 @@ impl FileSystemConfig {
 #[async_trait]
 impl StorageConfig<FileSystemStore> for FileSystemConfig {
     type Error = IoError;
-    async fn open(&self, orbit: &OrbitId) -> Result<Option<FileSystemStore>, Self::Error> {
-        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
-        if !path.is_dir() {
-            return Ok(None);
+    async fn open(&self) -> Result<FileSystemStore, Self::Error> {
+        if self.path.is_dir() {
+            Ok(FileSystemStore::new(self.path.clone()).await?)
+        } else {
+            Err(IoError::new(ErrorKind::NotFound, "path is not a directory"))
         }
-        Ok(Some(FileSystemStore::new(path).await?))
     }
-    async fn create(&self, orbit: &OrbitId) -> Result<FileSystemStore, Self::Error> {
-        let path = self.path.join(orbit.get_cid().to_string()).join("blocks");
+}
+
+#[async_trait]
+impl StorageSetup for FileSystemStore {
+    type Error = IoError;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
+        let path = self.path.join(orbit.suffix()).join(orbit.name());
         if !path.is_dir() {
             create_dir_all(&path).await?;
-        };
-        Ok(FileSystemStore::new(path).await?)
+        }
+        self.sizes.init_size(orbit.clone()).await;
+        Ok(())
     }
 }
 
@@ -98,137 +99,73 @@ impl Default for FileSystemConfig {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ProviderError {
-    #[error(transparent)]
-    Io(#[from] IoError),
-    #[error(transparent)]
-    KeypairDecode(#[from] DecodingError),
-}
-
-#[async_trait]
-impl ProviderUtils for FileSystemConfig {
-    type Error = ProviderError;
-    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
-        Ok(self
-            .path
-            .join(orbit.get_cid().to_string())
-            .join("blocks")
-            .is_dir())
-    }
-    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
-        let path = self.path.join("kp");
-        match read(&path).await {
-            Ok(mut k) => Ok(Ed25519Keypair::decode(&mut k)?),
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                let k = Ed25519Keypair::generate();
-                write(&path, k.encode()).await?;
-                Ok(k)
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
-        match read(self.path.join(orbit.get_cid().to_string()).join("kp")).await {
-            Ok(mut k) => Ok(Some(Ed25519Keypair::decode(&mut k)?)),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
-        let dir = self.path.join(orbit.get_cid().to_string());
-        create_dir_all(&dir).await?;
-        write(dir.join("kp"), key.encode()).await?;
-        write(dir.join("id"), orbit.to_string()).await?;
-        Ok(())
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
 pub enum FileSystemStoreError {
     #[error(transparent)]
     Io(#[from] IoError),
-    #[error(transparent)]
-    Multihash(#[from] MultihashError),
     #[error(transparent)]
     Persist(#[from] PathPersistError),
 }
 
 #[async_trait]
-impl ImmutableStore for FileSystemStore {
+impl ImmutableReadStore for FileSystemStore {
     type Error = FileSystemStoreError;
     type Readable = Compat<File>;
-    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
-        Ok(self.get_path(id).exists())
+    async fn contains(&self, orbit: &OrbitId, id: &Hash) -> Result<bool, Self::Error> {
+        Ok(self.get_path(orbit, id).exists())
     }
-    async fn write(
+    async fn read(
         &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash_type: Code,
-    ) -> Result<Multihash, Self::Error> {
-        let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _, written) =
-            copy_in(data, File::from_std(file).compat(), hash_type).await?;
-
-        self.increment_size(written);
-
-        if !self.contains(&multihash).await? {
-            path.persist(self.get_path(&multihash))?;
-        }
-        Ok(multihash)
-    }
-    async fn write_keyed(
-        &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash: &Multihash,
-    ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if self.contains(hash).await? {
-            return Ok(());
-        }
-        let hash_type = hash
-            .code()
-            .try_into()
-            .map_err(KeyedWriteError::InvalidCode)?;
-        let (file, path) = NamedTempFile::new()
-            .map_err(FileSystemStoreError::Io)?
-            .into_parts();
-        let (multihash, _, written) = copy_in(data, File::from_std(file).compat(), hash_type)
-            .await
-            .map_err(FileSystemStoreError::from)?;
-
-        if &multihash != hash {
-            return Err(KeyedWriteError::IncorrectHash);
-        };
-
-        path.persist(self.get_path(&multihash))
-            .map_err(FileSystemStoreError::from)?;
-        self.increment_size(written);
-        Ok(())
-    }
-    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        let path = self.get_path(id);
-        let size = match metadata(&path).await {
-            Ok(m) => m.len(),
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e.into()),
-        };
-        // this shouldnt be not found, because we checked earlier when getting the size
-        remove_file(self.get_path(id)).await?;
-        self.decrement_size(size);
-        Ok(Some(()))
-    }
-    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
-        match File::open(self.get_path(id)).await {
+        orbit: &OrbitId,
+        id: &Hash,
+    ) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+        match File::open(self.get_path(orbit, id)).await {
             Ok(f) => Ok(Some(Content::new(f.metadata().await?.len(), f.compat()))),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
-    async fn total_size(&self) -> Result<u64, Self::Error> {
-        Ok(self.size.load(Ordering::Relaxed))
+}
+
+#[async_trait]
+impl StoreSize for FileSystemStore {
+    type Error = FileSystemStoreError;
+    async fn total_size(&self, orbit: &OrbitId) -> Result<Option<u64>, Self::Error> {
+        Ok(self.sizes.get_size(orbit).await)
     }
 }
 
-async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
+// get the sum size of all files in this directory (recurse into subdirectories with orbit ID names)
+async fn store_sizes<P: AsRef<Path>>(path: &P) -> Result<HashMap<OrbitId, u64>, IoError> {
+    ReadDirStream::new(tokio::fs::read_dir(path).await?)
+        // for every entry in the store dir
+        .try_fold(HashMap::new(), |mut acc, entry| async move {
+            // if its a directory and the suffix is a valid string
+            if let (true, Ok(ref suffix)) = (
+                entry.metadata().await?.is_dir(),
+                entry.file_name().into_string(),
+            ) {
+                let mut ds = ReadDirStream::new(tokio::fs::read_dir(entry.path()).await?);
+                // go through each suffix directory
+                while let Some(entry) = ds.try_next().await? {
+                    // for each entry in the suffix directory
+                    // if its a directory and the name is a valid string
+                    if let (true, Ok(name)) = (
+                        entry.metadata().await?.is_dir(),
+                        entry.file_name().into_string(),
+                    ) {
+                        // get the orbit ID from suffix and name
+                        let orbit = OrbitId::new(suffix.clone(), name);
+                        let size = orbit_size(&entry.path()).await?;
+                        acc.insert(orbit, size);
+                    }
+                }
+            };
+            Ok(acc)
+        })
+        .await
+}
+
+async fn orbit_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
     // get the sum size of all files in this directory (do not recurse into subdirectories)
     ReadDirStream::new(tokio::fs::read_dir(path).await?)
         .try_fold(0, |acc, entry| async move {
@@ -240,6 +177,159 @@ async fn dir_size<P: AsRef<Path>>(path: &P) -> Result<u64, IoError> {
         .await
 }
 
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TempFileSystemStage;
+
+#[pin_project]
+#[derive(Debug)]
+pub struct TempFileStage(#[pin] Compat<File>, tempfile::TempPath);
+
+impl TempFileStage {
+    pub fn new(file: NamedTempFile) -> Self {
+        let (f, p) = file.into_parts();
+        Self(File::from_std(f).compat(), p)
+    }
+    pub fn into_inner(self) -> (Compat<File>, tempfile::TempPath) {
+        (self.0, self.1)
+    }
+
+    pub async fn size(&self) -> Result<u64, IoError> {
+        Ok(self.0.get_ref().metadata().await?.len())
+    }
+}
+
+impl AsyncWrite for TempFileStage {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, IoError>> {
+        self.project().0.poll_write(cx, buf)
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        self.project().0.poll_flush(cx)
+    }
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), IoError>> {
+        self.project().0.poll_close(cx)
+    }
+}
+
+#[async_trait]
+impl ImmutableStaging for TempFileSystemStage {
+    type Error = FileSystemStoreError;
+    type Writable = TempFileStage;
+    async fn get_staging_buffer(&self, _: &OrbitId) -> Result<Self::Writable, Self::Error> {
+        Ok(TempFileStage::new(NamedTempFile::new()?))
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<TempFileSystemStage> for FileSystemStore {
+    type Error = FileSystemStoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<TempFileSystemStage as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, f) = staged.into_inner();
+
+        let hash = h.finalize();
+        if !self.contains(orbit, &hash).await? {
+            let size = f.size().await?;
+            let (_, path) = f.into_inner();
+            path.persist(self.get_path(orbit, &hash))?;
+            self.increment_size(orbit, size).await;
+        }
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<memory::MemoryStaging> for FileSystemStore {
+    type Error = FileSystemStoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, v) = staged.into_inner();
+        let hash = h.finalize();
+        if !self.contains(orbit, &hash).await? {
+            let file = File::create(self.get_path(orbit, &hash)).await?;
+            let size = v.len() as u64;
+            let mut writer = futures::io::BufWriter::new(file.compat());
+            writer.write_all(&v).await?;
+            writer.flush().await?;
+            self.increment_size(orbit, size).await;
+        }
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<either::Either<TempFileSystemStage, memory::MemoryStaging>>
+    for FileSystemStore
+{
+    type Error = FileSystemStoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<either::Either<TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, f) = staged.into_inner();
+        let hash = h.finalize();
+
+        if !self.contains(orbit, &hash).await? {
+            match f {
+                AsyncEither::Left(t_file) => {
+                    let size = t_file.size().await?;
+                    let (_, path) = t_file.into_inner();
+                    path.persist(self.get_path(orbit, &hash))?;
+                    self.increment_size(orbit, size).await;
+                }
+                AsyncEither::Right(v) => {
+                    let file = File::create(self.get_path(orbit, &hash)).await?;
+                    let size = v.len() as u64;
+                    let mut writer = futures::io::BufWriter::new(file.compat());
+                    writer.write_all(&v).await?;
+                    writer.flush().await?;
+                    self.increment_size(orbit, size).await;
+                }
+            }
+        };
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableDeleteStore for FileSystemStore {
+    type Error = FileSystemStoreError;
+    async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
+        let path = self.get_path(orbit, id);
+        let size = match metadata(&path).await {
+            Ok(m) => m.len(),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        match remove_file(path).await {
+            Ok(()) => {
+                self.decrement_size(orbit, size).await;
+                Ok(Some(()))
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+#[async_trait]
+impl StorageConfig<TempFileSystemStage> for TempFileSystemStage {
+    type Error = std::convert::Infallible;
+    async fn open(&self) -> Result<TempFileSystemStage, Self::Error> {
+        Ok(Self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -249,20 +339,29 @@ mod test {
     async fn test_file_system_store() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = FileSystemConfig::new(dir.path().to_path_buf());
-        let store = cfg
-            .create(&"kepler:example://default".parse().unwrap())
+        let store = cfg.open().await.unwrap();
+        let data = b"hello world";
+        let orbit: OrbitId = "kepler:example://default".parse().unwrap();
+        assert_eq!(store.total_size(&orbit).await.unwrap(), None);
+        store.create(&orbit).await.unwrap();
+        assert_eq!(store.total_size(&orbit).await.unwrap(), Some(0));
+        let tfs = TempFileSystemStage;
+        let mut stage = tfs.stage(&orbit).await.unwrap();
+        futures::io::copy(&mut &data[..], &mut stage).await.unwrap();
+
+        let hash = ImmutableWriteStore::<TempFileSystemStage>::persist(&store, &orbit, stage)
             .await
             .unwrap();
-        let data = b"hello world";
-        assert_eq!(store.total_size().await.unwrap(), 0);
-        let hash = store.write(&data[..], Code::Sha2_256).await.unwrap();
 
-        assert_eq!(store.contains(&hash).await.unwrap(), true);
-        assert_eq!(store.total_size().await.unwrap(), data.len() as u64);
+        assert_eq!(store.contains(&orbit, &hash).await.unwrap(), true);
+        assert_eq!(
+            store.total_size(&orbit).await.unwrap(),
+            Some(data.len() as u64)
+        );
 
         let mut buf = Vec::new();
         store
-            .read(&hash)
+            .read(&orbit, &hash)
             .await
             .unwrap()
             .unwrap()
@@ -271,11 +370,14 @@ mod test {
             .unwrap();
 
         assert_eq!(buf, data);
-        assert_eq!(store.read_to_vec(&hash).await.unwrap().unwrap(), data);
-        assert_eq!(store.remove(&hash).await.unwrap(), Some(()));
-        assert_eq!(store.remove(&hash).await.unwrap(), None);
-        assert_eq!(store.contains(&hash).await.unwrap(), false);
-        assert_eq!(store.total_size().await.unwrap(), 0);
-        assert_eq!(store.read(&hash).await.unwrap().map(|_| ()), None);
+        assert_eq!(
+            store.read_to_vec(&orbit, &hash).await.unwrap().unwrap(),
+            data
+        );
+        assert_eq!(store.remove(&orbit, &hash).await.unwrap(), Some(()));
+        assert_eq!(store.remove(&orbit, &hash).await.unwrap(), None);
+        assert_eq!(store.contains(&orbit, &hash).await.unwrap(), false);
+        assert_eq!(store.total_size(&orbit).await.unwrap(), Some(0));
+        assert_eq!(store.read(&orbit, &hash).await.unwrap().map(|_| ()), None);
     }
 }

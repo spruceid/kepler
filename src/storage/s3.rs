@@ -1,52 +1,36 @@
 use aws_sdk_s3::{
     error::{
-        GetObjectError, GetObjectErrorKind, HeadObjectError, HeadObjectErrorKind, PutObjectError,
+        GetObjectAttributesError, GetObjectAttributesErrorKind, GetObjectError, GetObjectErrorKind,
+        HeadObjectError, HeadObjectErrorKind,
     },
     types::{ByteStream, SdkError},
     Client, // Config,
     Error as S3Error,
 };
-use aws_smithy_http::{body::SdkBody, byte_stream::Error as ByteStreamError, endpoint::Endpoint};
-use futures::stream::{IntoAsyncRead, MapErr, TryStreamExt};
-use kepler_lib::{
-    libipld::cid::{
-        multibase::{encode, Base},
-        multihash::{Code, Error as MultihashError, Multihash},
-        Cid,
-    },
-    resource::OrbitId,
+use aws_smithy_http::{byte_stream::Error as ByteStreamError, endpoint::Endpoint};
+use aws_types::sdk_config::SdkConfig;
+use futures::{
+    future::Either as AsyncEither,
+    stream::{IntoAsyncRead, MapErr, TryStreamExt},
 };
-use libp2p::identity::{ed25519::Keypair as Ed25519Keypair, error::DecodingError};
+use kepler_core::{hash::Hash, storage::*};
+use kepler_lib::resource::OrbitId;
 use rocket::{async_trait, http::hyper::Uri};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::{
-    io::Error as IoError,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
-use tempfile::NamedTempFile;
-use tokio::fs::File;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use std::{collections::HashMap, io::Error as IoError, ops::AddAssign};
 
-use crate::{
-    orbit::ProviderUtils,
-    storage::{utils::copy_in, Content, ImmutableStore, KeyedWriteError, StorageConfig},
-};
+use super::{file_system, size::OrbitSizes};
 
-// TODO we could use the same struct for both the block store and the data
-// (pin) store, but we need to remember that for now it will be two different
-// objects in rust-ipfs
+async fn aws_config() -> SdkConfig {
+    aws_config::from_env().load().await
+}
+
 #[derive(Debug, Clone)]
 pub struct S3BlockStore {
-    // TODO Remove is unused (orbit::delete is never called).
-    // When that changes we will need to use a mutex, either local or in Dynamo
     pub client: Client,
     pub bucket: String,
-    pub orbit: String,
-    size: Arc<AtomicU64>,
+    sizes: OrbitSizes,
 }
 
 #[serde_as]
@@ -61,119 +45,22 @@ pub struct S3BlockConfig {
 #[async_trait]
 impl StorageConfig<S3BlockStore> for S3BlockConfig {
     type Error = S3Error;
-    async fn open(&self, orbit: &OrbitId) -> Result<Option<S3BlockStore>, Self::Error> {
-        Ok(Some(S3BlockStore::new_(self, orbit.get_cid()).await?))
-    }
-    async fn create(&self, orbit: &OrbitId) -> Result<S3BlockStore, Self::Error> {
-        Ok(S3BlockStore::new_(self, orbit.get_cid()).await?)
-    }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ProviderError {
-    #[error(transparent)]
-    S3(#[from] S3Error),
-    #[error(transparent)]
-    KeypairDecode(#[from] DecodingError),
-    #[error(transparent)]
-    ByteStream(#[from] ByteStreamError),
-}
-
-impl From<SdkError<GetObjectError>> for ProviderError {
-    fn from(e: SdkError<GetObjectError>) -> Self {
-        Self::S3(e.into())
-    }
-}
-
-impl From<SdkError<PutObjectError>> for ProviderError {
-    fn from(e: SdkError<PutObjectError>) -> Self {
-        Self::S3(e.into())
+    async fn open(&self) -> Result<S3BlockStore, Self::Error> {
+        S3BlockStore::new_(self).await
     }
 }
 
 #[async_trait]
-impl ProviderUtils for S3BlockConfig {
-    type Error = ProviderError;
-    async fn exists(&self, orbit: &OrbitId) -> Result<bool, Self::Error> {
-        self.key_pair(orbit).await.map(|o| o.is_some())
-    }
-    async fn relay_key_pair(&self) -> Result<Ed25519Keypair, Self::Error> {
-        let client = new_client(self);
-        match client
-            .get_object()
-            .bucket(&self.bucket)
-            .key("kp")
-            .send()
-            .await
-        {
-            Ok(o) => Ok(Ed25519Keypair::decode(
-                &mut o.body.collect().await?.into_bytes().to_vec(),
-            )?),
-            Err(SdkError::ServiceError {
-                err:
-                    GetObjectError {
-                        kind: GetObjectErrorKind::NoSuchKey(_),
-                        ..
-                    },
-                ..
-            }) => {
-                let kp = Ed25519Keypair::generate();
-                client
-                    .put_object()
-                    .bucket(&self.bucket)
-                    .key("kp")
-                    .body(ByteStream::new(SdkBody::from(kp.encode().to_vec())))
-                    .send()
-                    .await?;
-                Ok(kp)
-            }
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn key_pair(&self, orbit: &OrbitId) -> Result<Option<Ed25519Keypair>, Self::Error> {
-        match new_client(self)
-            .get_object()
-            .bucket(&self.bucket)
-            .key(format!("{}/keypair", orbit.get_cid()))
-            .send()
-            .await
-        {
-            Ok(o) => Ok(Some(Ed25519Keypair::decode(
-                &mut o.body.collect().await?.into_bytes().to_vec(),
-            )?)),
-            Err(SdkError::ServiceError {
-                err:
-                    GetObjectError {
-                        kind: GetObjectErrorKind::NoSuchKey(_),
-                        ..
-                    },
-                ..
-            }) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
-    }
-    async fn setup_orbit(&self, orbit: &OrbitId, key: &Ed25519Keypair) -> Result<(), Self::Error> {
-        let client = new_client(self);
-        client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(format!("{}/keypair", orbit.get_cid()))
-            .body(ByteStream::new(SdkBody::from(key.encode().to_vec())))
-            .send()
-            .await?;
-        client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(format!("{}/orbit_url", orbit.get_cid()))
-            .body(ByteStream::new(SdkBody::from(orbit.to_string())))
-            .send()
-            .await?;
+impl StorageSetup for S3BlockStore {
+    type Error = std::convert::Infallible;
+    async fn create(&self, orbit: &OrbitId) -> Result<(), Self::Error> {
+        self.sizes.init_size(orbit.clone()).await;
         Ok(())
     }
 }
 
-pub fn new_client(config: &S3BlockConfig) -> Client {
-    let general_config = super::utils::aws_config();
+async fn new_client(config: &S3BlockConfig) -> Client {
+    let general_config = aws_config().await;
     let sdk_config = aws_sdk_s3::config::Builder::from(&general_config);
     let sdk_config = match &config.endpoint {
         Some(e) => sdk_config.endpoint_resolver(Endpoint::immutable(e.clone())),
@@ -184,51 +71,53 @@ pub fn new_client(config: &S3BlockConfig) -> Client {
 }
 
 impl S3BlockStore {
-    async fn new_(config: &S3BlockConfig, orbit: Cid) -> Result<Self, S3Error> {
-        let client = new_client(config);
-        let size = client
+    async fn new_(config: &S3BlockConfig) -> Result<Self, S3Error> {
+        let client = new_client(config).await;
+        let sizes = client
             .list_objects_v2()
             .bucket(&config.bucket)
-            .prefix(format!("{}/", orbit))
             .into_paginator()
             .send()
             // get the sum of all objects in each page
-            .try_fold(0, |acc, page| async move {
-                Ok(acc
-                   // get the sum of all objects in this particular page
-                    + page
-                        .contents
-                        .into_iter()
-                        .flatten()
-                        .map(|content| {
-                            let s = content.size();
-                            // s is a signed int, not sure why but if it's negative we just return 0
-                            if s < 0 {
-                                0
-                            } else {
-                                s as u64
-                            }
-                        })
-                        .sum::<u64>())
+            .try_fold(HashMap::new(), |mut acc, page| async move {
+                // get the sum of all objects per orbit in this particular page
+                for (orbit, obj_size) in page.contents.into_iter().flatten().filter_map(|content| {
+                    content.key().and_then(|key| {
+                        let (o, _) = key.rsplit_once('/')?;
+                        let orbit: OrbitId = o.parse().ok()?;
+                        if content.size() > 0 {
+                            Some((orbit, content.size() as u64))
+                        } else {
+                            None
+                        }
+                    })
+                }) {
+                    acc.entry(orbit).or_insert(0).add_assign(obj_size);
+                }
+                Ok(acc)
             })
-            .await?;
+            .await?
+            .into();
         Ok(S3BlockStore {
             client,
             bucket: config.bucket.clone(),
-            orbit: orbit.to_string(),
-            size: Arc::new(AtomicU64::new(size)),
+            sizes,
         })
     }
 
-    fn key(&self, id: &Multihash) -> String {
-        format!("{}/{}", self.orbit, encode(Base::Base64Url, id.to_bytes()))
+    fn key(&self, orbit: &OrbitId, id: &Hash) -> String {
+        format!(
+            "{}/{}",
+            orbit,
+            base64::encode_config(id.as_ref(), base64::URL_SAFE)
+        )
     }
 
-    fn increment_size(&self, size: u64) {
-        self.size.fetch_add(size, Ordering::SeqCst);
+    async fn increment_size(&self, orbit: &OrbitId, size: u64) {
+        self.sizes.increment_size(orbit, size).await;
     }
-    fn decrement_size(&self, size: u64) {
-        self.size.fetch_sub(size, Ordering::SeqCst);
+    async fn decrement_size(&self, orbit: &OrbitId, size: u64) {
+        self.sizes.decrement_size(orbit, size).await;
     }
 }
 
@@ -245,21 +134,19 @@ pub enum S3StoreError {
     #[error(transparent)]
     Bytestream(#[from] ByteStreamError),
     #[error(transparent)]
-    Multihash(#[from] MultihashError),
-    #[error(transparent)]
     Length(#[from] std::num::TryFromIntError),
 }
 
 #[async_trait]
-impl ImmutableStore for S3BlockStore {
+impl ImmutableReadStore for S3BlockStore {
     type Error = S3StoreError;
     type Readable = IntoAsyncRead<MapErr<ByteStream, fn(ByteStreamError) -> IoError>>;
-    async fn contains(&self, id: &Multihash) -> Result<bool, Self::Error> {
+    async fn contains(&self, orbit: &OrbitId, id: &Hash) -> Result<bool, Self::Error> {
         match self
             .client
             .head_object()
             .bucket(&self.bucket)
-            .key(self.key(id))
+            .key(self.key(orbit, id))
             .send()
             .await
         {
@@ -275,110 +162,17 @@ impl ImmutableStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-    async fn write(
+
+    async fn read(
         &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash_type: Code,
-    ) -> Result<Multihash, Self::Error> {
-        // TODO find a way to do this without filesystem access
-        let (file, path) = NamedTempFile::new()?.into_parts();
-        let (multihash, _, written) =
-            copy_in(data, File::from_std(file).compat(), hash_type).await?;
-
-        if !self.contains(&multihash).await? {
-            self.client
-                .put_object()
-                .bucket(&self.bucket)
-                .key(self.key(&multihash))
-                .body(ByteStream::from_path(&path).await?)
-                .send()
-                .await
-                .map_err(S3Error::from)?;
-        }
-        self.increment_size(written);
-        Ok(multihash)
-    }
-    async fn write_keyed(
-        &self,
-        data: impl futures::io::AsyncRead + Send,
-        hash: &Multihash,
-    ) -> Result<(), KeyedWriteError<Self::Error>> {
-        if self.contains(hash).await? {
-            return Ok(());
-        }
-        let hash_type = hash
-            .code()
-            .try_into()
-            .map_err(KeyedWriteError::InvalidCode)?;
-        let (file, path) = NamedTempFile::new()
-            .map_err(S3StoreError::from)?
-            .into_parts();
-        let (multihash, _, written) = copy_in(data, File::from_std(file).compat(), hash_type)
-            .await
-            .map_err(S3StoreError::from)?;
-
-        if &multihash != hash {
-            return Err(KeyedWriteError::IncorrectHash);
-        };
-
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(self.key(&multihash))
-            .body(
-                ByteStream::from_path(&path)
-                    .await
-                    .map_err(S3StoreError::from)?,
-            )
-            .send()
-            .await
-            .map_err(|e| KeyedWriteError::Store(S3StoreError::from(S3Error::from(e))))?;
-        self.increment_size(written);
-        Ok(())
-    }
-    async fn remove(&self, id: &Multihash) -> Result<Option<()>, Self::Error> {
-        // I wish we didnt have to make an extra head request here for the size, but we do
-        let size = match self
-            .client
-            .head_object()
-            .bucket(&self.bucket)
-            .key(self.key(id))
-            .send()
-            .await
-        {
-            Ok(metadata) => {
-                if metadata.content_length() > 0 {
-                    metadata.content_length() as u64
-                } else {
-                    0
-                }
-            }
-            Err(SdkError::ServiceError {
-                err:
-                    HeadObjectError {
-                        kind: HeadObjectErrorKind::NotFound(_),
-                        ..
-                    },
-                ..
-            }) => return Ok(None),
-            Err(e) => return Err(S3Error::from(e).into()),
-        };
-        self.client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(self.key(id))
-            .send()
-            .await
-            .map_err(S3Error::from)?; // this shouldnt be not found, because we checked earlier when getting the size
-        self.decrement_size(size);
-        Ok(Some(()))
-    }
-    async fn read(&self, id: &Multihash) -> Result<Option<Content<Self::Readable>>, Self::Error> {
+        orbit: &OrbitId,
+        id: &Hash,
+    ) -> Result<Option<Content<Self::Readable>>, Self::Error> {
         let res = self
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(self.key(id))
+            .key(self.key(orbit, id))
             .send()
             .await;
         match res {
@@ -399,7 +193,156 @@ impl ImmutableStore for S3BlockStore {
             Err(e) => Err(S3Error::from(e).into()),
         }
     }
-    async fn total_size(&self) -> Result<u64, Self::Error> {
-        Ok(self.size.load(Ordering::Relaxed))
+}
+
+#[async_trait]
+impl ImmutableWriteStore<memory::MemoryStaging> for S3BlockStore {
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<memory::MemoryStaging as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, f) = staged.into_inner();
+        let hash = h.finalize();
+
+        if !self.contains(orbit, &hash).await? {
+            let size = f.len() as u64;
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(orbit, &hash))
+                .body(ByteStream::from(f))
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+            self.increment_size(orbit, size).await;
+        }
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<file_system::TempFileSystemStage> for S3BlockStore {
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<file_system::TempFileSystemStage as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, f) = staged.into_inner();
+        let hash = h.finalize();
+
+        if !self.contains(orbit, &hash).await? {
+            let size = f.size().await?;
+            let (_file, path) = f.into_inner();
+
+            self.client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.key(orbit, &hash))
+                .body(ByteStream::from_path(&path).await?)
+                .send()
+                .await
+                .map_err(S3Error::from)?;
+            self.increment_size(orbit, size).await;
+        }
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableWriteStore<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging>>
+    for S3BlockStore
+{
+    type Error = S3StoreError;
+    async fn persist(
+        &self,
+        orbit: &OrbitId,
+        staged: HashBuffer<<either::Either<file_system::TempFileSystemStage, memory::MemoryStaging> as ImmutableStaging>::Writable>,
+    ) -> Result<Hash, Self::Error> {
+        let (mut h, f) = staged.into_inner();
+        let hash = h.finalize();
+
+        if !self.contains(orbit, &hash).await? {
+            match f {
+                AsyncEither::Left(t_file) => {
+                    let size = t_file.size().await?;
+                    let (_file, path) = t_file.into_inner();
+                    self.client
+                        .put_object()
+                        .bucket(&self.bucket)
+                        .key(self.key(orbit, &hash))
+                        .body(ByteStream::from_path(&path).await?)
+                        .send()
+                        .await
+                        .map_err(S3Error::from)?;
+                    self.increment_size(orbit, size).await;
+                }
+                AsyncEither::Right(b) => {
+                    let size = b.len() as u64;
+                    self.client
+                        .put_object()
+                        .bucket(&self.bucket)
+                        .key(self.key(orbit, &hash))
+                        .body(ByteStream::from(b))
+                        .send()
+                        .await
+                        .map_err(S3Error::from)?;
+                    self.increment_size(orbit, size).await;
+                }
+            }
+        };
+        Ok(hash)
+    }
+}
+
+#[async_trait]
+impl ImmutableDeleteStore for S3BlockStore {
+    type Error = S3StoreError;
+    async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
+        let size: u64 = match self
+            .client
+            .get_object_attributes()
+            .bucket(&self.bucket)
+            .key(self.key(orbit, id))
+            .send()
+            .await
+        {
+            Ok(o) if !o.delete_marker() => o.object_size().try_into()?,
+            Ok(_) => return Ok(None),
+            Err(SdkError::ServiceError {
+                err:
+                    GetObjectAttributesError {
+                        kind: GetObjectAttributesErrorKind::NoSuchKey(_),
+                        ..
+                    },
+                ..
+            }) => return Ok(None),
+            Err(e) => return Err(S3Error::from(e).into()),
+        };
+        match self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(self.key(orbit, id))
+            .send()
+            .await
+        {
+            Ok(_) => {
+                self.decrement_size(orbit, size).await;
+                Ok(Some(()))
+            }
+            // TODO does this distinguish between object missing and object present?
+            Err(e) => Err(S3Error::from(e).into()),
+        }
+    }
+}
+
+#[async_trait]
+impl StoreSize for S3BlockStore {
+    type Error = S3StoreError;
+    async fn total_size(&self, orbit: &OrbitId) -> Result<Option<u64>, Self::Error> {
+        Ok(self.sizes.get_size(orbit).await)
     }
 }

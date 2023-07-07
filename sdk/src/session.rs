@@ -131,13 +131,11 @@ impl SessionConfig {
 impl Session {
     pub async fn invoke(
         self,
-        service: String,
-        path: String,
-        action: String,
+        actions: Vec<(String, String, String)>,
     ) -> Result<KeplerInvocation, InvocationError> {
-        let target = self
-            .orbit_id
-            .to_resource(Some(service), Some(path), Some(action));
+        let targets = actions
+            .into_iter()
+            .map(|(s, p, a)| self.orbit_id.clone().to_resource(Some(s), Some(p), Some(a)));
         let now = OffsetDateTime::now_utc();
         let nanos = now.nanosecond();
         let unix = now.unix_timestamp();
@@ -145,7 +143,7 @@ impl Session {
         let exp = (unix.seconds() + Duration::nanoseconds(nanos.into()) + Duration::MINUTE)
             .as_seconds_f64();
         make_invocation(
-            target,
+            targets.collect(),
             self.delegation_cid,
             &self.jwk,
             self.verification_method,
@@ -260,7 +258,7 @@ pub mod test {
     async fn create_session_and_invoke() {
         test_session()
             .await
-            .invoke("kv".into(), "path".into(), "get".into())
+            .invoke(vec![("kv".into(), "path".into(), "get".into())])
             .await
             .expect("failed to create invocation");
     }

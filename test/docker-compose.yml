@@ -3,6 +3,7 @@ version: "3"
 services:
   kepler:
     build: ..
+    platform: linux/amd64
     ports:
       - "8000:8000"
       - "8001:8001"
@@ -14,18 +15,15 @@ services:
     environment:
       RUST_LOG: "debug"
       KEPLER_STORAGE_BLOCKS_BUCKET: "kepler-blocks"
-      KEPLER_STORAGE_BLOCKS_DYNAMODB_TABLE: "kepler-pinstore"
       KEPLER_STORAGE_BLOCKS_TYPE: S3
       KEPLER_STORAGE_BLOCKS_ENDPOINT: "http://localstack:4566"
-      KEPLER_STORAGE_BLOCKS_DYNAMODB_ENDPOINT: "http://localstack:4566"
-      KEPLER_STORAGE_INDEXES_TYPE: DynamoDB
-      KEPLER_STORAGE_INDEXES_TABLE: "kepler-indexing"
-      KEPLER_STORAGE_INDEXES_ENDPOINT: "http://localstack:4566"
+      KEPLER_STORAGE_DATABASE: "postgres://postgres:postgres@postgres:5432/postgres"
       AWS_ACCESS_KEY_ID: "test"
       AWS_SECRET_ACCESS_KEY: "test"
       AWS_DEFAULT_REGION: "us-east-1"
     depends_on:
       - "localstack"
+      - "postgres"
 
   localstack:
     image: localstack/localstack
@@ -37,6 +35,18 @@ services:
       timeout: 10s
       retries: 3
     environment:
-      LOCALSTACK_SERVICES: "s3,dynamodb"
+      LOCALSTACK_SERVICES: "s3"
     volumes:
       - "./setup.sh:/docker-entrypoint-initaws.d/setup.sh:z"
+
+  postgres:
+    image: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: "postgres"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

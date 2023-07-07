@@ -18,7 +18,9 @@ use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
 use thiserror::Error;
 
-#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
+#[derive(
+    Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord,
+)]
 pub struct OrbitId {
     suffix: String,
     id: String,
@@ -82,7 +84,9 @@ impl TryFrom<DIDURL> for OrbitId {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr)]
+#[derive(
+    Clone, Hash, PartialEq, Debug, Eq, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord,
+)]
 pub struct ResourceId {
     orbit: OrbitId,
     service: Option<String>,
@@ -119,6 +123,10 @@ impl ResourceId {
         } else {
             Ok(())
         }
+    }
+
+    pub fn into_inner(self) -> (OrbitId, Option<String>, Option<String>, Option<String>) {
+        (self.orbit, self.service, self.path, self.fragment)
     }
 
     pub fn get_cid(&self) -> Cid {

@@ -18,13 +18,11 @@ pub struct InvocationHeaders {
 impl InvocationHeaders {
     pub async fn from(
         session: Session,
-        service: String,
-        path: String,
-        action: String,
+        actions: Vec<(String, String, String)>,
     ) -> Result<Self, Error> {
         Ok(Self {
             invocation: session
-                .invoke(service, path, action)
+                .invoke(actions)
                 .await
                 .map_err(Error::FailedToMakeInvocation)?,
         })
@@ -59,7 +57,8 @@ mod header_enc {
         T: HeaderEncode,
         D: Deserializer<'de>,
     {
-        String::deserialize(d).and_then(|encoded| T::decode(&encoded).map_err(D::Error::custom))
+        String::deserialize(d)
+            .and_then(|encoded| T::decode(&encoded).map_err(D::Error::custom).map(|t| t.0))
     }
 
     pub fn serialize<T, S>(t: &T, s: S) -> Result<S::Ok, S::Error>
