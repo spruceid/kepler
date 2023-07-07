@@ -4,8 +4,13 @@ use crate::{
     BlockConfig, BlockStage,
 };
 use rocket::data::ByteUnit;
+use kepler_core::keys::StaticSecret;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{
+    base64::{Base64, UrlSafe},
+    formats::Unpadded,
+    serde_as, FromInto,
+};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
@@ -15,6 +20,43 @@ pub struct Config {
     pub relay: Relay,
     pub prometheus: Prometheus,
     pub cors: bool,
+    pub keys: Keys,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum Keys {
+    Static(Static),
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Self::Static(Default::default())
+    }
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Static {
+    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
+    secret: Vec<u8>,
+}
+
+impl From<Static> for StaticSecret {
+    fn from(s: Static) -> Self {
+        StaticSecret::new(s.secret)
+    }
+}
+
+impl Default for Static {
+    fn default() -> Self {
+        Self {
+            // bit of a cludge, but we need to impl default :(
+            secret: kepler_core::libp2p::identity::ed25519::SecretKey::generate()
+                .as_ref()
+                .to_vec(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]

@@ -1,5 +1,6 @@
 use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Operation, Revocation};
 use crate::hash::Hash;
+use crate::keys::Secrets;
 use crate::migrations::Migrator;
 use crate::models::*;
 use crate::relationships::*;
@@ -13,6 +14,7 @@ use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
     resource::OrbitId,
 };
+use libp2p::identity::PublicKey;
 use sea_orm::{
     entity::prelude::*,
     error::{DbErr, RuntimeErr, SqlxError},
@@ -24,9 +26,10 @@ use sea_orm_migration::MigratorTrait;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub struct OrbitDatabase<C, B> {
+pub struct OrbitDatabase<C, B, S> {
     conn: C,
     storage: B,
+    secrets: S,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +42,7 @@ pub struct Commit {
 
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum TxError<S: StorageSetup> {
+pub enum TxError<S: StorageSetup, K: Secrets> {
     #[error("database error: {0}")]
     Db(#[from] DbErr),
     #[error(transparent)]
@@ -58,20 +61,23 @@ pub enum TxError<S: StorageSetup> {
     Encoding(#[from] EncodingError),
     #[error(transparent)]
     StoreSetup(S::Error),
+    #[error(transparent)]
+    Secrets(K::Error),
     #[error("Orbit not found")]
     OrbitNotFound,
 }
 
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum TxStoreError<B, S>
+pub enum TxStoreError<B, S, K>
 where
     B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore + StorageSetup,
     S: ImmutableStaging,
     S::Writable: 'static + Unpin,
+    K: Secrets,
 {
     #[error(transparent)]
-    Tx(#[from] TxError<B>),
+    Tx(#[from] TxError<B, K>),
     #[error(transparent)]
     StoreRead(<B as ImmutableReadStore>::Error),
     #[error(transparent)]
@@ -84,21 +90,47 @@ where
     MissingInput,
 }
 
-impl<B, S> From<DbErr> for TxStoreError<B, S>
+impl<B, S, K> From<DbErr> for TxStoreError<B, S, K>
 where
     B: ImmutableReadStore + ImmutableWriteStore<S> + ImmutableDeleteStore + StorageSetup,
     S: ImmutableStaging,
     S::Writable: 'static + Unpin,
+    K: Secrets,
 {
     fn from(e: DbErr) -> Self {
         TxStoreError::Tx(e.into())
     }
 }
 
-impl<B> OrbitDatabase<DatabaseConnection, B> {
-    pub async fn wrap(conn: DatabaseConnection, storage: B) -> Result<Self, DbErr> {
+impl<B, K> OrbitDatabase<DatabaseConnection, B, K> {
+    pub async fn new(conn: DatabaseConnection, storage: B, secrets: K) -> Result<Self, DbErr> {
         Migrator::up(&conn, None).await?;
-        Ok(Self { conn, storage })
+        Ok(Self {
+            conn,
+            storage,
+            secrets,
+        })
+    }
+}
+
+impl<C, B, K> OrbitDatabase<C, B, K>
+where
+    K: Secrets,
+{
+    pub async fn stage_key(&self, orbit: &OrbitId) -> Result<PublicKey, K::Error> {
+        self.secrets.stage_keypair(orbit).await
+    }
+}
+
+impl<C, B, K> OrbitDatabase<C, B, K>
+where
+    C: TransactionTrait,
+{
+    // to allow users to make custom read queries
+    pub async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
+        self.conn
+            .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
+            .await
     }
 }
 
@@ -113,18 +145,22 @@ where
 
 pub type InvocationInputs<W> = HashMap<(OrbitId, String), (Metadata, HashBuffer<W>)>;
 
-impl<C, B> OrbitDatabase<C, B>
+impl<C, B, K> OrbitDatabase<C, B, K>
 where
     C: TransactionTrait,
     B: StorageSetup,
+    K: Secrets,
 {
-    async fn transact(&self, events: Vec<Event>) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
+    async fn transact(
+        &self,
+        events: Vec<Event>,
+    ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
         let tx = self
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
 
-        let commit = transact(&tx, &self.storage, events).await?;
+        let commit = transact(&tx, &self.storage, &self.secrets, events).await?;
 
         tx.commit().await?;
 
@@ -134,7 +170,7 @@ where
     pub async fn delegate(
         &self,
         delegation: Delegation,
-    ) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
+    ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
         self.transact(vec![Event::Delegation(Box::new(delegation))])
             .await
     }
@@ -142,15 +178,8 @@ where
     pub async fn revoke(
         &self,
         revocation: Revocation,
-    ) -> Result<HashMap<OrbitId, Commit>, TxError<B>> {
+    ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
         self.transact(vec![Event::Revocation(Box::new(revocation))])
-            .await
-    }
-
-    // to allow users to make custom read queries
-    pub async fn readable(&self) -> Result<DatabaseTransaction, DbErr> {
-        self.conn
-            .begin_with_config(None, Some(sea_orm::AccessMode::ReadOnly))
             .await
     }
 
@@ -163,7 +192,7 @@ where
             HashMap<OrbitId, Commit>,
             Vec<InvocationOutcome<B::Readable>>,
         ),
-        TxStoreError<B, S>,
+        TxStoreError<B, S, K>,
     >
     where
         B: ImmutableWriteStore<S> + ImmutableDeleteStore + ImmutableReadStore,
@@ -219,6 +248,7 @@ where
         let commit = transact(
             &tx,
             &self.storage,
+            &self.secrets,
             vec![Event::Invocation(Box::new(invocation), ops)],
         )
         .await?;
@@ -288,7 +318,7 @@ pub enum InvocationOutcome<R> {
     OpenSessions(HashMap<Hash, DelegationInfo>),
 }
 
-impl<S: StorageSetup> From<delegation::Error> for TxError<S> {
+impl<S: StorageSetup, K: Secrets> From<delegation::Error> for TxError<S, K> {
     fn from(e: delegation::Error) -> Self {
         match e {
             delegation::Error::InvalidDelegation(e) => Self::InvalidDelegation(e),
@@ -297,7 +327,7 @@ impl<S: StorageSetup> From<delegation::Error> for TxError<S> {
     }
 }
 
-impl<S: StorageSetup> From<invocation::Error> for TxError<S> {
+impl<S: StorageSetup, K: Secrets> From<invocation::Error> for TxError<S, K> {
     fn from(e: invocation::Error) -> Self {
         match e {
             invocation::Error::InvalidInvocation(e) => Self::InvalidInvocation(e),
@@ -306,7 +336,7 @@ impl<S: StorageSetup> From<invocation::Error> for TxError<S> {
     }
 }
 
-impl<S: StorageSetup> From<revocation::Error> for TxError<S> {
+impl<S: StorageSetup, K: Secrets> From<revocation::Error> for TxError<S, K> {
     fn from(e: revocation::Error) -> Self {
         match e {
             revocation::Error::InvalidRevocation(e) => Self::InvalidRevocation(e),
@@ -366,11 +396,12 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     Ok(orbits)
 }
 
-pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup>(
+pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     store_setup: &S,
+    secrets: &K,
     events: Vec<Event>,
-) -> Result<HashMap<OrbitId, Commit>, TxError<S>> {
+) -> Result<HashMap<OrbitId, Commit>, TxError<S, K>> {
     // for each event, get the hash and the relevent orbit(s)
     let event_hashes = events
         .into_iter()
@@ -576,6 +607,10 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup>(
             .create(&orbit.0)
             .await
             .map_err(TxError::StoreSetup)?;
+        secrets
+            .save_keypair(&orbit.0)
+            .await
+            .map_err(TxError::Secrets)?;
     }
 
     Ok(orbit_order
@@ -688,10 +723,10 @@ async fn get_kv_entity<C: ConnectionTrait>(
     // })
 }
 
-async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup>(
+async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     orbit: &OrbitId,
-) -> Result<HashMap<Hash, DelegationInfo>, TxError<S>> {
+) -> Result<HashMap<Hash, DelegationInfo>, TxError<S, K>> {
     let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
         delegation::Entity::find()
             .left_join(revocation::Entity)

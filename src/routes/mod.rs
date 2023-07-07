@@ -1,7 +1,6 @@
 use anyhow::Result;
-use libp2p::identity::{Keypair, PeerId};
 use rocket::{data::ToByteUnit, http::Status, State};
-use std::{collections::HashMap, sync::RwLock};
+use std::collections::HashMap;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, Instrument};
 
@@ -31,16 +30,25 @@ pub mod util_routes {
     pub fn healthcheck() {}
 }
 
-#[get("/peer/generate")]
-pub fn open_host_key(
-    s: &State<RwLock<HashMap<PeerId, Keypair>>>,
+#[get("/peer/generate/<orbit>")]
+pub async fn open_host_key(
+    s: &State<Kepler>,
+    orbit: &str,
 ) -> Result<String, (Status, &'static str)> {
-    let keypair = Keypair::generate_ed25519();
-    let id = keypair.public().to_peer_id();
-    s.write()
-        .map_err(|_| (Status::InternalServerError, "cant read keys"))?
-        .insert(id, keypair);
-    Ok(id.to_base58())
+    Ok(s.stage_key(
+        &orbit
+            .parse()
+            .map_err(|_| (Status::BadRequest, "Invalid orbit ID"))?,
+    )
+    .await
+    .map_err(|_| {
+        (
+            Status::InternalServerError,
+            "Failed to stage keypair for orbit",
+        )
+    })?
+    .to_peer_id()
+    .to_base58())
 }
 
 #[post("/delegate")]
@@ -76,6 +84,7 @@ pub async fn delegate(
             })
             .map(|h| h.to_cid(0x55).to_string());
         timer.observe_duration();
+        println!("res: {:?}", res);
         res
     }
     .instrument(span)
@@ -180,6 +189,7 @@ pub async fn invoke(
             .map_err(|e| (Status::Unauthorized, e.to_string()));
 
         timer.observe_duration();
+        println!("res: {:?}", res);
         res
     }
     .instrument(span)

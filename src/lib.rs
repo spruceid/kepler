@@ -19,8 +19,9 @@ pub mod routes;
 pub mod storage;
 mod tracing;
 
-use config::{BlockStorage, Config, StagingStorage};
+use config::{BlockStorage, Config, Keys, StagingStorage};
 use kepler_core::{
+    keys::{SecretsSetup, StaticSecret},
     sea_orm::{Database, DatabaseConnection},
     storage::{either::Either, memory::MemoryStaging, StorageConfig},
     OrbitDatabase,
@@ -74,7 +75,7 @@ impl From<BlockStage> for StagingStorage {
     }
 }
 
-pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores>;
+pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores, StaticSecret>;
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config: Config = config.extract::<Config>()?;
@@ -83,9 +84,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     let routes = routes![healthcheck, cors, open_host_key, invoke, delegate,];
 
-    let kepler = Kepler::wrap(
+    let key_setup: StaticSecret = match kepler_config.keys {
+        Keys::Static(s) => s.into(),
+    };
+
+    let kepler = Kepler::new(
         Database::connect(&kepler_config.storage.database).await?,
         kepler_config.storage.blocks.open().await?,
+        key_setup.setup(()).await?,
     )
     .await?;
 
