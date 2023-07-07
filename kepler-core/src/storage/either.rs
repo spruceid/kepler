@@ -150,3 +150,18 @@ where
         }
     }
 }
+
+#[async_trait]
+impl<A, B> StoreSize for Either<A, B>
+where
+    A: StoreSize,
+    B: StoreSize,
+{
+    type Error = EitherError<A::Error, B::Error>;
+    async fn total_size(&self, orbit: &OrbitId) -> Result<Option<u64>, Self::Error> {
+        match self {
+            Either::A(a) => a.total_size(orbit).await.map_err(EitherError::A),
+            Either::B(b) => b.total_size(orbit).await.map_err(EitherError::B),
+        }
+    }
+}

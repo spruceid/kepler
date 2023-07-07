@@ -3,6 +3,7 @@ use crate::{
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
     BlockConfig, BlockStage,
 };
+use rocket::data::ByteUnit;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, FromInto};
 
@@ -52,6 +53,7 @@ pub struct Storage {
     pub staging: BlockStage,
     #[serde(default = "memory_db")]
     pub database: String,
+    pub limit: Option<ByteUnit>,
 }
 
 impl Default for Storage {
@@ -60,6 +62,7 @@ impl Default for Storage {
             blocks: BlockStorage::default().into(),
             staging: StagingStorage::default().into(),
             database: memory_db(),
+            limit: None,
         }
     }
 }

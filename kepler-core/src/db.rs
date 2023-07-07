@@ -5,7 +5,7 @@ use crate::models::*;
 use crate::relationships::*;
 use crate::storage::{
     either::EitherError, Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore,
-    ImmutableStaging, ImmutableWriteStore, StorageSetup,
+    ImmutableStaging, ImmutableWriteStore, StorageSetup, StoreSize,
 };
 use crate::types::{Metadata, OrbitIdWrap, Resource};
 use crate::util::{Capability, DelegationInfo};
@@ -99,6 +99,15 @@ impl<B> OrbitDatabase<DatabaseConnection, B> {
     pub async fn wrap(conn: DatabaseConnection, storage: B) -> Result<Self, DbErr> {
         Migrator::up(&conn, None).await?;
         Ok(Self { conn, storage })
+    }
+}
+
+impl<C, B> OrbitDatabase<C, B>
+where
+    B: StoreSize,
+{
+    pub async fn store_size(&self, orbit: &OrbitId) -> Result<Option<u64>, B::Error> {
+        self.storage.total_size(orbit).await
     }
 }
 

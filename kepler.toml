@@ -12,6 +12,9 @@
     ## Set the file-staging system for kepler to use
     # staging = "FileSystem"
 
+    ## Set the default limit for KV storage per Orbit
+    # limit = "10 MiB"
+
     ###### Document shared aws config (`aws_config::from_env()`)
     [global.storage.blocks]
     # type = "Local"

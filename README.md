@@ -46,6 +46,7 @@ The following common options are available:
 | address             | KEPLER_ADDRESS             | Set the listening address of the kepler instance                           |
 | port                | KEPLER_PORT                | Set the listening TCP port for the kepler instance                         |
 | storage.blocks.type | KEPLER_STORAGE_BLOCKS_TYPE | Set the mode of block storage, options are "Local" and "S3"                |
+| storage.limit        | KEPLER_STORAGE_LIMIT        | Set a maximum limit on storage available to Orbits hosted on this instance. Limits are written as strings, e.g. `10 MiB`, `100 GiB`                                                                           |
 | storage.database    | KEPLER_STORAGE_DATABASE    | Set the location of the SQL database                                       |
 | storage.staging    | KEPLER_STORAGE_STAGING    | Set the mode of content staging, options are "Memory" and "FileSystem" |
 | orbits.allowlist    | KEPLER_ORBITS_ALLOWLIST    | Set the URL of an allowlist service for gating the creation of Orbit Peers |

@@ -8,6 +8,7 @@ use tracing::{info_span, Instrument};
 use crate::{
     auth_guards::{DataIn, DataOut, InvOut, ObjectHeaders},
     authorization::AuthHeaderGetter,
+    config::Config,
     tracing::TracingSpan,
     BlockStage, BlockStores, Kepler,
 };
@@ -17,6 +18,9 @@ use kepler_core::{
     util::{DelegationInfo, InvocationInfo},
     TxError,
 };
+
+pub mod util;
+use util::LimitedReader;
 
 #[allow(clippy::let_unit_value)]
 pub mod util_routes {
@@ -86,6 +90,7 @@ pub async fn invoke(
     data: DataIn<'_>,
     staging: &State<BlockStage>,
     kepler: &State<Kepler>,
+    config: &State<Config>,
 ) -> Result<DataOut<<BlockStores as ImmutableReadStore>::Readable>, (Status, String)> {
     let action_label = "invocation";
     let span = info_span!(parent: &req_span.0, "invoke", action = %action_label);
@@ -113,9 +118,36 @@ pub async fn invoke(
                     .stage(orbit)
                     .await
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?;
-                futures::io::copy(d.open(1u32.gibibytes()).compat(), &mut stage)
-                    .await
-                    .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                let open_data = d.open(1u8.gigabytes()).compat();
+
+                if let Some(limit) = config.storage.limit {
+                    let current_size = kepler
+                        .store_size(orbit)
+                        .await
+                        .map_err(|e| (Status::InternalServerError, e.to_string()))?
+                        .ok_or_else(|| (Status::NotFound, "orbit not found".to_string()))?;
+                    // get the remaining allocated space for the given orbit storage
+                    match limit.as_u64().checked_sub(current_size) {
+                        // the current size is already equal or greater than the limit
+                        None | Some(0) => {
+                            return Err((
+                                Status::PayloadTooLarge,
+                                "The data storage limit has been reached".into(),
+                            ))
+                        }
+                        Some(remaining) => {
+                            futures::io::copy(LimitedReader::new(open_data, remaining), &mut stage)
+                                .await
+                                .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                        }
+                    }
+                } else {
+                    // no limit on storage, just use the data as is
+                    futures::io::copy(open_data, &mut stage)
+                        .await
+                        .map_err(|e| (Status::InternalServerError, e.to_string()))?;
+                };
+
                 let mut inputs = HashMap::new();
                 inputs.insert((orbit.clone(), path.to_string()), (headers.0, stage));
                 inputs

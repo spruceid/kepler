@@ -91,7 +91,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     let rocket = rocket::custom(config)
         .mount("/", routes)
-        .attach(AdHoc::config::<config::Config>())
+        .attach(AdHoc::config::<Config>())
         .attach(tracing::TracingFairing {
             header_name: kepler_config.log.tracing.traceheader,
         })

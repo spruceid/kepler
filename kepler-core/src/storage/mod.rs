@@ -114,6 +114,12 @@ pub trait ImmutableDeleteStore: Send + Sync {
 }
 
 #[async_trait]
+pub trait StoreSize: Send + Sync {
+    type Error: StdError;
+    async fn total_size(&self, orbit: &OrbitId) -> Result<Option<u64>, Self::Error>;
+}
+
+#[async_trait]
 impl<S> ImmutableReadStore for Box<S>
 where
     S: ImmutableReadStore,
@@ -187,5 +193,16 @@ where
     type Error = S::Error;
     async fn remove(&self, orbit: &OrbitId, id: &Hash) -> Result<Option<()>, Self::Error> {
         self.remove(orbit, id).await
+    }
+}
+
+#[async_trait]
+impl<S> StoreSize for Box<S>
+where
+    S: StoreSize,
+{
+    type Error = S::Error;
+    async fn total_size(&self, orbit: &OrbitId) -> Result<Option<u64>, Self::Error> {
+        (**self).total_size(orbit).await
     }
 }
