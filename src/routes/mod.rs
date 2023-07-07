@@ -84,7 +84,6 @@ pub async fn delegate(
             })
             .map(|h| h.to_cid(0x55).to_string());
         timer.observe_duration();
-        println!("res: {:?}", res);
         res
     }
     .instrument(span)
@@ -189,7 +188,6 @@ pub async fn invoke(
             .map_err(|e| (Status::Unauthorized, e.to_string()));
 
         timer.observe_duration();
-        println!("res: {:?}", res);
         res
     }
     .instrument(span)
