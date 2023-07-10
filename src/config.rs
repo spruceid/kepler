@@ -4,7 +4,6 @@ use crate::{
     BlockConfig, BlockStage,
 };
 use kepler_core::keys::StaticSecret;
-use rand::Rng;
 use rocket::data::ByteUnit;
 use serde::{Deserialize, Serialize};
 use serde_with::{
@@ -32,37 +31,30 @@ pub enum Keys {
 
 impl Default for Keys {
     fn default() -> Self {
-        Self::Static(Default::default())
+        Self::Static(Static::default())
     }
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Static {
-    #[serde_as(as = "Base64<UrlSafe, Unpadded>")]
-    secret: Vec<u8>,
+    #[serde_as(as = "Option<Base64<UrlSafe, Unpadded>>")]
+    secret: Option<Vec<u8>>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretInitError {
     #[error("Secret required to be at least 32 bytes, but was {0}")]
     NotEnoughEntropy(usize),
+    #[error("Missing secret")]
+    MissingSecret,
 }
 
 impl TryFrom<Static> for StaticSecret {
     type Error = SecretInitError;
     fn try_from(s: Static) -> Result<Self, Self::Error> {
-        StaticSecret::new(s.secret).map_err(|v| SecretInitError::NotEnoughEntropy(v.len()))
-    }
-}
-
-impl Default for Static {
-    fn default() -> Self {
-        let mut bytes = [0u8; 64];
-        rand::thread_rng().fill(&mut bytes);
-        Self {
-            secret: bytes.to_vec(),
-        }
+        let secret = s.secret.ok_or(SecretInitError::MissingSecret)?;
+        StaticSecret::new(secret).map_err(|v| SecretInitError::NotEnoughEntropy(v.len()))
     }
 }
 
