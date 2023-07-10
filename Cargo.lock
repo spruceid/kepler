@@ -2862,6 +2862,7 @@ dependencies = [
  "opentelemetry-jaeger",
  "pin-project",
  "prometheus",
+ "rand 0.8.5",
  "reqwest",
  "rocket",
  "serde",

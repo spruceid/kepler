@@ -4,6 +4,7 @@ use crate::{
     BlockConfig, BlockStage,
 };
 use kepler_core::keys::StaticSecret;
+use rand::Rng;
 use rocket::data::ByteUnit;
 use serde::{Deserialize, Serialize};
 use serde_with::{
@@ -42,19 +43,25 @@ pub struct Static {
     secret: Vec<u8>,
 }
 
-impl From<Static> for StaticSecret {
-    fn from(s: Static) -> Self {
-        StaticSecret::new(s.secret)
+#[derive(Debug, thiserror::Error)]
+pub enum SecretInitError {
+    #[error("Secret required to be at least 32 bytes, but was {0}")]
+    NotEnoughEntropy(usize),
+}
+
+impl TryFrom<Static> for StaticSecret {
+    type Error = SecretInitError;
+    fn try_from(s: Static) -> Result<Self, Self::Error> {
+        StaticSecret::new(s.secret).map_err(|v| SecretInitError::NotEnoughEntropy(v.len()))
     }
 }
 
 impl Default for Static {
     fn default() -> Self {
+        let mut bytes = [0u8; 64];
+        rand::thread_rng().fill(&mut bytes);
         Self {
-            // bit of a cludge, but we need to impl default :(
-            secret: kepler_core::libp2p::identity::ed25519::SecretKey::generate()
-                .as_ref()
-                .to_vec(),
+            secret: bytes.to_vec(),
         }
     }
 }

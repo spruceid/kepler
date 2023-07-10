@@ -22,6 +22,7 @@ opentelemetry = { version = "0.17.0", features = ["rt-tokio"] }
 opentelemetry-jaeger = { version = "0.16.0", features = ["rt-tokio", "reqwest_collector_client"] }
 pin-project = "1"
 prometheus = { version = "0.13.0", features = ["process"] }
+rand = "0.8"
 reqwest = { version = "0.11", features = ["json"] }
 rocket = { version = "0.5.0-rc.2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }

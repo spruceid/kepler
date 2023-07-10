@@ -40,8 +40,12 @@ pub struct StaticSecret {
 }
 
 impl StaticSecret {
-    pub fn new(secret: Vec<u8>) -> Self {
-        Self { secret }
+    pub fn new(secret: Vec<u8>) -> Result<Self, Vec<u8>> {
+        if secret.len() < 32 {
+            Err(secret)
+        } else {
+            Ok(Self { secret })
+        }
     }
 }
 

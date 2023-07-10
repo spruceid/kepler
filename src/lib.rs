@@ -83,7 +83,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let routes = routes![healthcheck, cors, open_host_key, invoke, delegate,];
 
     let key_setup: StaticSecret = match kepler_config.keys {
-        Keys::Static(s) => s.into(),
+        Keys::Static(s) => s.try_into()?,
     };
 
     let kepler = Kepler::new(
