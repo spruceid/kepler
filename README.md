@@ -48,7 +48,8 @@ The following common options are available:
 | storage.blocks.type | KEPLER_STORAGE_BLOCKS_TYPE | Set the mode of block storage, options are "Local" and "S3"                |
 | storage.limit        | KEPLER_STORAGE_LIMIT        | Set a maximum limit on storage available to Orbits hosted on this instance. Limits are written as strings, e.g. `10 MiB`, `100 GiB`                                                                           |
 | storage.database    | KEPLER_STORAGE_DATABASE    | Set the location of the SQL database                                       |
-| storage.staging    | KEPLER_STORAGE_STAGING    | Set the mode of content staging, options are "Memory" and "FileSystem" |
+| storage.staging     | KEPLER_STORAGE_STAGING     | Set the mode of content staging, options are "Memory" and "FileSystem"     |
+| keys.type           | KEPLER_KEYS_TYPE           | Set the type of host key store, options are "Static"                       |
 | orbits.allowlist    | KEPLER_ORBITS_ALLOWLIST    | Set the URL of an allowlist service for gating the creation of Orbit Peers |
 
 ### Database Config
@@ -94,6 +95,20 @@ When `storage.blocks.type` is `S3` the instance will use the S3 AWS service for 
 | storage.blocks.endpoint  | KEPLER_STORAGE_BLOCKS_ENDPOINT  | Set the URL of the S3 store    |
 
 Additionally, the following environment variables must be present: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_DEFAULT_REGION`.
+
+### Keys Config
+
+Kepler hosts require key pairs to provide replication. The `keys` config fields specify how a Kepler instance generates and stores these key pairs.
+
+#### Static Secret Derivation
+
+When `keys.type` is `Static` the instance will use an array of bytes as a static secret from which it will derive key pairs on a per-Orbit basis. The following config options will be available:
+
+| Option      | env var            | description                                                                  |
+|:------------|:-------------------|:-----------------------------------------------------------------------------|
+| keys.secret | KEPLER_KEYS_SECRET | Unpadded base64Url-encoded byte string from which key pairs will be derived. |
+
+The secret MUST contain at least 32 bytes of entropy (either randomly generated or derived in a cryptographically secure way). It is STRONGLY RECOMMENDED that the secret be given via environment variables and NOT in the `kepler.toml` config file. Additionally it is STRONGLY RECOMMENDED that the secret be backed up in a secure place if used in production. Loss of the secret will result in total loss of function for the Kepler instance.
 
 ## Running
 

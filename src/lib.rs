@@ -19,15 +19,14 @@ pub mod routes;
 pub mod storage;
 mod tracing;
 
-use config::{BlockStorage, Config, StagingStorage};
+use config::{BlockStorage, Config, Keys, StagingStorage};
 use kepler_core::{
+    keys::{SecretsSetup, StaticSecret},
     sea_orm::{Database, DatabaseConnection},
     storage::{either::Either, memory::MemoryStaging, StorageConfig},
     OrbitDatabase,
 };
-use libp2p::{identity::Keypair, PeerId};
 use routes::{delegate, invoke, open_host_key, util_routes::*};
-use std::{collections::HashMap, sync::RwLock};
 use storage::{
     file_system::{FileSystemConfig, FileSystemStore, TempFileSystemStage},
     s3::{S3BlockConfig, S3BlockStore},
@@ -74,7 +73,7 @@ impl From<BlockStage> for StagingStorage {
     }
 }
 
-pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores>;
+pub type Kepler = OrbitDatabase<DatabaseConnection, BlockStores, StaticSecret>;
 
 pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
     let kepler_config: Config = config.extract::<Config>()?;
@@ -83,9 +82,14 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
 
     let routes = routes![healthcheck, cors, open_host_key, invoke, delegate,];
 
-    let kepler = Kepler::wrap(
+    let key_setup: StaticSecret = match kepler_config.keys {
+        Keys::Static(s) => s.try_into()?,
+    };
+
+    let kepler = Kepler::new(
         Database::connect(&kepler_config.storage.database).await?,
         kepler_config.storage.blocks.open().await?,
+        key_setup.setup(()).await?,
     )
     .await?;
 
@@ -96,8 +100,7 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
             header_name: kepler_config.log.tracing.traceheader,
         })
         .manage(kepler)
-        .manage(kepler_config.storage.staging.open().await?)
-        .manage(RwLock::new(HashMap::<PeerId, Keypair>::new()));
+        .manage(kepler_config.storage.staging.open().await?);
 
     if kepler_config.cors {
         Ok(rocket.attach(AdHoc::on_response("CORS", |_, resp| {

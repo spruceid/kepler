@@ -7,7 +7,7 @@ use kepler_core::{
 use kepler_lib::{
     authorization::{EncodingError, HeaderEncode},
     libipld::cid::Cid,
-    resource::{OrbitId, ResourceId},
+    resource::OrbitId,
 };
 use rocket::{
     data::{Capped, FromData},
@@ -21,59 +21,8 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use thiserror::Error;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{info_span, Instrument};
-
-pub fn simple_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
-    check_orbit_and_service(target, capability)?;
-    simple_prefix_check(target, capability)?;
-    simple_check_fragments(target, capability)
-}
-
-pub fn simple_check_fragments(target: &ResourceId, capability: &ResourceId) -> Result<()> {
-    match (target.fragment(), capability.fragment()) {
-        (Some(t), Some(c)) if t == c => Ok(()),
-        _ => Err(anyhow!("Target Action does not match Capability")),
-    }
-}
-
-pub fn simple_prefix_check(target: &ResourceId, capability: &ResourceId) -> Result<()> {
-    // if #action is same
-    // Ok if target.path => cap.path
-    if target.service() == capability.service()
-        && match (target.path(), capability.path()) {
-            (Some(t), Some(c)) => t.starts_with(c),
-            (_, None) => true,
-            _ => false,
-        }
-    {
-        Ok(())
-    } else {
-        Err(anyhow!("Target Service and Path are not correct"))
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum TargetCheckError {
-    #[error("Invocation and Capability Orbits do not match")]
-    IncorrectOrbit,
-    #[error("Invocation and Capability Services do not match")]
-    IncorrectService,
-}
-
-pub fn check_orbit_and_service(
-    target: &ResourceId,
-    capability: &ResourceId,
-) -> Result<(), TargetCheckError> {
-    if target.orbit() != capability.orbit() {
-        Err(TargetCheckError::IncorrectOrbit)
-    } else if target.service() != capability.service() {
-        Err(TargetCheckError::IncorrectService)
-    } else {
-        Ok(())
-    }
-}
 
 #[derive(Debug)]
 pub enum DataHolder<O, M = O> {

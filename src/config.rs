@@ -3,9 +3,14 @@ use crate::{
     storage::{file_system::FileSystemConfig, s3::S3BlockConfig},
     BlockConfig, BlockStage,
 };
+use kepler_core::keys::StaticSecret;
 use rocket::data::ByteUnit;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, FromInto};
+use serde_with::{
+    base64::{Base64, UrlSafe},
+    formats::Unpadded,
+    serde_as, FromInto,
+};
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub struct Config {
@@ -15,6 +20,42 @@ pub struct Config {
     pub relay: Relay,
     pub prometheus: Prometheus,
     pub cors: bool,
+    pub keys: Keys,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum Keys {
+    Static(Static),
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Self::Static(Static::default())
+    }
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Static {
+    #[serde_as(as = "Option<Base64<UrlSafe, Unpadded>>")]
+    secret: Option<Vec<u8>>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SecretInitError {
+    #[error("Secret required to be at least 32 bytes, but was {0}")]
+    NotEnoughEntropy(usize),
+    #[error("Missing secret")]
+    MissingSecret,
+}
+
+impl TryFrom<Static> for StaticSecret {
+    type Error = SecretInitError;
+    fn try_from(s: Static) -> Result<Self, Self::Error> {
+        let secret = s.secret.ok_or(SecretInitError::MissingSecret)?;
+        StaticSecret::new(secret).map_err(|v| SecretInitError::NotEnoughEntropy(v.len()))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Hash, PartialEq, Eq)]
