@@ -20,7 +20,7 @@ sea-orm-migration = { version = "0.11", default-features = false }
 futures = { default-features = false, version = "0.3", features = ["alloc", "std"] }
 pin-project = "1"
 time = "0.3"
-kepler-lib = { version = "0.1", path = "../lib" }
+kepler-lib = { version = "0.2", path = "../lib" }
 libp2p = { version = "0.52.1", default-features = false, features = ["ed25519"] }
 thiserror = "1"
 ssi = "0.6"
