@@ -21,8 +21,8 @@
     # path = "./kepler/blocks"
 
 [global.keys]
-    type = "Static"
-    secret = "U29tZSBsb25nIHBpZWNlIG9mIGVudHJvcHkgd2hpY2ggaXMgYSBzZWNyZXQgYW5kIG1vcmUgdGhhbiAzMiBieXRlcw"
+    # type = "Static"
+    # secret = "U29tZSBsb25nIHBpZWNlIG9mIGVudHJvcHkgd2hpY2ggaXMgYSBzZWNyZXQgYW5kIG1vcmUgdGhhbiAzMiBieXRlcw"
 
 [global.orbits]
 ## Orbit allow list api endpoint
