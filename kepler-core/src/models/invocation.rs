@@ -7,7 +7,7 @@ use super::super::{
 use crate::hash::Hash;
 use crate::types::{Facts, OrbitIdWrap, Resource};
 use kepler_lib::{authorization::KeplerInvocation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, Condition, ConnectionTrait, QueryOrder};
+use sea_orm::{entity::prelude::*, sea_query::OnConflict, Condition, ConnectionTrait, QueryOrder};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -191,15 +191,22 @@ async fn save<C: ConnectionTrait>(
     let hash = crate::hash::hash(&serialization);
     let issued_at = time.unwrap_or_else(OffsetDateTime::now_utc);
 
-    Entity::insert(ActiveModel::from(Model {
+    match Entity::insert(ActiveModel::from(Model {
         id: hash,
         issued_at,
         serialization,
         facts: None,
         invoker: invocation.invoker,
     }))
+    .on_conflict(OnConflict::column(Column::Id).do_nothing().to_owned())
     .exec(db)
-    .await?;
+    .await
+    {
+        Err(DbErr::RecordNotInserted) => return Ok(hash),
+        r => {
+            r?;
+        }
+    };
 
     // save invoked abilities
     if !invocation.capabilities.is_empty() {

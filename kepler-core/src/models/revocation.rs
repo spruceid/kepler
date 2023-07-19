@@ -1,7 +1,7 @@
 use super::super::{events::Revocation, models::*, relationships::*};
 use crate::hash::{hash, Hash};
 use kepler_lib::authorization::KeplerRevocation;
-use sea_orm::{entity::prelude::*, ConnectionTrait};
+use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -95,14 +95,21 @@ pub(crate) async fn process<C: ConnectionTrait>(
         return Err(RevocationError::UnauthorizedRevoker(r.revoker).into());
     };
 
-    Entity::insert(ActiveModel::from(Model {
+    match Entity::insert(ActiveModel::from(Model {
         id: hash,
         serialization,
         revoker: r.revoker,
         revoked: delegation.id,
     }))
+    .on_conflict(OnConflict::column(Column::Id).do_nothing().to_owned())
     .exec(db)
-    .await?;
+    .await
+    {
+        Err(DbErr::RecordNotInserted) => return Ok(hash),
+        r => {
+            r?;
+        }
+    };
 
     if !r.parents.is_empty() {
         parent_delegations::Entity::insert_many(r.parents.into_iter().map(|p| {
