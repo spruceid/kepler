@@ -58,8 +58,8 @@ impl From<BlockConfig> for BlockStorage {
 impl From<StagingStorage> for BlockStage {
     fn from(c: StagingStorage) -> Self {
         match c {
-            StagingStorage::Memory => Self::B(MemoryStaging::default()),
-            StagingStorage::FileSystem => Self::A(TempFileSystemStage::default()),
+            StagingStorage::Memory => Self::B(MemoryStaging),
+            StagingStorage::FileSystem => Self::A(TempFileSystemStage),
         }
     }
 }
