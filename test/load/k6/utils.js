@@ -5,7 +5,8 @@ export const kepler = __ENV.KEPLER || "http://127.0.0.1:8000";
 export const signer = __ENV.SIGNER || "http://127.0.0.1:3000";
 
 export function setup_orbit(kepler, signer, id) {
-    let peer_id = http.get(`${kepler}/peer/generate`).body;
+    let orbit_id = http.get(`${signer}/orbit_id/${id}`).body;
+    let peer_id = http.get(`${kepler}/peer/generate/${encodeURIComponent(orbit_id)}`).body;
     let orbit_creation = http.post(`${signer}/orbits/${id}`,
         JSON.stringify({ peer_id }),
         {
