@@ -1,6 +1,6 @@
 use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Operation, Revocation};
 use crate::hash::Hash;
-use crate::keys::Secrets;
+use crate::keys::{get_did_key, Secrets};
 use crate::migrations::Migrator;
 use crate::models::*;
 use crate::relationships::*;
@@ -14,7 +14,6 @@ use kepler_lib::{
     authorization::{EncodingError, KeplerDelegation},
     resource::OrbitId,
 };
-use libp2p::identity::PublicKey;
 use sea_orm::{
     entity::prelude::*,
     error::{DbErr, RuntimeErr, SqlxError},
@@ -117,8 +116,8 @@ impl<C, B, K> OrbitDatabase<C, B, K>
 where
     K: Secrets,
 {
-    pub async fn stage_key(&self, orbit: &OrbitId) -> Result<PublicKey, K::Error> {
-        self.secrets.stage_keypair(orbit).await
+    pub async fn stage_key(&self, orbit: &OrbitId) -> Result<String, K::Error> {
+        self.secrets.stage_keypair(orbit).await.map(get_did_key)
     }
 }
 

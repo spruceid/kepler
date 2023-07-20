@@ -35,7 +35,7 @@ pub async fn open_host_key(
     s: &State<Kepler>,
     orbit: &str,
 ) -> Result<String, (Status, &'static str)> {
-    Ok(s.stage_key(
+    s.stage_key(
         &orbit
             .parse()
             .map_err(|_| (Status::BadRequest, "Invalid orbit ID"))?,
@@ -46,9 +46,7 @@ pub async fn open_host_key(
             Status::InternalServerError,
             "Failed to stage keypair for orbit",
         )
-    })?
-    .to_peer_id()
-    .to_base58())
+    })
 }
 
 #[post("/delegate")]
