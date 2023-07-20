@@ -18,6 +18,8 @@ services:
       KEPLER_STORAGE_BLOCKS_TYPE: S3
       KEPLER_STORAGE_BLOCKS_ENDPOINT: "http://localstack:4566"
       KEPLER_STORAGE_DATABASE: "postgres://postgres:postgres@postgres:5432/postgres"
+      KEPLER_KEYS_TYPE: "Static"
+      KEPLER_KEYS_SECRET: "U29tZSBsb25nIHBpZWNlIG9mIGVudHJvcHkgd2hpY2ggaXMgYSBzZWNyZXQgYW5kIG1vcmUgdGhhbiAzMiBieXRlcw"
       AWS_ACCESS_KEY_ID: "test"
       AWS_SECRET_ACCESS_KEY: "test"
       AWS_DEFAULT_REGION: "us-east-1"
