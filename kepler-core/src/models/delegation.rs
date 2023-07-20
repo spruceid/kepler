@@ -2,7 +2,7 @@ use crate::hash::Hash;
 use crate::types::{Facts, Resource};
 use crate::{events::Delegation, models::*, relationships::*, util};
 use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
-use sea_orm::{entity::prelude::*, ConnectionTrait};
+use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
 use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -227,7 +227,7 @@ async fn save<C: ConnectionTrait>(
     let hash: Hash = crate::hash::hash(&serialization);
 
     // save delegation
-    Entity::insert(ActiveModel::from(Model {
+    match Entity::insert(ActiveModel::from(Model {
         id: hash,
         delegator: delegation.delegator,
         delegatee: delegation.delegate,
@@ -237,8 +237,15 @@ async fn save<C: ConnectionTrait>(
         facts: None,
         serialization,
     }))
+    .on_conflict(OnConflict::column(Column::Id).do_nothing().to_owned())
     .exec(db)
-    .await?;
+    .await
+    {
+        Err(DbErr::RecordNotInserted) => return Ok(hash),
+        r => {
+            r?;
+        }
+    };
 
     // save abilities
     if !delegation.capabilities.is_empty() {
@@ -270,7 +277,6 @@ async fn save<C: ConnectionTrait>(
 }
 
 async fn save_actors<C: ConnectionTrait>(actors: &[&str], db: &C) -> Result<(), DbErr> {
-    use sea_orm::sea_query::OnConflict;
     match actor::Entity::insert_many(
         actors
             .iter()
