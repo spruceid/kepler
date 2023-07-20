@@ -125,9 +125,7 @@ async fn get_orbit_id(
     let user = new_user(wallet, (*jwk).clone()).await;
     users.write().await.insert(id, user.clone());
 
-    let oid = user.session_config.orbit_id.to_string();
-    println!("Created orbit id: {}", oid);
-    oid
+    user.session_config.orbit_id.to_string()
 }
 
 async fn create_session(
