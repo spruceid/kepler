@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::post, Extension, Json, Router};
+use axum::{extract::Path, routing::{post, get}, Extension, Json, Router};
 use ethers::{
     core::utils::to_checksum,
     prelude::rand::{prelude::StdRng, SeedableRng},
@@ -92,13 +92,8 @@ async fn create_orbit(
     Extension(jwk): Extension<Arc<JWK>>,
     Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
 ) -> Json<DelegationHeaders> {
-    let id_bytes = id.to_ne_bytes();
-    let mut seed = id_bytes.to_vec();
-    seed.extend_from_slice(&id_bytes);
-    let mut rng = StdRng::from_seed(seed.try_into().unwrap());
-    let wallet = LocalWallet::new(&mut rng);
-    let user = new_user(wallet, (*jwk).clone()).await;
-    users.write().await.insert(id, user.clone());
+    let reader = users.read().await;
+    let user = reader.get(&id).unwrap();
 
     let message = generate_host_siwe_message(HostConfig {
         address: user.session_config.address,
@@ -115,6 +110,24 @@ async fn create_orbit(
         signature: signature.to_vec().try_into().unwrap(),
     });
     Json(delegation)
+}
+
+async fn get_orbit_id(
+    Path(id): Path<u128>,
+    Extension(jwk): Extension<Arc<JWK>>,
+    Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
+) -> String {
+    let id_bytes = id.to_ne_bytes();
+    let mut seed = id_bytes.to_vec();
+    seed.extend_from_slice(&id_bytes);
+    let mut rng = StdRng::from_seed(seed.try_into().unwrap());
+    let wallet = LocalWallet::new(&mut rng);
+    let user = new_user(wallet, (*jwk).clone()).await;
+    users.write().await.insert(id, user.clone());
+
+    let oid = user.session_config.orbit_id.to_string();
+    println!("Created orbit id: {}", oid);
+    oid
 }
 
 async fn create_session(
@@ -139,9 +152,7 @@ async fn invoke_session(
 ) -> Json<InvocationHeaders> {
     let headers = InvocationHeaders::from(
         users.read().await.get(&id).unwrap().session.clone(),
-        "kv".into(),
-        params.name,
-        params.action,
+        vec![("kv".into(), params.name, params.action)]
     )
     .await
     .unwrap();
@@ -155,6 +166,7 @@ async fn main() {
     let jwk = JWK::generate_ed25519().unwrap();
     let users: HashMap<u128, User> = HashMap::new();
     let app = Router::new()
+        .route("/orbit_id/:id", get(get_orbit_id))
         .route("/orbits/:id", post(create_orbit))
         .route("/sessions/:id/create", post(create_session))
         .route("/sessions/:id/invoke", post(invoke_session))
