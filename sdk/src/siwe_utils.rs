@@ -52,7 +52,8 @@ impl TryFrom<HostConfig> for Message {
                 chain_id: c.chain_id,
                 domain: c.domain,
                 issued_at: c.issued_at,
-                uri: format!("peer:{}", c.peer_id)
+                uri: c
+                    .peer_id
                     .try_into()
                     .map_err(|e| format!("error parsing peer as a URI: {e}"))?,
                 nonce: generate_nonce(),
