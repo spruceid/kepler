@@ -61,8 +61,7 @@ impl<'r> FromData<'r> for DataIn<'r> {
                     Status::BadRequest,
                     anyhow!("Multipart uploads not yet supported"),
                 )),
-                Some(_) => DataOutcome::Success(DataIn::One(data)),
-                None => DataOutcome::Success(DataIn::None),
+                _ => DataOutcome::Success(DataIn::One(data)),
             };
 
             timer.observe_duration();

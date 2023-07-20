@@ -32,7 +32,6 @@ export default function() {
                 'Content-Type': 'application/json',
             },
         }).json();
-    put_invocation['Content-Type'] = 'application/octet-stream';
     let content = new ArrayBuffer(randomString(256));
     let res = http.post(`${kepler}/invoke`,
         content,
