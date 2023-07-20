@@ -2,15 +2,28 @@ use kepler_lib::{
     libipld::cid::multihash::{Blake3_256, Hasher},
     resource::OrbitId,
 };
-use libp2p::{
-    identity::{
-        ed25519::{Keypair as EdKP, SecretKey},
-        DecodingError, Keypair, PublicKey,
-    },
-    PeerId,
+use libp2p::identity::{
+    ed25519::{Keypair as EdKP, SecretKey},
+    DecodingError,
 };
 use sea_orm_migration::async_trait::async_trait;
 use std::error::Error as StdError;
+
+pub use libp2p::{
+    identity::{Keypair, PublicKey},
+    PeerId,
+};
+
+pub(crate) fn get_did_key(key: PublicKey) -> String {
+    use kepler_lib::libipld::cid::multibase;
+    // only ed25519 feature is enabled, so this unwrap should never fail
+    let ed25519_pk_bytes = key.try_into_ed25519().unwrap().to_bytes();
+    let multicodec_pk = [[0xed].as_slice(), ed25519_pk_bytes.as_slice()].concat();
+    format!(
+        "did:key:{}",
+        multibase::encode(multibase::Base::Base58Btc, multicodec_pk)
+    )
+}
 
 #[async_trait]
 pub trait Secrets {
