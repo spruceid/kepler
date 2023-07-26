@@ -12,10 +12,11 @@ use crate::{
     BlockStage, BlockStores, Kepler,
 };
 use kepler_core::{
+    sea_orm::DbErr,
     storage::{ImmutableReadStore, ImmutableStaging},
     types::Resource,
     util::{DelegationInfo, InvocationInfo},
-    TxError,
+    TxError, TxStoreError,
 };
 
 pub mod util;
@@ -69,7 +70,7 @@ pub async fn delegate(
                 (
                     match e {
                         TxError::OrbitNotFound => Status::NotFound,
-                        TxError::DbErr(DbErr::ConnectionAcquire) => Status::InternalServerError,
+                        TxError::Db(DbErr::ConnectionAcquire) => Status::InternalServerError,
                         _ => Status::Unauthorized,
                     },
                     e.to_string(),
@@ -187,8 +188,10 @@ pub async fn invoke(
             .map_err(|e| {
                 (
                     match e {
-                        TxError::OrbitNotFound => Status::NotFound,
-                        TxError::DbErr(DbErr::ConnectionAcquire) => Status::InternalServerError,
+                        TxStoreError::Tx(TxError::OrbitNotFound) => Status::NotFound,
+                        TxStoreError::Tx(TxError::Db(DbErr::ConnectionAcquire)) => {
+                            Status::InternalServerError
+                        }
                         _ => Status::Unauthorized,
                     },
                     e.to_string(),
