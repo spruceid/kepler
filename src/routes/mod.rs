@@ -69,6 +69,7 @@ pub async fn delegate(
                 (
                     match e {
                         TxError::OrbitNotFound => Status::NotFound,
+                        TxError::DbErr(DbErr::ConnectionAcquire) => Status::ServiceUnavailable,
                         _ => Status::Unauthorized,
                     },
                     e.to_string(),
@@ -183,7 +184,16 @@ pub async fn invoke(
                     _ => unreachable!(),
                 },
             )
-            .map_err(|e| (Status::Unauthorized, e.to_string()));
+            .map_err(|e| {
+                (
+                    match e {
+                        TxError::OrbitNotFound => Status::NotFound,
+                        TxError::DbErr(DbErr::ConnectionAcquire) => Status::ServiceUnavailable,
+                        _ => Status::Unauthorized,
+                    },
+                    e.to_string(),
+                )
+            });
 
         timer.observe_duration();
         res
