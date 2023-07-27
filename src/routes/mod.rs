@@ -12,10 +12,11 @@ use crate::{
     BlockStage, BlockStores, Kepler,
 };
 use kepler_core::{
+    sea_orm::DbErr,
     storage::{ImmutableReadStore, ImmutableStaging},
     types::Resource,
     util::{DelegationInfo, InvocationInfo},
-    TxError,
+    TxError, TxStoreError,
 };
 
 pub mod util;
@@ -23,11 +24,19 @@ use util::LimitedReader;
 
 #[allow(clippy::let_unit_value)]
 pub mod util_routes {
+    use super::*;
+
     #[options("/<_s..>")]
     pub async fn cors(_s: std::path::PathBuf) {}
 
     #[get("/healthz")]
-    pub fn healthcheck() {}
+    pub async fn healthcheck(s: &State<Kepler>) -> Status {
+        if s.check_db_connection().await.is_ok() {
+            Status::Ok
+        } else {
+            Status::InternalServerError
+        }
+    }
 }
 
 #[get("/peer/generate/<orbit>")]
@@ -69,6 +78,7 @@ pub async fn delegate(
                 (
                     match e {
                         TxError::OrbitNotFound => Status::NotFound,
+                        TxError::Db(DbErr::ConnectionAcquire) => Status::InternalServerError,
                         _ => Status::Unauthorized,
                     },
                     e.to_string(),
@@ -183,7 +193,18 @@ pub async fn invoke(
                     _ => unreachable!(),
                 },
             )
-            .map_err(|e| (Status::Unauthorized, e.to_string()));
+            .map_err(|e| {
+                (
+                    match e {
+                        TxStoreError::Tx(TxError::OrbitNotFound) => Status::NotFound,
+                        TxStoreError::Tx(TxError::Db(DbErr::ConnectionAcquire)) => {
+                            Status::InternalServerError
+                        }
+                        _ => Status::Unauthorized,
+                    },
+                    e.to_string(),
+                )
+            });
 
         timer.observe_duration();
         res

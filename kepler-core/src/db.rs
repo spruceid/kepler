@@ -142,6 +142,17 @@ where
     }
 }
 
+impl<C, B, K> OrbitDatabase<C, B, K>
+where
+    C: TransactionTrait,
+{
+    pub async fn check_db_connection(&self) -> Result<(), DbErr> {
+        // there's a `ping` method on the connection, but we can't access it from here
+        // but starting a transaction should be enough to check the connection
+        self.conn.begin().await.map(|_| ())
+    }
+}
+
 pub type InvocationInputs<W> = HashMap<(OrbitId, String), (Metadata, HashBuffer<W>)>;
 
 impl<C, B, K> OrbitDatabase<C, B, K>

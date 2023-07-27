@@ -22,7 +22,7 @@ mod tracing;
 use config::{BlockStorage, Config, Keys, StagingStorage};
 use kepler_core::{
     keys::{SecretsSetup, StaticSecret},
-    sea_orm::{Database, DatabaseConnection},
+    sea_orm::{ConnectOptions, Database, DatabaseConnection},
     storage::{either::Either, memory::MemoryStaging, StorageConfig},
     OrbitDatabase,
 };
@@ -86,8 +86,11 @@ pub async fn app(config: &Figment) -> Result<Rocket<Build>> {
         Keys::Static(s) => s.try_into()?,
     };
 
+    let mut connect_opts = ConnectOptions::from(&kepler_config.storage.database);
+    connect_opts.max_connections(100);
+
     let kepler = Kepler::new(
-        Database::connect(&kepler_config.storage.database).await?,
+        Database::connect(connect_opts).await?,
         kepler_config.storage.blocks.open().await?,
         key_setup.setup(()).await?,
     )
