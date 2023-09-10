@@ -1,6 +1,6 @@
 use super::*;
 use crate::hash::Hash;
-use crate::types::{Caveats, Resource};
+use crate::types::{AbilityName, Caveats, Resource};
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -9,7 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub resource: Resource,
     #[sea_orm(primary_key)]
-    pub ability: String,
+    pub ability: AbilityName,
     #[sea_orm(primary_key)]
     pub delegation: Hash,
 
