@@ -1,9 +1,15 @@
 use crate::hash::Hash;
-use crate::types::{Facts, Resource};
-use crate::{events::Delegation, models::*, relationships::*, util};
-use kepler_lib::{authorization::KeplerDelegation, resolver::DID_METHODS};
+use crate::types::Facts;
+use crate::{
+    events::{Delegation, SerializedEvent},
+    models::*,
+    relationships::*,
+};
+use kepler_lib::authorization::{
+    delegation_from_bytes, EncodingError, KeplerDelegation, Resources,
+};
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
-use time::OffsetDateTime;
+use time::{ext::NumericalDuration, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
@@ -18,6 +24,39 @@ pub struct Model {
     pub not_before: Option<OffsetDateTime>,
     pub facts: Option<Facts>,
     pub serialization: Vec<u8>,
+}
+
+impl Model {
+    pub(crate) fn reser_cacao(&self) -> Result<Delegation, EncodingError> {
+        Ok(SerializedEvent(
+            delegation_from_bytes(&self.serialization)?,
+            self.serialization.clone(),
+        ))
+    }
+
+    pub(crate) fn valid_at<const SKEW: u64>(&self, time: OffsetDateTime) -> bool {
+        let skew = (SKEW as i64).seconds();
+        self.expiry.map_or(true, |exp| time < exp + skew)
+            && self.not_before.map_or(true, |nbf| nbf <= time + skew)
+    }
+
+    pub(crate) fn validate_bounds(
+        &self,
+        start: Option<OffsetDateTime>,
+        end: Option<OffsetDateTime>,
+    ) -> bool {
+        let a = match (self.not_before, start) {
+            (Some(nbf), Some(start)) => start >= nbf,
+            (None, Some(_)) => false,
+            _ => true,
+        };
+        let b = match (self.expiry, end) {
+            (Some(exp), Some(end)) => exp >= end,
+            (None, Some(_)) => false,
+            _ => true,
+        };
+        a && b
+    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -95,146 +134,65 @@ impl Linked for Delegatee {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    Db(#[from] DbErr),
-    #[error(transparent)]
-    InvalidDelegation(#[from] DelegationError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum DelegationError {
-    #[error("Delegation expired or not yet valid")]
-    InvalidTime,
-    #[error("Failed to verify signature")]
-    InvalidSignature,
-    #[error("Unauthorized Delegator: {0}")]
-    UnauthorizedDelegator(String),
-    #[error("Unauthorized Capability: {0}, {1}")]
-    UnauthorizedCapability(Resource, String),
-    #[error("Cannot find parent delegation")]
-    MissingParents,
-}
-
 pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
-    delegation: Delegation,
-) -> Result<Hash, Error> {
-    let (d, ser) = (delegation.0, delegation.1);
-    verify(&d.delegation).await?;
-
-    validate(db, &d).await?;
+    SerializedEvent(d, ser): Delegation,
+) -> Result<Hash, EventProcessingError> {
+    let time = OffsetDateTime::now_utc();
+    if !d.valid_at_time::<60, u64>(time.unix_timestamp() as u64) {
+        return Err(ValidationError::InvalidTime.into());
+    }
+    verify(&d).await?;
+    validate(db, &d, Option::<fn(&Model) -> bool>::None).await?;
 
     save(db, d, ser).await
 }
 
-// verify signatures and time
-async fn verify(delegation: &KeplerDelegation) -> Result<(), Error> {
-    match delegation {
-        KeplerDelegation::Ucan(ref ucan) => {
-            ucan.verify_signature(DID_METHODS.to_resolver())
-                .await
-                .map_err(|_| DelegationError::InvalidSignature)?;
-            ucan.payload
-                .validate_time(None)
-                .map_err(|_| DelegationError::InvalidTime)?;
-        }
-        KeplerDelegation::Cacao(ref cacao) => {
-            cacao
-                .verify()
-                .await
-                .map_err(|_| DelegationError::InvalidSignature)?;
-            if !cacao.payload().valid_now() {
-                return Err(DelegationError::InvalidTime)?;
-            }
-        }
-    };
-    Ok(())
-}
-
-// verify parenthood and authorization
-async fn validate<C: ConnectionTrait>(
-    db: &C,
-    delegation: &util::DelegationInfo,
-) -> Result<(), Error> {
-    // get caps which rely on delegated caps
-    let dependant_caps: Vec<_> = delegation
-        .capabilities
-        .iter()
-        .filter(|c| {
-            // remove caps for which the delegator is the root authority
-            c.resource
-                .orbit()
-                .map(|o| o.did() != delegation.delegator)
-                .unwrap_or(true)
-        })
-        .collect();
-
-    match (dependant_caps.is_empty(), delegation.parents.is_empty()) {
-        // no dependant caps, no parents needed, must be valid
-        (true, _) => Ok(()),
-        // dependant caps, no parents, invalid
-        (false, true) => Err(DelegationError::MissingParents.into()),
-        // dependant caps, parents, check parents
-        (false, false) => {
-            // get parents which have
-            let parents: Vec<_> = Entity::find()
-                // the correct id
-                .filter(Column::Id.is_in(delegation.parents.iter().map(|c| Hash::from(*c))))
-                // the correct delegatee
-                .filter(Column::Delegatee.eq(delegation.delegator.clone()))
-                .all(db)
-                .await?
-                .into_iter()
-                .filter(|p| {
-                    // valid time bounds
-                    p.expiry < delegation.expiry
-                        && p.not_before
-                            .map(|pnbf| delegation.not_before.map(|nbf| pnbf > nbf).unwrap_or(true))
-                            .unwrap_or(false)
-                })
-                .collect();
-
-            // get delegated abilities from each parent
-            let parent_abilities = parents.load_many(abilities::Entity, db).await?;
-
-            // check each dependant cap is supported by at least one parent cap
-            match dependant_caps.iter().find(|c| {
-                !parent_abilities
-                    .iter()
-                    .flatten()
-                    .any(|pc| c.resource.extends(&pc.resource) && c.action == pc.ability)
-            }) {
-                Some(c) => Err(DelegationError::UnauthorizedCapability(
-                    c.resource.clone(),
-                    c.action.clone(),
-                )
-                .into()),
-                None => Ok(()),
-            }
-        }
-    }
+fn nothing(_: &Model) -> bool {
+    true
 }
 
 async fn save<C: ConnectionTrait>(
     db: &C,
-    delegation: util::DelegationInfo,
+    delegation: KeplerDelegation,
     serialization: Vec<u8>,
-) -> Result<Hash, Error> {
-    save_actors(&[&delegation.delegator, &delegation.delegate], db).await?;
+) -> Result<Hash, EventProcessingError> {
+    save_actors(
+        &[
+            &delegation.issuer().to_string(),
+            &delegation.audience().to_string(),
+        ],
+        db,
+    )
+    .await?;
 
     let hash: Hash = crate::hash::hash(&serialization);
 
     // save delegation
     match Entity::insert(ActiveModel::from(Model {
         id: hash,
-        delegator: delegation.delegator,
-        delegatee: delegation.delegate,
-        expiry: delegation.expiry,
-        issued_at: delegation.issued_at,
-        not_before: delegation.not_before,
-        facts: None,
+        delegator: delegation.issuer().to_string(),
+        delegatee: delegation.audience().to_string(),
+        expiry: delegation
+            .expiration()
+            .map(|i| OffsetDateTime::from_unix_timestamp(i as i64))
+            .transpose()
+            .map_err(ValidationError::from)?,
+        issued_at: delegation
+            .issued_at()
+            .map(|i| OffsetDateTime::from_unix_timestamp(i as i64))
+            .transpose()
+            .map_err(ValidationError::from)?,
+        not_before: delegation
+            .not_before()
+            .map(|i| OffsetDateTime::from_unix_timestamp(i as i64))
+            .transpose()
+            .map_err(ValidationError::from)?,
+        facts: delegation
+            .facts()
+            // TODO not ideal
+            .map(|f| serde_json::from_value(serde_json::to_value(f)?))
+            .transpose()?,
         serialization,
     }))
     .on_conflict(OnConflict::column(Column::Id).do_nothing().to_owned())
@@ -248,25 +206,30 @@ async fn save<C: ConnectionTrait>(
     };
 
     // save abilities
-    if !delegation.capabilities.is_empty() {
-        abilities::Entity::insert_many(delegation.capabilities.into_iter().map(|ab| {
-            abilities::ActiveModel::from(abilities::Model {
-                delegation: hash,
-                resource: ab.resource,
-                ability: ab.action,
-                caveats: Default::default(),
-            })
-        }))
+    if !delegation.capabilities().is_empty() {
+        abilities::Entity::insert_many(
+            Resources::<'_, &'_ UriStr>::grants(&delegation)
+                .map(|(resource, abilities)| {
+                    abilities.into_iter().map(|(ability, c)| abilities::Model {
+                        delegation: hash,
+                        resource: resource.into(),
+                        ability: ability.clone().into(),
+                        caveats: c.clone().into(),
+                    })
+                })
+                .flatten()
+                .map(abilities::ActiveModel::from),
+        )
         .exec(db)
         .await?;
     }
 
     // save parent relationships
-    if !delegation.parents.is_empty() {
-        parent_delegations::Entity::insert_many(delegation.parents.into_iter().map(|p| {
+    if let Some(prf) = delegation.proof().filter(|p| !p.is_empty()) {
+        parent_delegations::Entity::insert_many(prf.into_iter().map(|p| {
             parent_delegations::ActiveModel::from(parent_delegations::Model {
                 child: hash,
-                parent: p.into(),
+                parent: (*p).into(),
             })
         }))
         .exec(db)
