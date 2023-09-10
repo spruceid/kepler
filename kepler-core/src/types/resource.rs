@@ -17,7 +17,7 @@ impl AsRef<AnyResource> for Resource {
 
 impl Resource {
     pub fn extends<O: AsRef<str>, S: AsRef<AnyResource<O>>>(&self, other: &S) -> bool {
-        match (self.0, other.as_ref()) {
+        match (&self.0, other.as_ref()) {
             (AnyResource::Kepler(a), AnyResource::Kepler(b)) => a.extends(b).is_ok(),
             (AnyResource::Other(a), AnyResource::Other(b)) => a.as_str().starts_with(b.as_ref()),
             _ => false,

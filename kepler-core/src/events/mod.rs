@@ -3,9 +3,7 @@ use crate::{
     types::Metadata,
 };
 pub use kepler_lib::{
-    authorization::{
-        EncodingError, HeaderEncode, KeplerDelegation, KeplerInvocation, KeplerRevocation,
-    },
+    authorization::{Delegation, EncodingError, HeaderEncode, Invocation, Revocation},
     libipld::cid::{
         multihash::{Code, Error as MultihashError, MultihashDigest},
         Cid,
@@ -18,30 +16,18 @@ use serde_ipld_dagcbor::EncodeError;
 #[derive(Debug)]
 pub struct SerializedEvent<T>(pub T, pub(crate) Vec<u8>);
 
-#[non_exhaustive]
-#[derive(thiserror::Error, Debug)]
-pub enum FromReqErr<T> {
-    #[error(transparent)]
-    Encoding(#[from] EncodingError),
-    #[error(transparent)]
-    TryFrom(T),
-}
-
-impl<T> SerializedEvent<T> {
-    pub fn from_header_ser<I>(s: &str) -> Result<Self, FromReqErr<T::Error>>
-    where
-        T: TryFrom<I>,
-        I: HeaderEncode,
-    {
-        I::decode(s)
-            .map_err(FromReqErr::from)
-            .and_then(|(i, s)| Ok(Self(T::try_from(i).map_err(FromReqErr::TryFrom)?, s)))
+impl<T> SerializedEvent<T>
+where
+    T: HeaderEncode,
+{
+    pub fn from_header_ser(s: &str) -> Result<Self, EncodingError> {
+        T::decode(s).map(|(t, s)| Self(t, s))
     }
 }
 
-pub type Delegation = SerializedEvent<KeplerDelegation>;
-pub type Invocation = SerializedEvent<KeplerInvocation>;
-pub type Revocation = SerializedEvent<KeplerRevocation>;
+pub type SDelegation = SerializedEvent<Delegation>;
+pub type SInvocation = SerializedEvent<Invocation>;
+pub type SRevocation = SerializedEvent<Revocation>;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) enum Operation {
@@ -115,9 +101,9 @@ pub(crate) enum VersionedOperation {
 
 #[derive(Debug)]
 pub(crate) enum Event {
-    Invocation(Box<Invocation>, Vec<Operation>),
-    Delegation(Box<Delegation>),
-    Revocation(Box<Revocation>),
+    Invocation(Box<SInvocation>, Vec<Operation>),
+    Delegation(Box<SDelegation>),
+    Revocation(Box<SRevocation>),
 }
 
 impl Event {

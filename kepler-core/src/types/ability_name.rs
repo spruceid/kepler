@@ -36,7 +36,7 @@ impl PartialEq<Ability> for AbilityName {
 }
 
 impl AbilityName {
-    fn into_inner(self) -> Ability {
+    pub fn into_inner(self) -> Ability {
         self.0
     }
 }

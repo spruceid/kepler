@@ -1,11 +1,11 @@
 use super::super::{
-    events::{Invocation, SerializedEvent, VersionedOperation},
+    events::{SInvocation, SerializedEvent, VersionedOperation},
     models::*,
     relationships::*,
 };
 use crate::hash::Hash;
 use crate::types::{Facts, OrbitIdWrap};
-use kepler_lib::authorization::{KeplerInvocation, Resources};
+use kepler_lib::authorization::{Invocation, Resources};
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, Condition, ConnectionTrait, QueryOrder};
 use time::OffsetDateTime;
 
@@ -48,9 +48,9 @@ impl Related<invoked_abilities::Entity> for Entity {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-pub(crate) async fn process<C: ConnectionTrait>(
+pub(crate) async fn process<const SKEW: u64, C: ConnectionTrait>(
     db: &C,
-    SerializedEvent(i, ser): Invocation,
+    SerializedEvent(i, ser): SInvocation,
     ops: Vec<VersionedOperation>,
 ) -> Result<Hash, EventProcessingError> {
     let time = OffsetDateTime::now_utc();
@@ -58,13 +58,13 @@ pub(crate) async fn process<C: ConnectionTrait>(
         return Err(ValidationError::InvalidTime.into());
     }
     verify(&i).await?;
-    validate(db, &i, Some(|p: &delegation::Model| p.valid_at(time))).await?;
+    validate(db, &i, Some(|p: &delegation::Model| p.valid_at::<60>(time))).await?;
     save(db, i, Some(time), ser, ops).await
 }
 
 async fn save<C: ConnectionTrait>(
     db: &C,
-    invocation: KeplerInvocation,
+    invocation: Invocation,
     time: Option<OffsetDateTime>,
     serialization: Vec<u8>,
     parameters: Vec<VersionedOperation>,

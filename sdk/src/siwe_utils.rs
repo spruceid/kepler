@@ -1,5 +1,5 @@
 use http::uri::Authority;
-use kepler_lib::authorization::KeplerDelegation;
+use kepler_lib::authorization::Delegation;
 use kepler_lib::cacaos::{
     siwe::{generate_nonce, Message, TimeStamp, Version},
     siwe_cacao::{SIWESignature, SiweCacao},
@@ -73,7 +73,7 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
 }
 
 pub fn siwe_to_delegation_headers(signed_message: SignedMessage) -> DelegationHeaders {
-    DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(SiweCacao::new(
+    DelegationHeaders::new(Delegation::Cacao(Box::new(SiweCacao::new(
         signed_message.siwe.into(),
         signed_message.signature,
         None,

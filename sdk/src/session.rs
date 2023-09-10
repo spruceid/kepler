@@ -1,7 +1,7 @@
 use crate::authorization::DelegationHeaders;
 use http::uri::Authority;
 use kepler_lib::{
-    authorization::{make_invocation, InvocationError, KeplerInvocation},
+    authorization::{make_invocation, Invocation, InvocationError},
     cacaos::{
         siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
         siwe_cacao::SIWESignature,
@@ -132,7 +132,7 @@ impl Session {
     pub async fn invoke(
         self,
         actions: Vec<(String, String, String)>,
-    ) -> Result<KeplerInvocation, InvocationError> {
+    ) -> Result<Invocation, InvocationError> {
         let targets = actions
             .into_iter()
             .map(|(s, p, a)| self.orbit_id.clone().to_resource(Some(s), Some(p), Some(a)));
@@ -186,7 +186,7 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 
 pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
     use kepler_lib::{
-        authorization::KeplerDelegation,
+        authorization::Delegation,
         cacaos::siwe_cacao::SiweCacao,
         libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
     };
@@ -199,7 +199,7 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
         *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
             .map_err(Error::UnableToGenerateCid)?
             .cid();
-    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(delegation)));
+    let delegation_header = DelegationHeaders::new(Delegation::Cacao(Box::new(delegation)));
 
     Ok(Session {
         delegation_header,

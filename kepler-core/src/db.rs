@@ -1,4 +1,6 @@
-use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Operation, Revocation};
+use crate::events::{
+    epoch_hash, Event, HashError, Operation, SDelegation, SInvocation, SRevocation,
+};
 use crate::hash::Hash;
 use crate::keys::{get_did_key, Secrets};
 use crate::migrations::Migrator;
@@ -10,7 +12,7 @@ use crate::storage::{
 };
 use crate::types::{Metadata, OrbitIdWrap};
 use kepler_lib::{
-    authorization::{EncodingError, KeplerDelegation, Resources},
+    authorization::{Delegation, EncodingError, Resources},
     resource::{OrbitId, ResourceId},
     ssi::ucan::capabilities::Ability,
 };
@@ -165,7 +167,7 @@ where
     B: StorageSetup,
     K: Secrets,
 {
-    async fn transact(
+    async fn transact<const SKEW: u64>(
         &self,
         events: Vec<Event>,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
@@ -174,32 +176,32 @@ where
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
 
-        let commit = transact(&tx, &self.storage, &self.secrets, events).await?;
+        let commit = transact::<SKEW, _, _, _>(&tx, &self.storage, &self.secrets, events).await?;
 
         tx.commit().await?;
 
         Ok(commit)
     }
 
-    pub async fn delegate(
+    pub async fn delegate<const SKEW: u64>(
         &self,
-        delegation: Delegation,
+        delegation: SDelegation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
-        self.transact(vec![Event::Delegation(Box::new(delegation))])
+        self.transact::<SKEW>(vec![Event::Delegation(Box::new(delegation))])
             .await
     }
 
-    pub async fn revoke(
+    pub async fn revoke<const SKEW: u64>(
         &self,
-        revocation: Revocation,
+        revocation: SRevocation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
-        self.transact(vec![Event::Revocation(Box::new(revocation))])
+        self.transact::<SKEW>(vec![Event::Revocation(Box::new(revocation))])
             .await
     }
 
-    pub async fn invoke<S>(
+    pub async fn invoke<const SKEW: u64, S>(
         &self,
-        invocation: Invocation,
+        invocation: SInvocation,
         mut inputs: InvocationInputs<S::Writable>,
     ) -> Result<
         (
@@ -264,7 +266,7 @@ where
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
         //  verify and commit invocation and kv operations
-        let commit = transact(
+        let commit = transact::<SKEW, _, _, _>(
             &tx,
             &self.storage,
             &self.secrets,
@@ -342,7 +344,7 @@ pub enum InvocationOutcome<R> {
     KvMetadata(Option<Metadata>),
     KvWrite,
     KvRead(Option<(Metadata, Content<R>)>),
-    OpenSessions(HashMap<Hash, KeplerDelegation>),
+    OpenSessions(HashMap<Hash, Delegation>),
 }
 
 impl<S: StorageSetup, K: Secrets> From<revocation::Error> for TxError<S, K> {
@@ -363,7 +365,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     let revoked_events = event_order::Entity::find()
         .filter(
             event_order::Column::Event.is_in(ev.iter().filter_map(|(_, e)| match e {
-                // TODO Event::Revocation(r) => Some(Hash::from(r.0.revoke)),
+                Event::Revocation(r) => Some(Hash::from(r.0.revoke)),
                 _ => None,
             })),
         )
@@ -388,7 +390,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
                 }
             }
             Event::Revocation(r) => {
-                let r_hash = Hash::from(r.0.revoked);
+                let r_hash = Hash::from(r.0.revoke);
                 for revoked in &revoked_events {
                     if r_hash == revoked.event {
                         let entry = orbits
@@ -405,7 +407,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     Ok(orbits)
 }
 
-pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
+pub(crate) async fn transact<const SKEW: u64, C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     store_setup: &S,
     secrets: &K,
@@ -587,8 +589,10 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
 
     for (hash, event) in event_hashes {
         match event {
-            Event::Delegation(d) => delegation::process(db, *d).await.map_err(|e| e.to_del())?,
-            Event::Invocation(i, ops) => invocation::process(
+            Event::Delegation(d) => delegation::process::<SKEW, _>(db, *d)
+                .await
+                .map_err(|e| e.to_del())?,
+            Event::Invocation(i, ops) => invocation::process::<SKEW, _>(
                 db,
                 *i,
                 ops.into_iter()
@@ -732,7 +736,7 @@ async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     orbit: &OrbitId,
     time: Option<time::OffsetDateTime>,
-) -> Result<HashMap<Hash, KeplerDelegation>, TxError<S, K>> {
+) -> Result<HashMap<Hash, Delegation>, TxError<S, K>> {
     let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
         delegation::Entity::find()
             .left_join(revocation::Entity)
@@ -761,7 +765,7 @@ async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
                 None
             }
         })
-        .collect::<Result<HashMap<Hash, KeplerDelegation>, EncodingError>>()?)
+        .collect::<Result<HashMap<Hash, Delegation>, EncodingError>>()?)
 }
 
 fn normalize_path(p: &str) -> &str {

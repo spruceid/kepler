@@ -1,13 +1,11 @@
 use crate::hash::Hash;
 use crate::types::Facts;
 use crate::{
-    events::{Delegation, SerializedEvent},
+    events::{SDelegation, SerializedEvent},
     models::*,
     relationships::*,
 };
-use kepler_lib::authorization::{
-    delegation_from_bytes, EncodingError, KeplerDelegation, Resources,
-};
+use kepler_lib::authorization::{delegation_from_bytes, Delegation, EncodingError, Resources};
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
 use time::{ext::NumericalDuration, OffsetDateTime};
 
@@ -27,15 +25,15 @@ pub struct Model {
 }
 
 impl Model {
-    pub(crate) fn reser_cacao(&self) -> Result<Delegation, EncodingError> {
+    pub(crate) fn reser_cacao(&self) -> Result<SDelegation, EncodingError> {
         Ok(SerializedEvent(
             delegation_from_bytes(&self.serialization)?,
             self.serialization.clone(),
         ))
     }
 
-    pub(crate) fn valid_at<const SKEW: u64>(&self, time: OffsetDateTime) -> bool {
-        let skew = (SKEW as i64).seconds();
+    pub(crate) fn valid_at<const SKEW: i64>(&self, time: OffsetDateTime) -> bool {
+        let skew = SKEW.seconds();
         self.expiry.map_or(true, |exp| time < exp + skew)
             && self.not_before.map_or(true, |nbf| nbf <= time + skew)
     }
@@ -134,9 +132,9 @@ impl Linked for Delegatee {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-pub(crate) async fn process<C: ConnectionTrait>(
+pub(crate) async fn process<const SKEW: u64, C: ConnectionTrait>(
     db: &C,
-    SerializedEvent(d, ser): Delegation,
+    SerializedEvent(d, ser): SDelegation,
 ) -> Result<Hash, EventProcessingError> {
     let time = OffsetDateTime::now_utc();
     if !d.valid_at_time::<60, u64>(time.unix_timestamp() as u64) {
@@ -148,13 +146,9 @@ pub(crate) async fn process<C: ConnectionTrait>(
     save(db, d, ser).await
 }
 
-fn nothing(_: &Model) -> bool {
-    true
-}
-
 async fn save<C: ConnectionTrait>(
     db: &C,
-    delegation: KeplerDelegation,
+    delegation: Delegation,
     serialization: Vec<u8>,
 ) -> Result<Hash, EventProcessingError> {
     save_actors(

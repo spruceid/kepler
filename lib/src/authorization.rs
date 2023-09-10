@@ -1,11 +1,11 @@
-use crate::resource::{AnyResource, ResourceCapErr, ResourceId};
+use crate::resource::{AnyResource, ResourceId};
 use cacaos::v2::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
 use iri_string::types::{UriStr, UriString};
 use ssi::ucan::{
     capabilities::*,
     common::Common,
     jwt::{Jwt, UcanDecode},
-    Ucan,
+    Revocation as URevocation, Ucan,
 };
 use std::{
     collections::BTreeMap,
@@ -30,9 +30,9 @@ pub trait Resources<'a, RO: 'a = &'a UriStr, NB: 'a = serde_json::Value> {
     }
 }
 
-pub type KeplerDelegation = CommonCacao;
+pub type Delegation = CommonCacao;
 
-impl HeaderEncode for KeplerDelegation {
+impl HeaderEncode for Delegation {
     fn encode(&self) -> Result<String, EncodingError> {
         Ok(match self.signature().sig() {
             EitherSignature::A(_) => {
@@ -110,7 +110,7 @@ impl<'a, NB: 'a> Resources<'a, AnyResource<&'a UriStr>, NB> for Capabilities<NB>
     }
 }
 
-pub fn delegation_from_bytes(b: &[u8]) -> Result<KeplerDelegation, EncodingError> {
+pub fn delegation_from_bytes(b: &[u8]) -> Result<Delegation, EncodingError> {
     match serde_ipld_dagcbor::from_slice(b) {
         Ok(cacao) => Ok(cacao),
         Err(_) => Ok(
@@ -119,61 +119,21 @@ pub fn delegation_from_bytes(b: &[u8]) -> Result<KeplerDelegation, EncodingError
     }
 }
 
-pub type KeplerInvocation = CommonCacao;
+pub type Invocation = CommonCacao;
 
-#[derive(Debug, Clone)]
-pub enum KeplerRevocation {
-    Cacao(CommonCacao),
-}
+pub type Revocation = URevocation;
 
-impl HeaderEncode for KeplerRevocation {
+impl HeaderEncode for Revocation {
     fn encode(&self) -> Result<String, EncodingError> {
-        match self {
-            Self::Cacao(c) => Ok(base64::encode_config(
-                serde_ipld_dagcbor::to_vec(&c)?,
-                base64::URL_SAFE,
-            )),
-        }
+        Ok(base64::encode_config(
+            serde_ipld_dagcbor::to_vec(&self)?,
+            base64::URL_SAFE,
+        ))
     }
     fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         let v = base64::decode_config(s, base64::URL_SAFE)?;
-        Ok((Self::Cacao(serde_ipld_dagcbor::from_slice(&v)?), v))
+        Ok((serde_ipld_dagcbor::from_slice(&v)?, v))
     }
-}
-
-// pub async fn make_invocation(
-//     invocation_target: Vec<ResourceId>,
-//     delegation: Cid,
-//     jwk: &JWK,
-//     verification_method: String,
-//     expiration: f64,
-//     not_before: Option<f64>,
-//     nonce: Option<String>,
-// ) -> Result<Ucan, InvocationError> {
-//     Ok(Payload {
-//         issuer: verification_method.clone(),
-//         audience: verification_method,
-//         not_before: not_before.map(NumericDate::try_from_seconds).transpose()?,
-//         expiration: NumericDate::try_from_seconds(expiration)?,
-//         nonce: Some(nonce.unwrap_or_else(|| format!("urn:uuid:{}", Uuid::new_v4()))),
-//         facts: None,
-//         proof: vec![delegation],
-//         attenuation: invocation_target
-//             .into_iter()
-//             .map(|t| t.try_into())
-//             .collect::<Result<Vec<ssi::ucan::capabilities::Capabilities>, _>>()?,
-//     }
-//     .sign(jwk.get_algorithm().unwrap_or_default(), jwk)?)
-// }
-
-#[derive(Debug, thiserror::Error)]
-pub enum InvocationError {
-    #[error(transparent)]
-    ResourceCap(#[from] ResourceCapErr),
-    #[error(transparent)]
-    NumericDateConversion(#[from] ssi::jwt::NumericDateConversionError),
-    #[error(transparent)]
-    UCAN(#[from] ssi::ucan::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
