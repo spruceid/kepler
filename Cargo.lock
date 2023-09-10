@@ -733,6 +733,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf9ff0bbfd639f15c74af777d81383cf53efb7c93613f6cab67c6c11e05bbf8b"
 
 [[package]]
+name = "bech32"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
+
+[[package]]
 name = "bigdecimal"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1060,6 +1066,32 @@ dependencies = [
 
 [[package]]
 name = "cacaos"
+version = "0.5.0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/webauthn#ec7517b3c07403def693f8a6c9f458223310117a"
+dependencies = [
+ "async-trait",
+ "hex",
+ "http",
+ "iri-string",
+ "libipld 0.16.0",
+ "multidid",
+ "serde",
+ "serde_json",
+ "siwe",
+ "siwe-recap 0.2.0",
+ "ssi-dids",
+ "ssi-jwk",
+ "ssi-jwt",
+ "ssi-ucan",
+ "thiserror",
+ "time 0.3.23",
+ "ucan-capabilities-object",
+ "url",
+ "varsig",
+]
+
+[[package]]
+name = "cacaos"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92680fcbb8e24eaa4640c6deca0042db02da17c8b92fde62a0c517bcb6769d7d"
@@ -1068,7 +1100,7 @@ dependencies = [
  "hex",
  "http",
  "iri-string",
- "libipld",
+ "libipld 0.14.0",
  "serde",
  "serde_with 2.3.3",
  "siwe",
@@ -1153,6 +1185,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ciborium"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "effd91f6c78e5a4ace8a5d3c0b6bfaec9e2baaef55f3efc00e45fb2e477ee926"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdf919175532b369853f5d5e20b26b43112613fd6fe7aee757e35f7a44642656"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "defaa24ecc093c77630e6c15e17c51f5e187bf35ee514f4e2d67baaa96dae22b"
+dependencies = [
+ "ciborium-io",
+ "half",
+]
+
+[[package]]
 name = "cid"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1161,6 +1220,20 @@ dependencies = [
  "core2",
  "multibase 0.9.1",
  "multihash 0.16.3",
+ "serde",
+ "serde_bytes",
+ "unsigned-varint",
+]
+
+[[package]]
+name = "cid"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd94671561e36e4e7de75f753f577edafb0e7c05d6e4547229fdf7938fbcd2c3"
+dependencies = [
+ "core2",
+ "multibase 0.9.1",
+ "multihash 0.18.1",
  "serde",
  "serde_bytes",
  "unsigned-varint",
@@ -1280,6 +1353,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b49ba7ef1ad6107f8824dbe97de947cbaac53c44e7f9756a1fba0d37c1eec505"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "coset"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c765a4e852cef25c69a48e9fcd60995a7fecabf0134a0021e7181452c4a60f95"
+dependencies = [
+ "ciborium",
+ "ciborium-io",
 ]
 
 [[package]]
@@ -1760,8 +1843,7 @@ dependencies = [
 [[package]]
 name = "did-ethr"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d22b1adcd156bf1041f87f80cd027bf6f82a34849bada30d59b869e831df19d"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1777,8 +1859,7 @@ dependencies = [
 [[package]]
 name = "did-method-key"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "543b322ff52ab4892f4fd30ceb8fa1007aca4e3c5e89ad55793036846f0cc74e"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "multibase 0.8.0",
@@ -1793,8 +1874,7 @@ dependencies = [
 [[package]]
 name = "did-onion"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8e1ba10a5415931c5d436a6343bbd72673a42284a16d4acd501fbfb9d882db5"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "http",
@@ -1807,11 +1887,10 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "074c4ae82880d60a25048cd3bf2e8aaaa881922d7c73fbb9ec29fc67fa0d33e4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
- "bech32",
+ "bech32 0.8.1",
  "bs58 0.4.0",
  "chrono",
  "iref",
@@ -1827,8 +1906,7 @@ dependencies = [
 [[package]]
 name = "did-tz"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "562670fedf756b20c047dcf4ef88d020c5c86c2115f954fb3aef072952015ba4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1847,9 +1925,8 @@ dependencies = [
 
 [[package]]
 name = "did-web"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e239187ee5cf6b778c75252ad22bb8289508dcaf05a7c718222a3093460ca0d2"
+version = "0.2.1"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "http",
@@ -1861,8 +1938,7 @@ dependencies = [
 [[package]]
 name = "did-webkey"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88fb811ef9b08a872eac80c1d1bcb0cabf4cd6a205d75971d8864f06ea2a9c2a"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2491,6 +2567,12 @@ dependencies = [
  "tokio-util",
  "tracing",
 ]
+
+[[package]]
+name = "half"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 
 [[package]]
 name = "hashbrown"
@@ -3134,7 +3216,7 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "serde",
- "serde_ipld_dagcbor",
+ "serde_ipld_dagcbor 0.3.0",
  "serde_json",
  "ssi",
  "thiserror",
@@ -3147,7 +3229,7 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.13.1",
- "cacaos",
+ "cacaos 0.5.0",
  "did-ethr",
  "did-method-key",
  "did-onion",
@@ -3157,11 +3239,12 @@ dependencies = [
  "did-webkey",
  "iri-string",
  "lazy_static",
- "libipld",
+ "libipld 0.16.0",
  "serde",
+ "serde_ipld_dagcbor 0.4.1",
  "serde_json",
  "serde_with 1.14.0",
- "siwe-recap",
+ "siwe-recap 0.2.0",
  "ssi",
  "thiserror",
  "tokio",
@@ -3315,14 +3398,30 @@ dependencies = [
  "async-trait",
  "cached",
  "fnv",
- "libipld-cbor",
- "libipld-cbor-derive",
- "libipld-core",
- "libipld-json",
- "libipld-macro",
+ "libipld-cbor 0.14.0",
+ "libipld-cbor-derive 0.14.0",
+ "libipld-core 0.14.0",
+ "libipld-macro 0.14.0",
  "log",
  "multihash 0.16.3",
  "parking_lot 0.12.1",
+ "thiserror",
+]
+
+[[package]]
+name = "libipld"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1ccd6b8ffb3afee7081fcaec00e1b099fd1c7ccf35ba5729d88538fcc3b4599"
+dependencies = [
+ "fnv",
+ "libipld-cbor 0.16.0",
+ "libipld-cbor-derive 0.16.0",
+ "libipld-core 0.16.0",
+ "libipld-json",
+ "libipld-macro 0.16.0",
+ "log",
+ "multihash 0.18.1",
  "thiserror",
 ]
 
@@ -3333,7 +3432,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dd1ab68c9d26f20c7d0dfea6eecbae8c00359875210001b33ca27d4a02f3d09"
 dependencies = [
  "byteorder",
- "libipld-core",
+ "libipld-core 0.14.0",
+ "thiserror",
+]
+
+[[package]]
+name = "libipld-cbor"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77d98c9d1747aa5eef1cf099cd648c3fd2d235249f5fed07522aaebc348e423b"
+dependencies = [
+ "byteorder",
+ "libipld-core 0.16.0",
  "thiserror",
 ]
 
@@ -3351,28 +3461,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "libipld-cbor-derive"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d5ba3a729b72973e456a1812b0afe2e176a376c1836cc1528e9fc98ae8cb838"
+dependencies = [
+ "proc-macro-crate 1.1.3",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "synstructure",
+]
+
+[[package]]
 name = "libipld-core"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d44790246ec6b7314cba745992c23d479d018073e66d49ae40ae1b64e5dd8eb5"
 dependencies = [
  "anyhow",
- "cid",
+ "cid 0.8.6",
  "core2",
  "multibase 0.9.1",
  "multihash 0.16.3",
+ "thiserror",
+]
+
+[[package]]
+name = "libipld-core"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5acd707e8d8b092e967b2af978ed84709eaded82b75effe6cb6f6cc797ef8158"
+dependencies = [
+ "anyhow",
+ "cid 0.10.1",
+ "core2",
+ "multibase 0.9.1",
+ "multihash 0.18.1",
  "serde",
  "thiserror",
 ]
 
 [[package]]
 name = "libipld-json"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18aa481a87f084d98473dd9ece253a9569c762b75f6bbba8217d54e48c9d63b3"
+checksum = "25856def940047b07b25c33d4e66d248597049ab0202085215dc4dca0487731c"
 dependencies = [
- "libipld-core",
- "multihash 0.16.3",
+ "libipld-core 0.16.0",
+ "multihash 0.18.1",
  "serde",
  "serde_json",
 ]
@@ -3383,7 +3520,16 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "852c011562ae5059b67c3a917f9f5945af5a68df8e39ede4444fff33274d25e2"
 dependencies = [
- "libipld-core",
+ "libipld-core 0.14.0",
+]
+
+[[package]]
+name = "libipld-macro"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71171c54214f866ae6722f3027f81dff0931e600e5a61e6b1b6a49ca0b5ed4ae"
+dependencies = [
+ "libipld-core 0.16.0",
 ]
 
 [[package]]
@@ -3711,10 +3857,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "multidid"
+version = "0.1.0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/webauthn#ec7517b3c07403def693f8a6c9f458223310117a"
+dependencies = [
+ "bech32 0.9.1",
+ "bs58 0.5.0",
+ "hex",
+ "iri-string",
+ "serde",
+ "sha3",
+ "thiserror",
+ "unsigned-varint",
+]
+
+[[package]]
 name = "multihash"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c346cf9999c631f002d8f977c4eaeaa0e6386f16007202308d0b3757522c2cc"
+dependencies = [
+ "blake3",
+ "core2",
+ "multihash-derive",
+ "serde",
+ "serde-big-array",
+ "unsigned-varint",
+]
+
+[[package]]
+name = "multihash"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfd8a792c1694c6da4f68db0a9d707c72bd260994da179e6030a5dcee00bb815"
 dependencies = [
  "blake2b_simd 1.0.1",
  "blake2s_simd",
@@ -3884,6 +4059,26 @@ checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
 dependencies = [
  "hermit-abi",
  "libc",
+]
+
+[[package]]
+name = "nutype"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "060a7fdadbae85c7063375e8fb9dd88c9ac336a22d1f0eb2fefd53dbf98edcb5"
+dependencies = [
+ "nutype_macros",
+]
+
+[[package]]
+name = "nutype_macros"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a0d2e869a6039d8b1d10f8a478f76538958808fbf95dae367875ee9635430b9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4154,6 +4349,23 @@ dependencies = [
  "redox_syscall 0.3.5",
  "smallvec",
  "windows-targets 0.48.1",
+]
+
+[[package]]
+name = "passkey-types"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9d50824f04736455af2ce22124c2a621475f1f1b1f261c05dc0f0730aea87e2"
+dependencies = [
+ "bitflags 1.3.2",
+ "ciborium",
+ "coset",
+ "data-encoding",
+ "rand 0.8.5",
+ "serde",
+ "sha2 0.10.7",
+ "strum",
+ "typeshare",
 ]
 
 [[package]]
@@ -5485,7 +5697,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2433e94ffb5977e67afbd75733abd6ada1c4f497125894a8c89b3fdc5fd6a058"
 dependencies = [
  "cbor4ii",
- "cid",
+ "cid 0.8.6",
+ "scopeguard",
+ "serde",
+]
+
+[[package]]
+name = "serde_ipld_dagcbor"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74e4c1e1617be5feb2f03f629f8097f76b51373785a83a875453c2b04c880f4e"
+dependencies = [
+ "cbor4ii",
+ "cid 0.10.1",
  "scopeguard",
  "serde",
 ]
@@ -5739,6 +5963,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "siwe-recap"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054c5aea5227ca44212d3029576602ebefce5179d584bdfcc842997c73cc40d9"
+dependencies = [
+ "base64 0.12.3",
+ "cid 0.10.1",
+ "iri-string",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "serde_with 2.3.3",
+ "siwe",
+ "thiserror",
+ "ucan-capabilities-object",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5947,9 +6189,8 @@ dependencies = [
 
 [[package]]
 name = "ssi"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a74add6dcfc3599495a73e953a7126ea19e9a0fc81860f5d593cabf1322cdf9"
+version = "0.7.0"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "ssi-caips",
  "ssi-core",
@@ -5959,7 +6200,7 @@ dependencies = [
  "ssi-jwk",
  "ssi-jws",
  "ssi-jwt",
- "ssi-ldp 0.2.1",
+ "ssi-ldp",
  "ssi-ssh",
  "ssi-tzkey",
  "ssi-ucan",
@@ -5970,8 +6211,7 @@ dependencies = [
 [[package]]
 name = "ssi-caips"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da2c479690955bebece0279a5b1ab9d7d584402caed9f56ecec346d0bc63661f"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "bs58 0.4.0",
  "ssi-jwk",
@@ -5981,14 +6221,12 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3009b82cbae3d88a76f15460fb5fb3f30a1673eb0359ac6917ffaa3c57f7164"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 
 [[package]]
 name = "ssi-core"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e43f42016b80dc3e5eae8f7d2b22db3debbfe97b38e4fa449433497b3513048"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "serde",
@@ -5998,8 +6236,7 @@ dependencies = [
 [[package]]
 name = "ssi-crypto"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f41a12b15af9dce950a24a3295a2540be3b8500467621e31a97ddbe7618a5c8"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "bs58 0.4.0",
  "digest 0.9.0",
@@ -6014,8 +6251,7 @@ dependencies = [
 [[package]]
 name = "ssi-dids"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62e3c375b0fb2129c691e65e776c9105290ade34b56f39755f4f9c40ba98e41c"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6041,8 +6277,7 @@ dependencies = [
 [[package]]
 name = "ssi-json-ld"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50912984a4f415dd419853d461938b2daaa428dcafb8a5dfcde8dc07371371da"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-std",
  "combination",
@@ -6063,8 +6298,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwk"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df3c376df0c00621f6d8de45249e901cf2b3868bef84cf785fbcbce62842d815"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "base64 0.12.3",
  "blake2b_simd 0.5.11",
@@ -6092,8 +6326,7 @@ dependencies = [
 [[package]]
 name = "ssi-jws"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df9e36ec8624a4f81f21b0e407f1c2209c2cd89c0ff3c27b928999682b2e8912"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "base64 0.12.3",
  "blake2",
@@ -6114,8 +6347,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwt"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46522391b37f4b749911bb29b3960a7e2e0b9936c7debf52035f431480b40123"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "chrono",
  "serde",
@@ -6128,9 +6360,8 @@ dependencies = [
 
 [[package]]
 name = "ssi-ldp"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de930bb18e3ed3c1f7b0a2b2b4fdba2887dffff34bb5f44b9967a983fea2d60c"
+version = "0.3.0"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "bs58 0.4.0",
@@ -6149,6 +6380,7 @@ dependencies = [
  "serde",
  "serde_jcs",
  "serde_json",
+ "sha2 0.10.7",
  "ssi-caips",
  "ssi-contexts",
  "ssi-core",
@@ -6163,43 +6395,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssi-ldp"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bb057ad335a08d78deca3a7cf8f8393087ca99d64c038e97ff844ea66fbd475"
-dependencies = [
- "async-trait",
- "bs58 0.4.0",
- "chrono",
- "grdf",
- "hex",
- "iref",
- "json-syntax",
- "lazy_static",
- "locspan",
- "multibase 0.8.0",
- "rdf-types",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2 0.10.7",
- "ssi-caips",
- "ssi-contexts",
- "ssi-core",
- "ssi-crypto",
- "ssi-dids",
- "ssi-json-ld",
- "ssi-jwk",
- "ssi-jws",
- "static-iref",
- "thiserror",
-]
-
-[[package]]
 name = "ssi-ssh"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22967c7882e2457a2813badebf613a1b6ea3240f77ccac5c7c03858806d56618"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
@@ -6209,8 +6407,7 @@ dependencies = [
 [[package]]
 name = "ssi-tzkey"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1b57d919e20d214253a9a8dbc5f3b08ff555364934d99a09c828becab27a823"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "bs58 0.4.0",
  "ed25519-dalek 1.0.1",
@@ -6221,59 +6418,59 @@ dependencies = [
 
 [[package]]
 name = "ssi-ucan"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0982f62c7860922026a9d9edc6c604de79693ee4c5c6bd65be11e2ff66b1df09"
+version = "0.2.0"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "base64 0.12.3",
  "chrono",
- "libipld",
+ "libipld 0.16.0",
  "serde",
  "serde_json",
  "serde_with 1.14.0",
  "ssi-caips",
  "ssi-core",
+ "ssi-crypto",
  "ssi-dids",
  "ssi-jwk",
  "ssi-jws",
  "ssi-jwt",
  "thiserror",
+ "ucan-capabilities-object",
+ "varsig",
 ]
 
 [[package]]
 name = "ssi-vc"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd7a9a9dc254d976962fea4501ed40097b8a7c23c15f076a7f46fa97ed886bc7"
+version = "0.2.0"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "base64 0.12.3",
  "bitvec 0.20.4",
- "cacaos",
+ "cacaos 0.5.1",
  "chrono",
  "flate2",
  "iref",
- "libipld",
+ "libipld 0.14.0",
  "multihash 0.16.3",
  "reqwest",
  "serde",
  "serde_json",
- "siwe-recap",
+ "siwe-recap 0.1.0",
  "ssi-core",
  "ssi-dids",
  "ssi-json-ld",
  "ssi-jwk",
  "ssi-jws",
  "ssi-jwt",
- "ssi-ldp 0.2.1",
+ "ssi-ldp",
  "thiserror",
 ]
 
 [[package]]
 name = "ssi-zcap-ld"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8380152589e8876e91bb765ce1b363909bc071788c1550bfdb730152c5b7afe"
+source = "git+https://github.com/spruceid/ssi?branch=feat/webauthn-exp#1279253f2be16fb0bdd43b387a1621e905f18afc"
 dependencies = [
  "async-trait",
  "iref",
@@ -6283,7 +6480,7 @@ dependencies = [
  "ssi-dids",
  "ssi-json-ld",
  "ssi-jwk",
- "ssi-ldp 0.3.0",
+ "ssi-ldp",
  "thiserror",
 ]
 
@@ -6341,6 +6538,28 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+
+[[package]]
+name = "strum"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "063e6045c0e62079840579a7e47a355ae92f60eb74daaf156fb1e84ba164e63f"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e385be0d24f186b4ce2f9982191e7101bb737312ad61c1f2f984f34bcf85d59"
+dependencies = [
+ "heck 0.4.1",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 1.0.109",
+]
 
 [[package]]
 name = "subtle"
@@ -6819,12 +7038,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
 
 [[package]]
+name = "typeshare"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f44d1a2f454cb35fbe05b218c410792697e76bd868f48d3a418f2cd1a7d527d6"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "typeshare-annotation",
+]
+
+[[package]]
+name = "typeshare-annotation"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc670d0e358428857cc3b4bf504c691e572fccaec9542ff09212d3f13d74b7a9"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "ubyte"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c81f0dae7d286ad0d9366d7679a77934cfc3cf3a8d67e82669794412b2368fe6"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "ucan-capabilities-object"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f39597d86523b7f8028e7c05989fc64c1868f381e68ffc9c4b8540e5a891382"
+dependencies = [
+ "iri-string",
+ "nutype",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -6945,6 +7198,18 @@ name = "value-bag"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d92ccd67fb88503048c01b59152a04effd0782d035a83a6d256ce6085f08f4a3"
+
+[[package]]
+name = "varsig"
+version = "0.1.0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/webauthn#ec7517b3c07403def693f8a6c9f458223310117a"
+dependencies = [
+ "passkey-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "unsigned-varint",
+]
 
 [[package]]
 name = "vcpkg"
