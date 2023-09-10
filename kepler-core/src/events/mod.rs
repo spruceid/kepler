@@ -1,7 +1,6 @@
 use crate::{
     hash::{hash, Hash},
     types::Metadata,
-    util::{DelegationInfo, InvocationInfo, RevocationInfo},
 };
 pub use kepler_lib::{
     authorization::{
@@ -40,9 +39,9 @@ impl<T> SerializedEvent<T> {
     }
 }
 
-pub type Delegation = SerializedEvent<DelegationInfo>;
-pub type Invocation = SerializedEvent<InvocationInfo>;
-pub type Revocation = SerializedEvent<RevocationInfo>;
+pub type Delegation = SerializedEvent<KeplerDelegation>;
+pub type Invocation = SerializedEvent<KeplerInvocation>;
+pub type Revocation = SerializedEvent<KeplerRevocation>;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) enum Operation {
