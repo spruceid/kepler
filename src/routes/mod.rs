@@ -1,3 +1,4 @@
+use crate::OK_SKEW;
 use anyhow::Result;
 use rocket::{data::ToByteUnit, http::Status, State};
 use std::collections::HashMap;
@@ -14,11 +15,13 @@ use crate::{
 use kepler_core::{
     sea_orm::DbErr,
     storage::{ImmutableReadStore, ImmutableStaging},
-    types::Resource,
-    util::{DelegationInfo, InvocationInfo},
     TxError, TxStoreError,
 };
-
+use kepler_lib::{
+    authorization::{Delegation, Invocation, Resources},
+    resource::ResourceId,
+    ssi::ucan::capabilities::ability::Ability,
+};
 pub mod util;
 use util::LimitedReader;
 
@@ -60,7 +63,7 @@ pub async fn open_host_key(
 
 #[post("/delegate")]
 pub async fn delegate(
-    d: AuthHeaderGetter<DelegationInfo>,
+    d: AuthHeaderGetter<Delegation>,
     req_span: TracingSpan,
     kepler: &State<Kepler>,
 ) -> Result<String, (Status, String)> {
@@ -72,7 +75,7 @@ pub async fn delegate(
             .with_label_values(&["delegate"])
             .start_timer();
         let res = kepler
-            .delegate(d.0)
+            .delegate::<OK_SKEW>(d.0)
             .await
             .map_err(|e| {
                 (
@@ -100,7 +103,7 @@ pub async fn delegate(
 
 #[post("/invoke", data = "<data>")]
 pub async fn invoke(
-    i: AuthHeaderGetter<InvocationInfo>,
+    i: AuthHeaderGetter<Invocation>,
     req_span: TracingSpan,
     headers: ObjectHeaders,
     data: DataIn<'_>,
@@ -116,29 +119,27 @@ pub async fn invoke(
             .with_label_values(&["invoke"])
             .start_timer();
 
-        let mut put_iter =
-            i.0 .0
-                .capabilities
-                .iter()
-                .filter_map(|c| match (&c.resource, c.action.as_str()) {
-                    (Resource::Kepler(r), "put") if r.service() == Some("kv") => {
-                        r.path().map(|p| (r.orbit(), p))
-                    }
-                    _ => None,
-                });
+        let d = Ability::new("kv/put").unwrap();
+        let mut put_iter = Resources::<'_, ResourceId, _>::grants(&i.0 .0).filter_map(|(r, a)| {
+            let (o, s, p, _) = r.into_inner();
+            match (s.as_deref(), p, a.contains_key(&d)) {
+                (Some("kv"), Some(p), true) => Some((o, p)),
+                _ => None,
+            }
+        });
 
         let inputs = match (data, put_iter.next(), put_iter.next()) {
             (DataIn::None | DataIn::One(_), None, _) => HashMap::new(),
             (DataIn::One(d), Some((orbit, path)), None) => {
                 let mut stage = staging
-                    .stage(orbit)
+                    .stage(&orbit)
                     .await
                     .map_err(|e| (Status::InternalServerError, e.to_string()))?;
                 let open_data = d.open(1u8.gigabytes()).compat();
 
                 if let Some(limit) = config.storage.limit {
                     let current_size = kepler
-                        .store_size(orbit)
+                        .store_size(&orbit)
                         .await
                         .map_err(|e| (Status::InternalServerError, e.to_string()))?
                         .ok_or_else(|| (Status::NotFound, "orbit not found".to_string()))?;
@@ -179,7 +180,7 @@ pub async fn invoke(
             }
         };
         let res = kepler
-            .invoke::<BlockStage>(i.0, inputs)
+            .invoke::<OK_SKEW, BlockStage>(i.0, inputs)
             .await
             .map(
                 |(_, mut outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {

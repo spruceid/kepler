@@ -36,6 +36,7 @@ pub type Block = OBlock<DefaultParams>;
 pub type BlockStores = Either<S3BlockStore, FileSystemStore>;
 pub type BlockConfig = Either<S3BlockConfig, FileSystemConfig>;
 pub type BlockStage = Either<TempFileSystemStage, MemoryStaging>;
+pub const OK_SKEW: u64 = 60;
 
 impl From<BlockStorage> for BlockConfig {
     fn from(c: BlockStorage) -> BlockConfig {
