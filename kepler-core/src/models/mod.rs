@@ -21,7 +21,10 @@ use kepler_lib::{
     ssi::ucan::capabilities::{Ability, NotaBeneCollection},
 };
 use sea_orm::entity::prelude::*;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    iter::once,
+};
 use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
@@ -105,14 +108,14 @@ async fn validate<'a, C: ConnectionTrait>(
         // dependant caps and parents, check parents
         (Some(rf), Some(prf)) if !prf.is_empty() => {
             let mut unauthorized = take_unauthorized(
-                [rf].into_iter().chain(required),
+                once(rf).chain(required),
                 // get all known parents of `message`
                 get_granted(db, message, parent_check).await?,
             )
             .map(|(r, a)| (r.into(), a.into_iter().cloned().collect()));
             match unauthorized.next() {
                 Some(uf) => Err(ValidationError::UnauthorizedCapability(
-                    [uf].into_iter().chain(unauthorized).collect(),
+                    once(uf).chain(unauthorized).collect(),
                 )
                 .into()),
                 _ => Ok(()),
