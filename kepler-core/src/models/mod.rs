@@ -96,10 +96,10 @@ async fn verify(cacao: &CommonCacao) -> Result<(), ValidationError> {
 }
 
 // verify parenthood and authorization
-async fn validate<'a, C: ConnectionTrait>(
+async fn validate<'a, C: ConnectionTrait, T: Fn(&delegation::Model) -> bool>(
     db: &C,
     message: &'a CommonCacao,
-    parent_check: Option<impl Fn(&delegation::Model) -> bool>,
+    parent_check: Option<T>,
 ) -> Result<(), EventProcessingError> {
     let mut required = get_required(message);
     match (required.next(), message.proof()) {

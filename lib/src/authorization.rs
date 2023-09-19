@@ -1,12 +1,7 @@
 use crate::resource::{AnyResource, ResourceId};
 use cacaos::v2::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
 use iri_string::types::{UriStr, UriString};
-use ssi::ucan::{
-    capabilities::*,
-    common::Common,
-    jwt::{Jwt, UcanDecode},
-    Revocation as URevocation, Ucan,
-};
+use ssi::ucan::{capabilities::*, jose, jwt::Jwt, Revocation as URevocation, Ucan, UcanDecode};
 use std::{
     collections::BTreeMap,
     iter::{FilterMap, Map},
@@ -45,7 +40,7 @@ impl HeaderEncode for Delegation {
     fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         Ok(if s.contains('.') {
             (
-                <Ucan<Common> as UcanDecode<Jwt>>::decode(s)?.try_into()?,
+                <Ucan as UcanDecode<Jwt>>::decode(s)?.try_into()?,
                 s.as_bytes().to_vec(),
             )
         } else {
@@ -113,9 +108,7 @@ impl<'a, NB: 'a> Resources<'a, AnyResource<&'a UriStr>, NB> for Capabilities<NB>
 pub fn delegation_from_bytes(b: &[u8]) -> Result<Delegation, EncodingError> {
     match serde_ipld_dagcbor::from_slice(b) {
         Ok(cacao) => Ok(cacao),
-        Err(_) => Ok(
-            <Ucan<Common> as UcanDecode<Jwt>>::decode(&String::from_utf8_lossy(b))?.try_into()?,
-        ),
+        Err(_) => Ok(<Ucan as UcanDecode<Jwt>>::decode(&String::from_utf8_lossy(b))?.try_into()?),
     }
 }
 
@@ -139,7 +132,7 @@ impl HeaderEncode for Revocation {
 #[derive(Debug, thiserror::Error)]
 pub enum EncodingError {
     #[error(transparent)]
-    UCAN(#[from] ssi::ucan::Error),
+    UCAN(#[from] ssi::ucan::jwt::DecodeError<jose::Error>),
     #[error(transparent)]
     CacaoError(#[from] cacaos::v2::common::Error),
     #[error(transparent)]

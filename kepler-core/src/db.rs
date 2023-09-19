@@ -47,7 +47,7 @@ pub enum TxError<S: StorageSetup, K: Secrets> {
     #[error("database error: {0}")]
     Db(#[from] DbErr),
     #[error(transparent)]
-    Ucan(#[from] ssi::ucan::Error),
+    Ucan(#[from] ssi::ucan::jose::VerificationError<ssi::ucan::jose::Error>),
     #[error(transparent)]
     Cacao(#[from] kepler_lib::cacaos::v2::common::Error),
     #[error(transparent)]

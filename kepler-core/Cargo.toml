@@ -15,19 +15,19 @@ tokio = ["sea-orm/runtime-tokio-rustls"]
 async-std = ["sea-orm/runtime-async-std-rustls"]
 
 [dependencies]
-sea-orm = { version = "0.11", default-features = false, features = ["macros", "with-time", "with-json", "sqlx", "sea-orm-internal", "sqlx-dep"] }
-sea-orm-migration = { version = "0.11", default-features = false }
+sea-orm = { version = "0.12", default-features = false, features = ["macros", "with-time", "with-json", "sqlx", "sea-orm-internal", "sqlx-dep"] }
+sea-orm-migration = { version = "0.12", default-features = false }
 futures = { default-features = false, version = "0.3", features = ["alloc", "std"] }
 pin-project = "1"
 time = "0.3"
 kepler-lib = { version = "0.2", path = "../lib" }
 libp2p = { version = "0.52.1", default-features = false, features = ["ed25519"] }
 thiserror = "1"
-ssi = { version = "0.7", git = "https://github.com/spruceid/ssi", branch = "feat/webauthn-exp" }
+ssi = { version = "0.7", git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_ipld_dagcbor = "0.3"
 
 [dev-dependencies]
-sea-orm = { version = "0.11", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }
+sea-orm = { version = "0.12", features = ["runtime-async-std-rustls", "sqlx-sqlite"] }
 async-std = { version = "1", features = ["attributes"] }

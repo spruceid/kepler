@@ -81,7 +81,7 @@ pub async fn delegate(
                 (
                     match e {
                         TxError::OrbitNotFound => Status::NotFound,
-                        TxError::Db(DbErr::ConnectionAcquire) => Status::InternalServerError,
+                        TxError::Db(DbErr::ConnectionAcquire(_)) => Status::InternalServerError,
                         _ => Status::Unauthorized,
                     },
                     e.to_string(),
@@ -198,7 +198,7 @@ pub async fn invoke(
                 (
                     match e {
                         TxStoreError::Tx(TxError::OrbitNotFound) => Status::NotFound,
-                        TxStoreError::Tx(TxError::Db(DbErr::ConnectionAcquire)) => {
+                        TxStoreError::Tx(TxError::Db(DbErr::ConnectionAcquire(_))) => {
                             Status::InternalServerError
                         }
                         _ => Status::Unauthorized,
