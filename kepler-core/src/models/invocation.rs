@@ -58,7 +58,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
         return Err(ValidationError::InvalidTime.into());
     }
     verify(&i).await?;
-    validate(db, &i, Some(|p: &delegation::Model| p.valid_at(time, None))).await?;
+    validate(db, &i, Some(time)).await?;
     save(db, i, Some(time), ser, ops).await
 }
 

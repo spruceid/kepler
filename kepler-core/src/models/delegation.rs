@@ -7,7 +7,7 @@ use crate::{
 };
 use kepler_lib::authorization::{delegation_from_bytes, Delegation, EncodingError, Resources};
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
-use time::{ext::NumericalDuration, Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
@@ -141,7 +141,7 @@ pub(crate) async fn process<C: ConnectionTrait>(
         return Err(ValidationError::InvalidTime.into());
     }
     verify(&d).await?;
-    validate(db, &d, Option::<fn(&Model) -> bool>::None).await?;
+    validate(db, &d, None).await?;
 
     save(db, d, ser).await
 }

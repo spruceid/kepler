@@ -96,10 +96,10 @@ async fn verify(cacao: &CommonCacao) -> Result<(), ValidationError> {
 }
 
 // verify parenthood and authorization
-async fn validate<'a, C: ConnectionTrait, T: Fn(&delegation::Model) -> bool>(
+async fn validate<'a, C: ConnectionTrait>(
     db: &C,
     message: &'a CommonCacao,
-    parent_check: Option<T>,
+    time: Option<OffsetDateTime>,
 ) -> Result<(), EventProcessingError> {
     let mut required = get_required(message);
     match (required.next(), message.proof()) {
@@ -110,7 +110,7 @@ async fn validate<'a, C: ConnectionTrait, T: Fn(&delegation::Model) -> bool>(
             let mut unauthorized = take_unauthorized(
                 once(rf).chain(required),
                 // get all known parents of `message`
-                get_granted(db, message, parent_check).await?,
+                get_granted(db, message, time).await?,
             )
             .map(|(r, a)| (r.into(), a.into_iter().cloned().collect()));
             match unauthorized.next() {
@@ -170,7 +170,7 @@ fn take_unauthorized<'a>(
 async fn get_granted<C: ConnectionTrait>(
     db: &C,
     message: &CommonCacao,
-    check: Option<impl Fn(&delegation::Model) -> bool>,
+    time: Option<OffsetDateTime>,
 ) -> Result<HashMap<AnyResource, BTreeMap<String, CaveatsInner>>, EventProcessingError> {
     Ok(match message.proof() {
         // get delegated abilities from each parent
@@ -202,7 +202,7 @@ async fn get_granted<C: ConnectionTrait>(
                 // valid time bounds
                 .filter(|p| p.validate_bounds(nbf, exp))
                 // extra check
-                .filter(|p| check.as_ref().map_or(true, |f| f(p)))
+                .filter(|p| time.map_or(true, |t| p.valid_at(t, None)))
                 .collect::<Vec<_>>()
                 .load_many(abilities::Entity, db)
                 .await?
