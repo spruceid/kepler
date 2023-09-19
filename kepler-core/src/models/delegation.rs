@@ -7,7 +7,7 @@ use crate::{
 };
 use kepler_lib::authorization::{delegation_from_bytes, Delegation, EncodingError, Resources};
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
-use time::{ext::NumericalDuration, OffsetDateTime};
+use time::{ext::NumericalDuration, Duration, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "delegation")]
@@ -32,8 +32,8 @@ impl Model {
         ))
     }
 
-    pub(crate) fn valid_at<const SKEW: i64>(&self, time: OffsetDateTime) -> bool {
-        let skew = SKEW.seconds();
+    pub(crate) fn valid_at(&self, time: OffsetDateTime, skew: Option<Duration>) -> bool {
+        let skew = skew.unwrap_or_else(|| Duration::seconds(0));
         self.expiry.map_or(true, |exp| time < exp + skew)
             && self.not_before.map_or(true, |nbf| nbf <= time + skew)
     }
@@ -132,12 +132,12 @@ impl Linked for Delegatee {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-pub(crate) async fn process<const SKEW: u64, C: ConnectionTrait>(
+pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
     SerializedEvent(d, ser): SDelegation,
 ) -> Result<Hash, EventProcessingError> {
     let time = OffsetDateTime::now_utc();
-    if !d.valid_at_time::<60, u64>(time.unix_timestamp() as u64) {
+    if !d.valid_at_time(time.unix_timestamp() as u64, None) {
         return Err(ValidationError::InvalidTime.into());
     }
     verify(&d).await?;

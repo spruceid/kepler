@@ -167,7 +167,7 @@ where
     B: StorageSetup,
     K: Secrets,
 {
-    async fn transact<const SKEW: u64>(
+    async fn transact(
         &self,
         events: Vec<Event>,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
@@ -176,30 +176,30 @@ where
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
 
-        let commit = transact::<SKEW, _, _, _>(&tx, &self.storage, &self.secrets, events).await?;
+        let commit = transact(&tx, &self.storage, &self.secrets, events).await?;
 
         tx.commit().await?;
 
         Ok(commit)
     }
 
-    pub async fn delegate<const SKEW: u64>(
+    pub async fn delegate(
         &self,
         delegation: SDelegation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
-        self.transact::<SKEW>(vec![Event::Delegation(Box::new(delegation))])
+        self.transact(vec![Event::Delegation(Box::new(delegation))])
             .await
     }
 
-    pub async fn revoke<const SKEW: u64>(
+    pub async fn revoke(
         &self,
         revocation: SRevocation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
-        self.transact::<SKEW>(vec![Event::Revocation(Box::new(revocation))])
+        self.transact(vec![Event::Revocation(Box::new(revocation))])
             .await
     }
 
-    pub async fn invoke<const SKEW: u64, S>(
+    pub async fn invoke<S>(
         &self,
         invocation: SInvocation,
         mut inputs: InvocationInputs<S::Writable>,
@@ -266,7 +266,7 @@ where
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
         //  verify and commit invocation and kv operations
-        let commit = transact::<SKEW, _, _, _>(
+        let commit = transact(
             &tx,
             &self.storage,
             &self.secrets,
@@ -407,7 +407,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     Ok(orbits)
 }
 
-pub(crate) async fn transact<const SKEW: u64, C: ConnectionTrait, S: StorageSetup, K: Secrets>(
+pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     store_setup: &S,
     secrets: &K,
@@ -589,10 +589,8 @@ pub(crate) async fn transact<const SKEW: u64, C: ConnectionTrait, S: StorageSetu
 
     for (hash, event) in event_hashes {
         match event {
-            Event::Delegation(d) => delegation::process::<SKEW, _>(db, *d)
-                .await
-                .map_err(|e| e.to_del())?,
-            Event::Invocation(i, ops) => invocation::process::<SKEW, _>(
+            Event::Delegation(d) => delegation::process(db, *d).await.map_err(|e| e.to_del())?,
+            Event::Invocation(i, ops) => invocation::process(
                 db,
                 *i,
                 ops.into_iter()

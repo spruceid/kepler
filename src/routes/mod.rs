@@ -1,4 +1,3 @@
-use crate::OK_SKEW;
 use anyhow::Result;
 use rocket::{data::ToByteUnit, http::Status, State};
 use std::collections::HashMap;
@@ -75,7 +74,7 @@ pub async fn delegate(
             .with_label_values(&["delegate"])
             .start_timer();
         let res = kepler
-            .delegate::<OK_SKEW>(d.0)
+            .delegate(d.0)
             .await
             .map_err(|e| {
                 (
@@ -180,7 +179,7 @@ pub async fn invoke(
             }
         };
         let res = kepler
-            .invoke::<OK_SKEW, BlockStage>(i.0, inputs)
+            .invoke::<BlockStage>(i.0, inputs)
             .await
             .map(
                 |(_, mut outcomes)| match (outcomes.pop(), outcomes.pop(), outcomes.drain(..)) {

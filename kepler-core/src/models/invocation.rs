@@ -48,17 +48,17 @@ impl Related<invoked_abilities::Entity> for Entity {
 
 impl ActiveModelBehavior for ActiveModel {}
 
-pub(crate) async fn process<const SKEW: u64, C: ConnectionTrait>(
+pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
     SerializedEvent(i, ser): SInvocation,
     ops: Vec<VersionedOperation>,
 ) -> Result<Hash, EventProcessingError> {
     let time = OffsetDateTime::now_utc();
-    if !i.valid_at_time::<60, u64>(time.unix_timestamp() as u64) {
+    if !i.valid_at_time(time.unix_timestamp() as u64, None) {
         return Err(ValidationError::InvalidTime.into());
     }
     verify(&i).await?;
-    validate(db, &i, Some(|p: &delegation::Model| p.valid_at::<60>(time))).await?;
+    validate(db, &i, Some(|p: &delegation::Model| p.valid_at(time, None))).await?;
     save(db, i, Some(time), ser, ops).await
 }
 

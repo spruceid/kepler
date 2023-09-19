@@ -1033,7 +1033,7 @@ dependencies = [
 [[package]]
 name = "cacaos"
 version = "0.5.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#e0aa87713900ea5d29fb50b880148e2c55c7ec20"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
 dependencies = [
  "async-trait",
  "hex",
@@ -3808,7 +3808,7 @@ dependencies = [
 [[package]]
 name = "multidid"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#e0aa87713900ea5d29fb50b880148e2c55c7ec20"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
 dependencies = [
  "bech32 0.9.1",
  "bs58 0.5.0",
@@ -7146,7 +7146,7 @@ checksum = "d92ccd67fb88503048c01b59152a04effd0782d035a83a6d256ce6085f08f4a3"
 [[package]]
 name = "varsig"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#e0aa87713900ea5d29fb50b880148e2c55c7ec20"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
 dependencies = [
  "serde",
  "thiserror",
