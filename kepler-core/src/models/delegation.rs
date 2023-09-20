@@ -201,21 +201,21 @@ async fn save<C: ConnectionTrait>(
 
     // save abilities
     if !delegation.capabilities().is_empty() {
-        abilities::Entity::insert_many(
-            Resources::<'_, &'_ UriStr>::grants(&delegation)
-                .map(|(resource, abilities)| {
-                    abilities.into_iter().map(|(ability, c)| abilities::Model {
+        let abilities = Resources::<'_, AnyResource>::grants(&delegation)
+            .map(|(resource, abilities)| {
+                abilities
+                    .into_iter()
+                    .map(move |(ability, c)| abilities::Model {
                         delegation: hash,
-                        resource: resource.into(),
+                        resource: resource.clone().into(),
                         ability: ability.clone().into(),
                         caveats: c.clone().into(),
                     })
-                })
-                .flatten()
-                .map(abilities::ActiveModel::from),
-        )
-        .exec(db)
-        .await?;
+            })
+            .flatten()
+            .map(abilities::ActiveModel::from)
+            .collect::<Vec<_>>();
+        abilities::Entity::insert_many(abilities).exec(db).await?;
     }
 
     // save parent relationships

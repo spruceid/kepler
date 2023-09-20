@@ -97,21 +97,21 @@ async fn save<C: ConnectionTrait>(
 
     // save invoked abilities
     if !invocation.capabilities().is_empty() {
-        invoked_abilities::Entity::insert_many(
-            Resources::<'_, &UriStr>::grants(&invocation)
-                .map(|(resource, actions)| {
-                    actions.into_iter().map(|(action, _)| {
-                        invoked_abilities::ActiveModel::from(invoked_abilities::Model {
-                            invocation: hash,
-                            resource: resource.into(),
-                            ability: action.clone().into(),
-                        })
+        let invoked = Resources::<'_, AnyResource>::grants(&invocation)
+            .map(|(resource, actions)| {
+                actions.into_iter().map(move |(action, _)| {
+                    invoked_abilities::ActiveModel::from(invoked_abilities::Model {
+                        invocation: hash,
+                        resource: resource.clone().into(),
+                        ability: action.clone().into(),
                     })
                 })
-                .flatten(),
-        )
-        .exec(db)
-        .await?;
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        invoked_abilities::Entity::insert_many(invoked)
+            .exec(db)
+            .await?;
     }
 
     // save parent relationships

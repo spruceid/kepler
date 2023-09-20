@@ -17,7 +17,6 @@ pub trait HeaderEncode {
 }
 
 pub trait Resources<'a, RO: 'a = &'a UriStr, NB: 'a = serde_json::Value> {
-    type RI;
     type Iter: Iterator<Item = (RO, &'a BTreeMap<Ability, NotaBeneCollection<NB>>)>;
     fn grants(&'a self) -> Self::Iter;
     fn resources(&'a self) -> Map<Self::Iter, fn(<Self::Iter as Iterator>::Item) -> RO> {
@@ -54,7 +53,6 @@ impl<'a, NB: 'a, RO: 'a, F: 'a, S: 'a> Resources<'a, RO, NB> for Cacao<S, F, NB>
 where
     Capabilities<NB>: Resources<'a, RO, NB>,
 {
-    type RI = <Capabilities<NB> as Resources<'a, RO, NB>>::RI;
     type Iter = <Capabilities<NB> as Resources<'a, RO, NB>>::Iter;
     fn grants(&'a self) -> Self::Iter {
         self.capabilities().grants()
@@ -62,7 +60,6 @@ where
 }
 
 impl<'a, NB: 'a> Resources<'a, ResourceId, NB> for Capabilities<NB> {
-    type RI = &'a UriString;
     type Iter = FilterMap<
         std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
         fn(
@@ -77,7 +74,6 @@ impl<'a, NB: 'a> Resources<'a, ResourceId, NB> for Capabilities<NB> {
 }
 
 impl<'a, NB: 'a> Resources<'a, &'a UriStr, NB> for Capabilities<NB> {
-    type RI = &'a UriString;
     type Iter = Map<
         std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
         fn(
@@ -89,8 +85,19 @@ impl<'a, NB: 'a> Resources<'a, &'a UriStr, NB> for Capabilities<NB> {
     }
 }
 
+impl<'a, NB: 'a> Resources<'a, AnyResource, NB> for Capabilities<NB> {
+    type Iter = Map<
+        std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
+        fn(
+            (&'a UriString, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+        ) -> (AnyResource, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+    >;
+    fn grants(&'a self) -> Self::Iter {
+        self.abilities().iter().map(|(r, a)| (r.into(), a))
+    }
+}
+
 impl<'a, NB: 'a> Resources<'a, AnyResource<&'a UriStr>, NB> for Capabilities<NB> {
-    type RI = &'a UriString;
     type Iter = Map<
         std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
         fn(
