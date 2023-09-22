@@ -151,7 +151,8 @@ fn take_unauthorized<'a>(
     granted: HashMap<AnyResource<UriString>, BTreeMap<String, CaveatsInner>>,
 ) -> impl Iterator<Item = (AnyResource<&'a UriStr>, HashSet<&'a Ability>)> {
     actioned.filter_map(move |(r, a)| {
-        a.keys()
+        let unsupported = a
+            .keys()
             .filter(|ab| {
                 // get unsupported abilities
                 !granted
@@ -161,9 +162,12 @@ fn take_unauthorized<'a>(
                     // and the ability is not supported
                     .any(|ga| ga.contains_key(ab.as_ref()))
             })
-            .map(Some)
-            .collect::<Option<HashSet<_>>>()
-            .map(|ab| (r, ab))
+            .collect::<HashSet<_>>();
+        if unsupported.is_empty() {
+            None
+        } else {
+            Some((r, unsupported))
+        }
     })
 }
 
