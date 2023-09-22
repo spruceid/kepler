@@ -98,8 +98,8 @@ async fn save<C: ConnectionTrait>(
     // save invoked abilities
     if !invocation.capabilities().is_empty() {
         let invoked = Resources::<'_, AnyResource>::grants(&invocation)
-            .map(|(resource, actions)| {
-                actions.into_iter().map(move |(action, _)| {
+            .flat_map(|(resource, actions)| {
+                actions.iter().map(move |(action, _)| {
                     invoked_abilities::ActiveModel::from(invoked_abilities::Model {
                         invocation: hash,
                         resource: resource.clone().into(),
@@ -107,7 +107,6 @@ async fn save<C: ConnectionTrait>(
                     })
                 })
             })
-            .flatten()
             .collect::<Vec<_>>();
         invoked_abilities::Entity::insert_many(invoked)
             .exec(db)
@@ -116,7 +115,7 @@ async fn save<C: ConnectionTrait>(
 
     // save parent relationships
     if let Some(prf) = invocation.proof().filter(|p| !p.is_empty()) {
-        parent_delegations::Entity::insert_many(prf.into_iter().map(|p| {
+        parent_delegations::Entity::insert_many(prf.iter().map(|p| {
             parent_delegations::ActiveModel::from(parent_delegations::Model {
                 child: hash,
                 parent: (*p).into(),

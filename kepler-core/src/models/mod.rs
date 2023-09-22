@@ -40,7 +40,7 @@ pub enum EventProcessingError {
 }
 
 impl EventProcessingError {
-    pub(crate) fn to_del<S: StorageSetup, K: Secrets>(self) -> TxError<S, K> {
+    pub(crate) fn into_del<S: StorageSetup, K: Secrets>(self) -> TxError<S, K> {
         match self {
             EventProcessingError::Db(e) => TxError::Db(e),
             EventProcessingError::InvalidMessage(e) => TxError::InvalidDelegation(e),
@@ -50,7 +50,7 @@ impl EventProcessingError {
             }
         }
     }
-    pub(crate) fn to_inv<S: StorageSetup, K: Secrets>(self) -> TxError<S, K> {
+    pub(crate) fn into_inv<S: StorageSetup, K: Secrets>(self) -> TxError<S, K> {
         match self {
             EventProcessingError::Db(e) => TxError::Db(e),
             EventProcessingError::InvalidMessage(e) => TxError::InvalidInvocation(e),
@@ -202,7 +202,7 @@ async fn get_granted<C: ConnectionTrait>(
                 .await?
                 .into_iter()
                 // valid issuer
-                .filter(|p| &p.delegatee == &issuer)
+                .filter(|p| p.delegatee == issuer)
                 // valid time bounds
                 .filter(|p| p.validate_bounds(nbf, exp))
                 // extra check

@@ -589,7 +589,9 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
 
     for (hash, event) in event_hashes {
         match event {
-            Event::Delegation(d) => delegation::process(db, *d).await.map_err(|e| e.to_del())?,
+            Event::Delegation(d) => delegation::process(db, *d)
+                .await
+                .map_err(|e| e.into_del())?,
             Event::Invocation(i, ops) => invocation::process(
                 db,
                 *i,
@@ -604,7 +606,7 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
                     .collect(),
             )
             .await
-            .map_err(|e| e.to_inv())?,
+            .map_err(|e| e.into_inv())?,
             Event::Revocation(r) => revocation::process(db, *r).await?,
         };
     }

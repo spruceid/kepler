@@ -51,7 +51,7 @@ impl From<&UriStr> for Resource {
 
 impl From<AnyResource<UriString>> for Resource {
     fn from(id: AnyResource<UriString>) -> Self {
-        Resource(id.into())
+        Resource(id)
     }
 }
 

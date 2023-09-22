@@ -202,17 +202,14 @@ async fn save<C: ConnectionTrait>(
     // save abilities
     if !delegation.capabilities().is_empty() {
         let abilities = Resources::<'_, AnyResource>::grants(&delegation)
-            .map(|(resource, abilities)| {
-                abilities
-                    .into_iter()
-                    .map(move |(ability, c)| abilities::Model {
-                        delegation: hash,
-                        resource: resource.clone().into(),
-                        ability: ability.clone().into(),
-                        caveats: c.clone().into(),
-                    })
+            .flat_map(|(resource, abilities)| {
+                abilities.iter().map(move |(ability, c)| abilities::Model {
+                    delegation: hash,
+                    resource: resource.clone().into(),
+                    ability: ability.clone().into(),
+                    caveats: c.clone().into(),
+                })
             })
-            .flatten()
             .map(abilities::ActiveModel::from)
             .collect::<Vec<_>>();
         abilities::Entity::insert_many(abilities).exec(db).await?;
@@ -220,7 +217,7 @@ async fn save<C: ConnectionTrait>(
 
     // save parent relationships
     if let Some(prf) = delegation.proof().filter(|p| !p.is_empty()) {
-        parent_delegations::Entity::insert_many(prf.into_iter().map(|p| {
+        parent_delegations::Entity::insert_many(prf.iter().map(|p| {
             parent_delegations::ActiveModel::from(parent_delegations::Model {
                 child: hash,
                 parent: (*p).into(),
