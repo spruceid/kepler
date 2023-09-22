@@ -75,7 +75,6 @@ pub fn invoke(session: String, service: String, path: String, action: String) ->
             serde_json::from_str(&session).map_err(authorization::Error::JSONDeserializing)?,
             vec![(service, path, action)],
         )
-        .await
         .and_then(|headers| {
             serde_json::to_string(&headers).map_err(authorization::Error::JSONSerializing)
         })
@@ -99,7 +98,7 @@ pub fn siweToDelegationHeaders(signedSIWEMessage: String) -> Result<String, JsVa
     map_jsvalue(
         serde_json::from_str(&signedSIWEMessage)
             .map_err(siwe_utils::Error::JSONDeserializing)
-            .map(siwe_utils::siwe_to_delegation_headers)
+            .and_then(siwe_utils::siwe_to_delegation_headers)
             .and_then(|headers| {
                 serde_json::to_string(&headers).map_err(siwe_utils::Error::JSONSerializing)
             }),

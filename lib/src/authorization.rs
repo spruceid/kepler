@@ -16,10 +16,12 @@ pub trait HeaderEncode {
         Self: Sized;
 }
 
+pub type ResourceIter<I, O> = Map<I, fn(<I as Iterator>::Item) -> O>;
+
 pub trait Resources<'a, RO: 'a = &'a UriStr, NB: 'a = serde_json::Value> {
     type Iter: Iterator<Item = (RO, &'a BTreeMap<Ability, NotaBeneCollection<NB>>)>;
     fn grants(&'a self) -> Self::Iter;
-    fn resources(&'a self) -> Map<Self::Iter, fn(<Self::Iter as Iterator>::Item) -> RO> {
+    fn resources(&'a self) -> ResourceIter<Self::Iter, RO> {
         self.grants().map(|(r, _)| r)
     }
 }

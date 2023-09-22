@@ -220,8 +220,15 @@ pub mod test {
     use serde_json::json;
     pub async fn test_session() -> Session {
         let config = json!({
-            "actions": { "kv": { "path": vec!["put", "get", "list", "del", "metadata"] },
-            "capabilities": { "": vec!["read"] }},
+            "actions": {
+                "kepler:pkh:eip155:1:0x7BD63AA37326a64d458559F44432103e3d6eEDE9://default/kv/path": {
+                    "kv/put": [{}],
+                    "kv/get": [{}],
+                    "kv/list": [{}],
+                    "kv/del": [{}],
+                    "kv/metadata": [{}],
+                },
+            },
             "address": "0x7BD63AA37326a64d458559F44432103e3d6eEDE9",
             "chainId": 1u8,
             "domain": "example.com",
@@ -247,7 +254,6 @@ pub mod test {
         test_session()
             .await
             .invoke(vec![("kv".into(), "path".into(), "get".into())])
-            .await
             .expect("failed to create invocation");
     }
 }
