@@ -181,7 +181,7 @@ pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, 
         0x71,
         Code::Blake3_256.digest(&serde_ipld_dagcbor::to_vec(&delegation)?),
     );
-    let delegation_header = DelegationHeaders::new(delegation.into());
+    let delegation_header = DelegationHeaders::new(delegation);
 
     Ok(Session {
         delegation_header,
