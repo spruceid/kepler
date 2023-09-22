@@ -1,13 +1,21 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use ssi::ucan::capabilities::NotaBeneCollection;
+
+pub type CaveatsInner = NotaBeneCollection<serde_json::Value>;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Default)]
-pub struct Caveats(pub BTreeMap<String, serde_json::Value>);
+pub struct Caveats(pub CaveatsInner);
 
 impl From<Caveats> for Value {
     fn from(source: Caveats) -> Self {
         Value::Json(serde_json::to_value(source).ok().map(Box::new))
+    }
+}
+
+impl From<CaveatsInner> for Caveats {
+    fn from(source: CaveatsInner) -> Self {
+        Self(source)
     }
 }
 

@@ -1,12 +1,11 @@
-use crate::resource::{ResourceCapErr, ResourceId};
-use cacaos::siwe_cacao::SiweCacao;
-use libipld::{cbor::DagCborCodec, prelude::*};
-use ssi::{
-    jwk::JWK,
-    ucan::{Payload, Ucan},
-    vc::NumericDate,
+use crate::resource::{AnyResource, ResourceId};
+use cacaos::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
+use iri_string::types::{UriStr, UriString};
+use ssi::ucan::{capabilities::*, jose, jwt::Jwt, Revocation as URevocation, Ucan, UcanDecode};
+use std::{
+    collections::BTreeMap,
+    iter::{FilterMap, Map},
 };
-use uuid::Uuid;
 
 pub use libipld::Cid;
 
@@ -17,123 +16,142 @@ pub trait HeaderEncode {
         Self: Sized;
 }
 
-#[derive(Clone, Debug)]
-pub enum KeplerDelegation {
-    Ucan(Box<Ucan>),
-    Cacao(Box<SiweCacao>),
+pub type ResourceIter<I, O> = Map<I, fn(<I as Iterator>::Item) -> O>;
+
+pub trait Resources<'a, RO: 'a = &'a UriStr, NB: 'a = serde_json::Value> {
+    type Iter: Iterator<Item = (RO, &'a BTreeMap<Ability, NotaBeneCollection<NB>>)>;
+    fn grants(&'a self) -> Self::Iter;
+    fn resources(&'a self) -> ResourceIter<Self::Iter, RO> {
+        self.grants().map(|(r, _)| r)
+    }
 }
 
-impl HeaderEncode for KeplerDelegation {
+pub type Delegation = CommonCacao;
+
+impl HeaderEncode for Delegation {
     fn encode(&self) -> Result<String, EncodingError> {
-        use std::ops::Deref;
-        Ok(match self {
-            Self::Ucan(u) => u.encode()?,
-            Self::Cacao(c) => {
-                base64::encode_config(DagCborCodec.encode(c.deref())?, base64::URL_SAFE)
+        Ok(match self.signature().sig() {
+            EitherSignature::A(_) => {
+                base64::encode_config(serde_ipld_dagcbor::to_vec(self)?, base64::URL_SAFE)
             }
+            EitherSignature::B(_) => self.serialize_jwt()?.ok_or(EncodingError::NotAJwt)?,
         })
     }
 
     fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         Ok(if s.contains('.') {
             (
-                Self::Ucan(Box::new(Ucan::decode(s)?)),
+                <Ucan as UcanDecode<Jwt>>::decode(s)?.try_into()?,
                 s.as_bytes().to_vec(),
             )
         } else {
             let v = base64::decode_config(s, base64::URL_SAFE)?;
-            (Self::Cacao(Box::new(DagCborCodec.decode(&v)?)), v)
+            (serde_ipld_dagcbor::from_slice(&v)?, v)
         })
     }
 }
 
-impl KeplerDelegation {
-    pub fn from_bytes(b: &[u8]) -> Result<Self, EncodingError> {
-        match DagCborCodec.decode(b) {
-            Ok(cacao) => Ok(Self::Cacao(Box::new(cacao))),
-            Err(_) => Ok(Self::Ucan(Box::new(Ucan::decode(
-                &String::from_utf8_lossy(b),
-            )?))),
-        }
+impl<'a, NB: 'a, RO: 'a, F: 'a, S: 'a> Resources<'a, RO, NB> for Cacao<S, F, NB>
+where
+    Capabilities<NB>: Resources<'a, RO, NB>,
+{
+    type Iter = <Capabilities<NB> as Resources<'a, RO, NB>>::Iter;
+    fn grants(&'a self) -> Self::Iter {
+        self.capabilities().grants()
     }
 }
 
-// turn everything into url safe, b64-cacao or jwt
+impl<'a, NB: 'a> Resources<'a, ResourceId, NB> for Capabilities<NB> {
+    type Iter = FilterMap<
+        std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
+        fn(
+            (&'a UriString, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+        ) -> Option<(ResourceId, &'a BTreeMap<Ability, NotaBeneCollection<NB>>)>,
+    >;
+    fn grants(&'a self) -> Self::Iter {
+        self.abilities()
+            .iter()
+            .filter_map(|(r, a)| r.try_into().map(|k| (k, a)).ok())
+    }
+}
 
-pub type KeplerInvocation = Ucan;
+impl<'a, NB: 'a> Resources<'a, &'a UriStr, NB> for Capabilities<NB> {
+    type Iter = Map<
+        std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
+        fn(
+            (&'a UriString, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+        ) -> (&'a UriStr, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+    >;
+    fn grants(&'a self) -> Self::Iter {
+        self.abilities().iter().map(|(r, a)| (r.as_ref(), a))
+    }
+}
 
-impl HeaderEncode for KeplerInvocation {
+impl<'a, NB: 'a> Resources<'a, AnyResource, NB> for Capabilities<NB> {
+    type Iter = Map<
+        std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
+        fn(
+            (&'a UriString, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+        ) -> (AnyResource, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+    >;
+    fn grants(&'a self) -> Self::Iter {
+        self.abilities().iter().map(|(r, a)| (r.into(), a))
+    }
+}
+
+impl<'a, NB: 'a> Resources<'a, AnyResource<&'a UriStr>, NB> for Capabilities<NB> {
+    type Iter = Map<
+        std::collections::btree_map::Iter<'a, UriString, BTreeMap<Ability, NotaBeneCollection<NB>>>,
+        fn(
+            (&'a UriString, &'a BTreeMap<Ability, NotaBeneCollection<NB>>),
+        ) -> (
+            AnyResource<&'a UriStr>,
+            &'a BTreeMap<Ability, NotaBeneCollection<NB>>,
+        ),
+    >;
+    fn grants(&'a self) -> Self::Iter {
+        self.abilities().iter().map(|(r, a)| (r.into(), a))
+    }
+}
+
+pub fn delegation_from_bytes(b: &[u8]) -> Result<Delegation, EncodingError> {
+    match serde_ipld_dagcbor::from_slice(b) {
+        Ok(cacao) => Ok(cacao),
+        Err(_) => Ok(<Ucan as UcanDecode<Jwt>>::decode(&String::from_utf8_lossy(b))?.try_into()?),
+    }
+}
+
+pub type Invocation = CommonCacao;
+
+pub type Revocation = URevocation;
+
+impl HeaderEncode for Revocation {
     fn encode(&self) -> Result<String, EncodingError> {
-        Ok(self.encode()?)
-    }
-    fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
-        Ok((Self::decode(s)?, s.as_bytes().to_vec()))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum KeplerRevocation {
-    Cacao(SiweCacao),
-}
-
-impl HeaderEncode for KeplerRevocation {
-    fn encode(&self) -> Result<String, EncodingError> {
-        match self {
-            Self::Cacao(c) => Ok(base64::encode_config(
-                DagCborCodec.encode(&c)?,
-                base64::URL_SAFE,
-            )),
-        }
+        Ok(base64::encode_config(
+            serde_ipld_dagcbor::to_vec(&self)?,
+            base64::URL_SAFE,
+        ))
     }
     fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         let v = base64::decode_config(s, base64::URL_SAFE)?;
-        Ok((Self::Cacao(DagCborCodec.decode(&v)?), v))
+        Ok((serde_ipld_dagcbor::from_slice(&v)?, v))
     }
-}
-
-pub async fn make_invocation(
-    invocation_target: Vec<ResourceId>,
-    delegation: Cid,
-    jwk: &JWK,
-    verification_method: String,
-    expiration: f64,
-    not_before: Option<f64>,
-    nonce: Option<String>,
-) -> Result<Ucan, InvocationError> {
-    Ok(Payload {
-        issuer: verification_method.clone(),
-        audience: verification_method,
-        not_before: not_before.map(NumericDate::try_from_seconds).transpose()?,
-        expiration: NumericDate::try_from_seconds(expiration)?,
-        nonce: Some(nonce.unwrap_or_else(|| format!("urn:uuid:{}", Uuid::new_v4()))),
-        facts: None,
-        proof: vec![delegation],
-        attenuation: invocation_target
-            .into_iter()
-            .map(|t| t.try_into())
-            .collect::<Result<Vec<ssi::ucan::Capability>, _>>()?,
-    }
-    .sign(jwk.get_algorithm().unwrap_or_default(), jwk)?)
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum InvocationError {
-    #[error(transparent)]
-    ResourceCap(#[from] ResourceCapErr),
-    #[error(transparent)]
-    NumericDateConversion(#[from] ssi::jwt::NumericDateConversionError),
-    #[error(transparent)]
-    UCAN(#[from] ssi::ucan::error::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum EncodingError {
     #[error(transparent)]
-    SSIError(#[from] ssi::ucan::error::Error),
+    UCAN(#[from] ssi::ucan::jwt::DecodeError<jose::Error>),
     #[error(transparent)]
-    IpldError(#[from] libipld::error::Error),
+    CacaoError(#[from] cacaos::common::Error),
+    #[error(transparent)]
+    ToIpldError(#[from] serde_ipld_dagcbor::EncodeError<std::collections::TryReserveError>),
     #[error(transparent)]
     Base64(#[from] base64::DecodeError),
+    #[error(transparent)]
+    FromIpldError(#[from] serde_ipld_dagcbor::DecodeError<std::convert::Infallible>),
+    #[error("CACAO not a JWT")]
+    NotAJwt,
 }
 
 pub enum CapabilitiesQuery {

@@ -1,4 +1,7 @@
-use iri_string::{types::UriString, validate::Error as UriError};
+use iri_string::{
+    types::{UriStr, UriString},
+    validate::Error as UriError,
+};
 use libipld::{
     cbor::DagCborCodec,
     cid::{
@@ -8,11 +11,9 @@ use libipld::{
     codec::{Decode, Encode},
     error::Error as IpldError,
 };
+use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use ssi::{
-    did::DIDURL,
-    ucan::{Capability, UcanResource, UcanScope},
-};
+use ssi::did::DIDURL;
 
 use std::io::{Read, Seek, Write};
 use std::{convert::TryFrom, fmt, str::FromStr};
@@ -143,45 +144,6 @@ pub enum ResourceCapErr {
     MissingAction,
 }
 
-impl TryInto<Capability> for ResourceId {
-    type Error = ResourceCapErr;
-    fn try_into(self) -> Result<Capability, Self::Error> {
-        Ok(Capability {
-            with: UcanResource::URI(ssi::vc::URI::String(format!(
-                "{}/{}{}",
-                &self.orbit,
-                &self.service.as_deref().unwrap_or(""),
-                &self.path.as_deref().unwrap_or("")
-            ))),
-            can: UcanScope {
-                namespace: match self.service {
-                    Some(s) => format!("kepler.{s}"),
-                    None => "kepler".to_string(),
-                },
-                capability: self.fragment.ok_or(ResourceCapErr::MissingAction)?,
-            },
-            additional_fields: None,
-        })
-    }
-}
-
-impl<T> TryFrom<&Capability<T>> for ResourceId {
-    type Error = KRIParseError;
-    fn try_from(c: &Capability<T>) -> Result<Self, Self::Error> {
-        let n = &c.can.namespace;
-        let mut r = Self::from_str(&c.with.to_string())?;
-        if n.starts_with("kepler")
-            && ((n.get(6..7) == Some(".") && n.get(7..) == r.service.as_deref())
-                || (n.get(6..7).is_none() && r.service.is_none()))
-        {
-            r.fragment = Some(c.can.capability.clone());
-            Ok(r)
-        } else {
-            Err(KRIParseError::IncorrectForm)
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum ResourceCheckError {
     #[error("Base and Extension Orbits do not match")]
@@ -289,6 +251,27 @@ impl FromStr for ResourceId {
     }
 }
 
+impl TryFrom<UriString> for ResourceId {
+    type Error = KRIParseError;
+    fn try_from(u: UriString) -> Result<Self, Self::Error> {
+        u.as_str().parse()
+    }
+}
+
+impl<'a> TryFrom<&'a UriStr> for ResourceId {
+    type Error = KRIParseError;
+    fn try_from(u: &'a UriStr) -> Result<Self, Self::Error> {
+        u.as_str().parse()
+    }
+}
+
+impl TryFrom<&UriString> for ResourceId {
+    type Error = KRIParseError;
+    fn try_from(u: &UriString) -> Result<Self, Self::Error> {
+        u.as_str().parse()
+    }
+}
+
 impl Encode<DagCborCodec> for ResourceId {
     fn encode<W>(&self, c: DagCborCodec, w: &mut W) -> Result<(), IpldError>
     where
@@ -304,6 +287,131 @@ impl Decode<DagCborCodec> for ResourceId {
         R: Read + Seek,
     {
         Ok(String::decode(c, r)?.parse()?)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(untagged)]
+pub enum AnyResource<O = UriString> {
+    Kepler(ResourceId),
+    Other(O),
+}
+
+impl<O> AnyResource<O> {
+    pub fn orbit(&self) -> Option<&OrbitId> {
+        match self {
+            AnyResource::Kepler(id) => Some(id.orbit()),
+            AnyResource::Other(_) => None,
+        }
+    }
+
+    pub fn kepler_resource(&self) -> Option<&ResourceId> {
+        match self {
+            AnyResource::Kepler(id) => Some(id),
+            AnyResource::Other(_) => None,
+        }
+    }
+}
+
+impl<O> AnyResource<O>
+where
+    O: AsRef<str>,
+{
+    pub fn extends<O2: AsRef<str>>(&self, other: &AnyResource<O2>) -> bool {
+        match (self, other) {
+            (AnyResource::Kepler(a), AnyResource::Kepler(b)) => a.extends(b).is_ok(),
+            (AnyResource::Other(a), AnyResource::Other(b)) => a.as_ref().starts_with(b.as_ref()),
+            _ => false,
+        }
+    }
+}
+
+impl<O> From<ResourceId> for AnyResource<O> {
+    fn from(id: ResourceId) -> Self {
+        AnyResource::Kepler(id)
+    }
+}
+
+impl<'a> From<&'a UriStr> for AnyResource<&'a UriStr> {
+    fn from(id: &'a UriStr) -> Self {
+        id.as_str()
+            .parse()
+            .map(AnyResource::Kepler)
+            .unwrap_or(AnyResource::Other(id))
+    }
+}
+
+impl<'a> From<&'a UriString> for AnyResource<&'a UriStr> {
+    fn from(id: &'a UriString) -> Self {
+        id.as_str()
+            .parse()
+            .map(AnyResource::Kepler)
+            .unwrap_or(AnyResource::Other(id))
+    }
+}
+
+impl From<UriString> for AnyResource<UriString> {
+    fn from(id: UriString) -> Self {
+        id.as_str()
+            .parse()
+            .map(AnyResource::Kepler)
+            .unwrap_or(AnyResource::Other(id))
+    }
+}
+
+impl From<&UriString> for AnyResource<UriString> {
+    fn from(id: &UriString) -> Self {
+        id.as_str()
+            .parse()
+            .map(AnyResource::Kepler)
+            .unwrap_or(AnyResource::Other(id.clone()))
+    }
+}
+
+impl From<&UriStr> for AnyResource<UriString> {
+    fn from(id: &UriStr) -> Self {
+        id.as_str()
+            .parse()
+            .map(AnyResource::Kepler)
+            .unwrap_or(AnyResource::Other(id.to_owned()))
+    }
+}
+
+impl<'a> From<AnyResource<&'a UriString>> for AnyResource<&'a UriStr> {
+    fn from(id: AnyResource<&'a UriString>) -> Self {
+        match id {
+            AnyResource::Kepler(id) => AnyResource::Kepler(id),
+            AnyResource::Other(id) => AnyResource::Other(id.as_ref()),
+        }
+    }
+}
+
+impl<'a> From<AnyResource<&'a UriStr>> for AnyResource<UriString> {
+    fn from(id: AnyResource<&'a UriStr>) -> Self {
+        match id {
+            AnyResource::Kepler(id) => AnyResource::Kepler(id),
+            AnyResource::Other(id) => AnyResource::Other(id.to_owned()),
+        }
+    }
+}
+
+impl<O: std::fmt::Display> std::fmt::Display for AnyResource<O> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnyResource::Kepler(resource_id) => write!(f, "{}", resource_id),
+            AnyResource::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl FromStr for AnyResource<UriString> {
+    type Err = KRIParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("kepler:") {
+            Ok(AnyResource::Kepler(s.parse()?))
+        } else {
+            Ok(AnyResource::Other(s.parse()?))
+        }
     }
 }
 

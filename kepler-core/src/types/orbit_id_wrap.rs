@@ -1,7 +1,6 @@
 use kepler_lib::resource::OrbitId;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Eq, Hash, PartialOrd, Ord)]
 pub struct OrbitIdWrap(pub OrbitId);
@@ -47,23 +46,25 @@ impl sea_orm::TryGetable for OrbitIdWrap {
         res: &QueryResult,
         idx: I,
     ) -> Result<Self, sea_orm::TryGetError> {
-        let s: String = res.try_get_by(idx).map_err(sea_orm::TryGetError::DbErr)?;
-        Ok(OrbitIdWrap(OrbitId::from_str(&s).map_err(|e| {
-            sea_orm::TryGetError::DbErr(DbErr::TryIntoErr {
-                from: "String",
-                into: "OrbitId",
-                source: Box::new(e),
-            })
-        })?))
+        Ok(OrbitIdWrap(
+            res.try_get_by::<String, I>(idx)?.parse().map_err(|e| {
+                sea_orm::TryGetError::DbErr(DbErr::TryIntoErr {
+                    from: "String",
+                    into: "OrbitId",
+                    source: Box::new(e),
+                })
+            })?,
+        ))
     }
 }
 
 impl sea_orm::sea_query::ValueType for OrbitIdWrap {
     fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
         match v {
-            Value::String(Some(x)) => Ok(OrbitId::from_str(&x)
-                .map_err(|_| sea_orm::sea_query::ValueTypeErr)?
-                .into()),
+            Value::String(Some(s)) => s
+                .parse()
+                .or(Err(sea_orm::sea_query::ValueTypeErr))
+                .map(Self),
             _ => Err(sea_orm::sea_query::ValueTypeErr),
         }
     }

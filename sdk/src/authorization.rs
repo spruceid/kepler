@@ -1,4 +1,4 @@
-use kepler_lib::authorization::{KeplerDelegation, KeplerInvocation};
+use kepler_lib::authorization::{Delegation, Invocation};
 use serde::{Deserialize, Serialize};
 
 use crate::session::Session;
@@ -6,31 +6,25 @@ use crate::session::Session;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DelegationHeaders {
     #[serde(with = "header_enc", rename = "Authorization")]
-    delegation: KeplerDelegation,
+    pub delegation: Delegation,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct InvocationHeaders {
     #[serde(with = "header_enc", rename = "Authorization")]
-    invocation: KeplerInvocation,
+    invocation: Invocation,
 }
 
 impl InvocationHeaders {
-    pub async fn from(
-        session: Session,
-        actions: Vec<(String, String, String)>,
-    ) -> Result<Self, Error> {
+    pub fn from(session: Session, actions: Vec<(String, String, String)>) -> Result<Self, Error> {
         Ok(Self {
-            invocation: session
-                .invoke(actions)
-                .await
-                .map_err(Error::FailedToMakeInvocation)?,
+            invocation: session.invoke(actions)?,
         })
     }
 }
 
 impl DelegationHeaders {
-    pub fn new(delegation: KeplerDelegation) -> Self {
+    pub fn new(delegation: Delegation) -> Self {
         Self { delegation }
     }
 }
@@ -38,7 +32,7 @@ impl DelegationHeaders {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("failed to generate proof for invocation: {0}")]
-    FailedToMakeInvocation(kepler_lib::authorization::InvocationError),
+    FailedToMakeInvocation(#[from] crate::session::Error),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse session from JSON: {0}")]

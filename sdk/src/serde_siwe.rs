@@ -14,8 +14,8 @@ pub mod address {
 }
 
 pub mod signature {
+    use crate::session::SIWESignature;
     use hex::FromHex;
-    use kepler_lib::cacaos::siwe_cacao::SIWESignature;
     use serde::de::{Deserialize, Deserializer, Error};
 
     pub fn deserialize<'de, D>(d: D) -> Result<SIWESignature, D::Error>
@@ -24,7 +24,7 @@ pub mod signature {
     {
         String::deserialize(d).and_then(|sig| {
             <[u8; 65]>::from_hex(sig.strip_prefix("0x").unwrap_or(&sig))
-                .map(Into::into)
+                .map(SIWESignature)
                 .map_err(|e| D::Error::custom(format!("failed to parse SIWE signature: {e}")))
         })
     }

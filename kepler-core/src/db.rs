@@ -1,4 +1,6 @@
-use crate::events::{epoch_hash, Delegation, Event, HashError, Invocation, Operation, Revocation};
+use crate::events::{
+    epoch_hash, Event, HashError, Operation, SDelegation, SInvocation, SRevocation,
+};
 use crate::hash::Hash;
 use crate::keys::{get_did_key, Secrets};
 use crate::migrations::Migrator;
@@ -8,11 +10,11 @@ use crate::storage::{
     either::EitherError, Content, HashBuffer, ImmutableDeleteStore, ImmutableReadStore,
     ImmutableStaging, ImmutableWriteStore, StorageSetup, StoreSize,
 };
-use crate::types::{Metadata, OrbitIdWrap, Resource};
-use crate::util::{Capability, DelegationInfo};
+use crate::types::{Metadata, OrbitIdWrap};
 use kepler_lib::{
-    authorization::{EncodingError, KeplerDelegation},
-    resource::OrbitId,
+    authorization::{Delegation, EncodingError, Resources},
+    resource::{OrbitId, ResourceId},
+    ssi::ucan::capabilities::Ability,
 };
 use sea_orm::{
     entity::prelude::*,
@@ -45,13 +47,13 @@ pub enum TxError<S: StorageSetup, K: Secrets> {
     #[error("database error: {0}")]
     Db(#[from] DbErr),
     #[error(transparent)]
-    Ucan(#[from] ssi::ucan::Error),
+    Ucan(#[from] ssi::ucan::jose::VerificationError<ssi::ucan::jose::Error>),
     #[error(transparent)]
-    Cacao(#[from] kepler_lib::cacaos::siwe_cacao::VerificationError),
+    Cacao(#[from] kepler_lib::cacaos::common::Error),
     #[error(transparent)]
-    InvalidDelegation(#[from] delegation::DelegationError),
+    InvalidDelegation(ValidationError),
     #[error(transparent)]
-    InvalidInvocation(#[from] invocation::InvocationError),
+    InvalidInvocation(ValidationError),
     #[error(transparent)]
     InvalidRevocation(#[from] revocation::RevocationError),
     #[error("Epoch Hashing Err: {0}")]
@@ -64,6 +66,10 @@ pub enum TxError<S: StorageSetup, K: Secrets> {
     Secrets(K::Error),
     #[error("Orbit not found")]
     OrbitNotFound,
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error("Missing event for service: {0} {1} {2:?}")]
+    MissingServiceEvent(ResourceId, String, Option<(i64, Hash, i64)>),
 }
 
 #[non_exhaustive]
@@ -179,7 +185,7 @@ where
 
     pub async fn delegate(
         &self,
-        delegation: Delegation,
+        delegation: SDelegation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
         self.transact(vec![Event::Delegation(Box::new(delegation))])
             .await
@@ -187,7 +193,7 @@ where
 
     pub async fn revoke(
         &self,
-        revocation: Revocation,
+        revocation: SRevocation,
     ) -> Result<HashMap<OrbitId, Commit>, TxError<B, K>> {
         self.transact(vec![Event::Revocation(Box::new(revocation))])
             .await
@@ -195,7 +201,7 @@ where
 
     pub async fn invoke<S>(
         &self,
-        invocation: Invocation,
+        invocation: SInvocation,
         mut inputs: InvocationInputs<S::Writable>,
     ) -> Result<
         (
@@ -212,40 +218,46 @@ where
         let mut stages = HashMap::new();
         let mut ops = Vec::new();
         // for each capability being invoked
-        for cap in invocation.0.capabilities.iter() {
-            match cap
-                .resource
-                .kepler_resource()
-                .and_then(|r| Some((r.service()?, cap.action.as_str(), r.orbit(), r.path()?)))
-            {
-                // stage inputs for content writes
-                Some(("kv", "put", orbit, path)) => {
-                    let (metadata, mut stage) = inputs
-                        .remove(&(orbit.clone(), path.to_string()))
-                        .ok_or(TxStoreError::MissingInput)?;
+        let activity: HashMap<_, _> = Resources::<'_, ResourceId>::grants(&invocation.0)
+            .map(|(r, a)| (r, a.clone()))
+            .collect();
+        for (resource, actions) in activity.iter() {
+            for action in actions.keys() {
+                match (
+                    action.namespace().as_ref(),
+                    action.name().as_ref(),
+                    resource.service(),
+                    resource.path(),
+                ) {
+                    // stage inputs for content writes
+                    ("kv", "put", Some("kv"), Some(path)) => {
+                        let (metadata, mut stage) = inputs
+                            .remove(&(resource.orbit().clone(), path.to_string()))
+                            .ok_or(TxStoreError::MissingInput)?;
 
-                    let value = stage.hash();
+                        let value = stage.hash();
 
-                    let norm_path = normalize_path(path);
+                        let norm_path = normalize_path(path);
 
-                    stages.insert((orbit.clone(), norm_path.to_string()), stage);
-                    // add write for tx
-                    ops.push(Operation::KvWrite {
-                        orbit: orbit.clone(),
-                        key: norm_path.to_string(),
-                        metadata,
-                        value,
-                    });
+                        stages.insert((resource.orbit().clone(), norm_path.to_string()), stage);
+                        // add write for tx
+                        ops.push(Operation::KvWrite {
+                            orbit: resource.orbit().clone(),
+                            key: norm_path.to_string(),
+                            metadata,
+                            value,
+                        });
+                    }
+                    // add delete for tx
+                    ("kv", "del", Some("kv"), Some(path)) => {
+                        ops.push(Operation::KvDelete {
+                            orbit: resource.orbit().clone(),
+                            key: normalize_path(path).to_string(),
+                            version: None,
+                        });
+                    }
+                    _ => {}
                 }
-                // add delete for tx
-                Some(("kv", "del", orbit, path)) => {
-                    ops.push(Operation::KvDelete {
-                        orbit: orbit.clone(),
-                        key: normalize_path(path).to_string(),
-                        version: None,
-                    });
-                }
-                _ => {}
             }
         }
 
@@ -253,7 +265,6 @@ where
             .conn
             .begin_with_config(Some(sea_orm::IsolationLevel::ReadUncommitted), None)
             .await?;
-        let caps = invocation.0.capabilities.clone();
         //  verify and commit invocation and kv operations
         let commit = transact(
             &tx,
@@ -265,50 +276,58 @@ where
 
         let mut results = Vec::new();
         // perform and record side effects
-        for cap in caps {
-            match (
-                cap.resource
-                    .kepler_resource()
-                    .and_then(|r| Some((r.orbit(), r.service()?, normalize_path(r.path()?)))),
-                cap.action.as_str(),
-            ) {
-                (Some((orbit, "kv", path)), "get") => results.push(InvocationOutcome::KvRead(
-                    get_kv(&tx, &self.storage, orbit, path)
-                        .await
-                        .map_err(|e| match e {
-                            EitherError::A(e) => TxStoreError::Tx(e.into()),
-                            EitherError::B(e) => TxStoreError::StoreRead(e),
-                        })?,
-                )),
-                (Some((orbit, "kv", path)), "list") => {
-                    results.push(InvocationOutcome::KvList(list(&tx, orbit, path).await?))
-                }
-                (Some((orbit, "kv", path)), "del") => {
-                    let kv = get_kv_entity(&tx, orbit, path).await?;
-                    if let Some(kv) = kv {
-                        self.storage
-                            .remove(orbit, &kv.value)
-                            .await
-                            .map_err(TxStoreError::StoreDelete)?;
+        for (resource, actions) in activity.iter() {
+            for action in actions.keys() {
+                match (
+                    action.namespace().as_ref(),
+                    action.name().as_ref(),
+                    resource.service(),
+                    resource.path(),
+                ) {
+                    ("kv", "get", Some("kv"), Some(path)) => {
+                        results.push(InvocationOutcome::KvRead(
+                            get_kv(&tx, &self.storage, resource.orbit(), path)
+                                .await
+                                .map_err(|e| match e {
+                                    EitherError::A(e) => TxStoreError::Tx(e.into()),
+                                    EitherError::B(e) => TxStoreError::StoreRead(e),
+                                })?,
+                        ))
                     }
-                    results.push(InvocationOutcome::KvDelete)
-                }
-                (Some((orbit, "kv", path)), "put") => {
-                    if let Some(stage) = stages.remove(&(orbit.clone(), path.to_string())) {
-                        self.storage
-                            .persist(orbit, stage)
-                            .await
-                            .map_err(TxStoreError::StoreWrite)?;
-                        results.push(InvocationOutcome::KvWrite)
+                    ("kv", "list", Some("kv"), Some(path)) => results.push(
+                        InvocationOutcome::KvList(list(&tx, resource.orbit(), path).await?),
+                    ),
+                    ("kv", "del", Some("kv"), Some(path)) => {
+                        let kv = get_kv_entity(&tx, resource.orbit(), path).await?;
+                        if let Some(kv) = kv {
+                            self.storage
+                                .remove(resource.orbit(), &kv.value)
+                                .await
+                                .map_err(TxStoreError::StoreDelete)?;
+                        }
+                        results.push(InvocationOutcome::KvDelete)
                     }
+                    ("kv", "put", Some("kv"), Some(path)) => {
+                        if let Some(stage) =
+                            stages.remove(&(resource.orbit().clone(), path.to_string()))
+                        {
+                            self.storage
+                                .persist(resource.orbit(), stage)
+                                .await
+                                .map_err(TxStoreError::StoreWrite)?;
+                            results.push(InvocationOutcome::KvWrite)
+                        }
+                    }
+                    ("kv", "metadata", Some("kv"), Some(path)) => results.push(
+                        InvocationOutcome::KvMetadata(metadata(&tx, resource.orbit(), path).await?),
+                    ),
+                    ("kv", "read", Some("capabilities"), Some("all")) => {
+                        results.push(InvocationOutcome::OpenSessions(
+                            get_valid_delegations(&tx, resource.orbit(), None).await?,
+                        ))
+                    }
+                    _ => {}
                 }
-                (Some((orbit, "kv", path)), "metadata") => results.push(
-                    InvocationOutcome::KvMetadata(metadata(&tx, orbit, path).await?),
-                ),
-                (Some((orbit, "capabilities", "all")), "read") => results.push(
-                    InvocationOutcome::OpenSessions(get_valid_delegations(&tx, orbit).await?),
-                ),
-                _ => {}
             }
         }
 
@@ -325,25 +344,7 @@ pub enum InvocationOutcome<R> {
     KvMetadata(Option<Metadata>),
     KvWrite,
     KvRead(Option<(Metadata, Content<R>)>),
-    OpenSessions(HashMap<Hash, DelegationInfo>),
-}
-
-impl<S: StorageSetup, K: Secrets> From<delegation::Error> for TxError<S, K> {
-    fn from(e: delegation::Error) -> Self {
-        match e {
-            delegation::Error::InvalidDelegation(e) => Self::InvalidDelegation(e),
-            delegation::Error::Db(e) => Self::Db(e),
-        }
-    }
-}
-
-impl<S: StorageSetup, K: Secrets> From<invocation::Error> for TxError<S, K> {
-    fn from(e: invocation::Error) -> Self {
-        match e {
-            invocation::Error::InvalidInvocation(e) => Self::InvalidInvocation(e),
-            invocation::Error::Db(e) => Self::Db(e),
-        }
-    }
+    OpenSessions(HashMap<Hash, Delegation>),
 }
 
 impl<S: StorageSetup, K: Secrets> From<revocation::Error> for TxError<S, K> {
@@ -364,7 +365,7 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     let revoked_events = event_order::Entity::find()
         .filter(
             event_order::Column::Event.is_in(ev.iter().filter_map(|(_, e)| match e {
-                Event::Revocation(r) => Some(Hash::from(r.0.revoked)),
+                Event::Revocation(r) => Some(Hash::from(r.0.revoke)),
                 _ => None,
             })),
         )
@@ -373,23 +374,23 @@ async fn event_orbits<'a, C: ConnectionTrait>(
     for e in ev {
         match &e.1 {
             Event::Delegation(d) => {
-                for orbit in d.0.orbits() {
-                    let entry = orbits.entry(orbit.clone()).or_insert_with(Vec::new);
+                for orbit in d.0.resources().map(|r: ResourceId| r.into_inner().0) {
+                    let entry = orbits.entry(orbit).or_insert_with(Vec::new);
                     if !entry.iter().any(|(h, _)| h == &e.0) {
                         entry.push(e);
                     }
                 }
             }
             Event::Invocation(i, _) => {
-                for orbit in i.0.orbits() {
-                    let entry = orbits.entry(orbit.clone()).or_insert_with(Vec::new);
+                for orbit in i.0.resources().map(|r: ResourceId| r.into_inner().0) {
+                    let entry = orbits.entry(orbit).or_insert_with(Vec::new);
                     if !entry.iter().any(|(h, _)| h == &e.0) {
                         entry.push(e);
                     }
                 }
             }
             Event::Revocation(r) => {
-                let r_hash = Hash::from(r.0.revoked);
+                let r_hash = Hash::from(r.0.revoke);
                 for revoked in &revoked_events {
                     if r_hash == revoked.event {
                         let entry = orbits
@@ -418,21 +419,18 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
         .map(|e| (e.hash(), e))
         .collect::<Vec<(Hash, Event)>>();
     let event_orbits = event_orbits(db, &event_hashes).await?;
+    let host = Ability::new("orbit/host").unwrap();
     let mut new_orbits = event_hashes
         .iter()
         .filter_map(|(_, e)| match e {
-            Event::Delegation(d) => Some(d.0.capabilities.iter().filter_map(|c| {
-                match (&c.resource, c.action.as_str()) {
-                    (Resource::Kepler(r), "host")
-                        if r.path().is_none()
-                            && r.service().is_none()
-                            && r.fragment().is_none() =>
-                    {
-                        Some(OrbitIdWrap(r.orbit().clone()))
-                    }
-                    _ => None,
-                }
-            })),
+            Event::Delegation(d) => Some(
+                Resources::<'_, ResourceId>::grants(&d.0)
+                    .filter_map(|(k, a)| match k.into_inner() {
+                        (orbit, None, None, None) if a.contains_key(&host) => Some(orbit),
+                        _ => None,
+                    })
+                    .map(OrbitIdWrap),
+            ),
             _ => None,
         })
         .flatten()
@@ -591,23 +589,24 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
 
     for (hash, event) in event_hashes {
         match event {
-            Event::Delegation(d) => delegation::process(db, *d).await?,
-            Event::Invocation(i, ops) => {
-                invocation::process(
-                    db,
-                    *i,
-                    ops.into_iter()
-                        .map(|op| {
-                            let v = orbit_order
-                                .get(op.orbit())
-                                .and_then(|(s, e, _, h)| Some((s, e, h.get(&hash)?)))
-                                .unwrap();
-                            op.version(*v.0, *v.1, *v.2)
-                        })
-                        .collect(),
-                )
-                .await?
-            }
+            Event::Delegation(d) => delegation::process(db, *d)
+                .await
+                .map_err(|e| e.into_del())?,
+            Event::Invocation(i, ops) => invocation::process(
+                db,
+                *i,
+                ops.into_iter()
+                    .map(|op| {
+                        let v = orbit_order
+                            .get(op.orbit())
+                            .and_then(|(s, e, _, h)| Some((s, e, h.get(&hash)?)))
+                            .unwrap();
+                        op.version(*v.0, *v.1, *v.2)
+                    })
+                    .collect(),
+            )
+            .await
+            .map_err(|e| e.into_inv())?,
             Event::Revocation(r) => revocation::process(db, *r).await?,
         };
     }
@@ -736,7 +735,8 @@ async fn get_kv_entity<C: ConnectionTrait>(
 async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
     db: &C,
     orbit: &OrbitId,
-) -> Result<HashMap<Hash, DelegationInfo>, TxError<S, K>> {
+    time: Option<time::OffsetDateTime>,
+) -> Result<HashMap<Hash, Delegation>, TxError<S, K>> {
     let (dels, abilities): (Vec<delegation::Model>, Vec<Vec<abilities::Model>>) =
         delegation::Entity::find()
             .left_join(revocation::Entity)
@@ -746,44 +746,26 @@ async fn get_valid_delegations<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
             .await?
             .into_iter()
             .unzip();
-    let parents = dels.load_many(parent_delegations::Entity, db).await?;
-    let now = time::OffsetDateTime::now_utc();
+    let now = time.unwrap_or_else(time::OffsetDateTime::now_utc);
     Ok(dels
         .into_iter()
         .zip(abilities)
-        .zip(parents)
-        .filter_map(|((del, ability), parents)| {
+        .filter_map(|(del, ability)| {
             if del.expiry.map(|e| e > now).unwrap_or(true)
                 && del.not_before.map(|n| n <= now).unwrap_or(true)
-                && ability.iter().any(|a| a.resource.orbit() == Some(orbit))
+                && ability
+                    .iter()
+                    .any(|a| a.resource.as_ref().orbit() == Some(orbit))
             {
-                Some(match KeplerDelegation::from_bytes(&del.serialization) {
-                    Ok(delegation) => Ok((
-                        del.id,
-                        DelegationInfo {
-                            delegator: del.delegator,
-                            delegate: del.delegatee,
-                            parents: parents.into_iter().map(|p| p.parent.to_cid(0x55)).collect(),
-                            expiry: del.expiry,
-                            not_before: del.not_before,
-                            issued_at: del.issued_at,
-                            capabilities: ability
-                                .into_iter()
-                                .map(|a| Capability {
-                                    resource: a.resource,
-                                    action: a.ability,
-                                })
-                                .collect(),
-                            delegation,
-                        },
-                    )),
+                Some(match del.reser_cacao() {
+                    Ok(delegation) => Ok((del.id, delegation.0)),
                     Err(e) => Err(e),
                 })
             } else {
                 None
             }
         })
-        .collect::<Result<HashMap<Hash, DelegationInfo>, EncodingError>>()?)
+        .collect::<Result<HashMap<Hash, Delegation>, EncodingError>>()?)
 }
 
 fn normalize_path(p: &str) -> &str {

@@ -1,14 +1,6 @@
 use anyhow::Result;
-use kepler_core::{
-    types::Metadata,
-    util::{Capability, DelegationInfo},
-    InvocationOutcome,
-};
-use kepler_lib::{
-    authorization::{EncodingError, HeaderEncode},
-    libipld::cid::Cid,
-    resource::OrbitId,
-};
+use kepler_core::{types::Metadata, InvocationOutcome};
+use kepler_lib::{authorization::Delegation, resource::OrbitId};
 use rocket::{
     data::{Capped, FromData},
     futures::io::AsyncRead,
@@ -19,7 +11,6 @@ use rocket::{
     serde::json::Json,
     Data,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{info_span, Instrument};
@@ -88,13 +79,8 @@ where
             InvocationOutcome::OpenSessions(sessions) => Json(
                 sessions
                     .into_iter()
-                    .map(|(hash, del)| {
-                        Ok((
-                            hash.to_cid(0x55).to_string(),
-                            CapJsonRep::from_delegation(del)?,
-                        ))
-                    })
-                    .collect::<Result<HashMap<String, CapJsonRep>>>()
+                    .map(|(hash, del)| Ok((hash.to_cid(0x55).to_string(), del)))
+                    .collect::<Result<HashMap<String, Delegation>>>()
                     .map_err(|_| Status::InternalServerError)?,
             )
             .respond_to(request),
@@ -112,27 +98,6 @@ where
             DataHolder::One(inv) => inv.respond_to(request),
             DataHolder::Many(_invs) => Err(Status::NotImplemented),
         }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CapJsonRep {
-    pub capabilities: Vec<Capability>,
-    pub delegator: String,
-    pub delegate: String,
-    pub parents: Vec<Cid>,
-    raw: String,
-}
-
-impl CapJsonRep {
-    pub fn from_delegation(d: DelegationInfo) -> Result<Self, EncodingError> {
-        Ok(Self {
-            capabilities: d.capabilities,
-            delegator: d.delegator,
-            delegate: d.delegate,
-            parents: d.parents,
-            raw: d.delegation.encode()?,
-        })
     }
 }
 

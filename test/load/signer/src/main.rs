@@ -4,10 +4,10 @@ use ethers::{
     prelude::rand::{prelude::StdRng, SeedableRng},
     signers::{LocalWallet, Signer},
 };
-use kepler_lib::{cacaos::siwe::TimeStamp, resource::OrbitId, ssi::jwk::JWK};
+use kepler_lib::{cacaos::siwe::TimeStamp, resource::OrbitId, ssi::{jwk::JWK, ucan::capabilities::Capabilities}, authorization::HeaderEncode};
 use kepler_sdk::{
     authorization::{DelegationHeaders, InvocationHeaders},
-    session::{complete_session_setup, prepare_session, Session, SessionConfig, SignedSession},
+    session::{complete_session_setup, prepare_session, Session, SessionConfig, SignedSession, SIWESignature},
     siwe_utils::{
         generate_host_siwe_message, siwe_to_delegation_headers, HostConfig, SignedMessage,
     },
@@ -31,22 +31,14 @@ async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
         String::from("default"),
     );
 
+    let mut actions = Capabilities::new();
+    actions.with_actions_convert(
+        orbit_id.clone().to_resource(Some("kv".into()), None, None).to_string(),
+        ["put", "get", "del", "metadata", "list"].into_iter().map(|a| (format!("kv/{a}"), []))
+    ).unwrap();
+
     let session_config = SessionConfig {
-        actions: [(
-            "kv".into(),
-            [(
-                "".into(),
-                vec![
-                    "put".into(),
-                    "get".into(),
-                    "del".into(),
-                    "metadata".into(),
-                    "list".into(),
-                ],
-            )]
-            .into(),
-        )]
-        .into(),
+        actions,
         address: wallet.address().into(),
         chain_id: 1,
         domain: "localhost".try_into().unwrap(),
@@ -64,7 +56,7 @@ async fn new_user(wallet: LocalWallet, jwk: JWK) -> User {
         .unwrap();
     let session = complete_session_setup(SignedSession {
         session: prepared_session,
-        signature: signature.to_vec().try_into().unwrap(),
+        signature: SIWESignature(signature.to_vec().try_into().unwrap()),
     })
     .unwrap();
 
@@ -89,12 +81,10 @@ struct OrbitParams {
 async fn create_orbit(
     Path(id): Path<u128>,
     Json(params): Json<OrbitParams>,
-    Extension(jwk): Extension<Arc<JWK>>,
     Extension(users): Extension<Arc<RwLock<HashMap<u128, User>>>>,
 ) -> Json<DelegationHeaders> {
     let reader = users.read().await;
     let user = reader.get(&id).unwrap();
-
     let message = generate_host_siwe_message(HostConfig {
         address: user.session_config.address,
         chain_id: user.session_config.chain_id,
@@ -107,8 +97,8 @@ async fn create_orbit(
     let signature = user.wallet.sign_message(message.to_string()).await.unwrap();
     let delegation = siwe_to_delegation_headers(SignedMessage {
         siwe: message,
-        signature: signature.to_vec().try_into().unwrap(),
-    });
+        signature: SIWESignature(signature.to_vec().try_into().unwrap()),
+    }).unwrap();
     Json(delegation)
 }
 
@@ -143,6 +133,7 @@ async fn create_session(
             .clone(),
     )
 }
+
 async fn invoke_session(
     Path(id): Path<u128>,
     Json(params): Json<InvokeParams>,
@@ -152,7 +143,6 @@ async fn invoke_session(
         users.read().await.get(&id).unwrap().session.clone(),
         vec![("kv".into(), params.name, params.action)]
     )
-    .await
     .unwrap();
     Json(headers)
 }

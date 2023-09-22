@@ -1,27 +1,25 @@
 use crate::authorization::DelegationHeaders;
 use http::uri::Authority;
 use kepler_lib::{
-    authorization::{make_invocation, InvocationError, KeplerInvocation},
-    cacaos::{
-        siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
-        siwe_cacao::SIWESignature,
-    },
+    authorization::{Delegation, Invocation},
+    cacaos::siwe::{generate_nonce, Message, TimeStamp, Version as SIWEVersion},
     libipld::Cid,
     resolver::DID_METHODS,
     resource::OrbitId,
-    siwe_recap::Builder,
-    ssi::{did::Source, jwk::JWK, vc::get_verification_method},
+    ssi::{did::Source, jwk::JWK, ucan::capabilities::Capabilities, vc::get_verification_method},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::collections::HashMap;
-use time::{ext::NumericalDuration, Duration, OffsetDateTime};
+use time::OffsetDateTime;
+
+pub struct SIWESignature(pub [u8; 65]);
 
 #[serde_as]
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
-    pub actions: HashMap<String, HashMap<String, Vec<String>>>,
+    #[serde(default)]
+    pub actions: Capabilities<serde_json::Value>,
     #[serde(with = "crate::serde_siwe::address")]
     pub address: [u8; 20],
     pub chain_id: u64,
@@ -77,38 +75,20 @@ pub struct Session {
 
 impl SessionConfig {
     fn into_message(self, delegate: &str) -> Result<Message, String> {
-        use serde_json::Value;
-        let ns = "kepler"
-            .parse()
-            .map_err(|e| format!("error parsing kepler as Siwe Capability namespace: {e}"))?;
-        let b = self
-            .actions
-            .into_iter()
-            .fold(Builder::new(), |builder, (service, actions)| {
-                actions.into_iter().fold(builder, |b, (path, action)| {
-                    b.with_actions(
-                        &ns,
-                        self.orbit_id
-                            .clone()
-                            .to_resource(Some(service.clone()), Some(path), None)
-                            .to_string(),
-                        action,
-                    )
-                })
-            });
-        match self.parents {
-            Some(p) => b.with_extra_fields(
-                &ns,
-                [(
-                    "parents".to_string(),
-                    Value::Array(p.iter().map(|c| Value::String(c.to_string())).collect()),
-                )]
+        use kepler_lib::siwe_recap::Capability;
+        let caps =
+            self.actions
+                .into_inner()
                 .into_iter()
-                .collect(),
-            ),
-            None => b,
+                .fold(Capability::new(), |mut caps, (k, v)| {
+                    caps.with_actions(k, v);
+                    caps
+                });
+        match self.parents {
+            Some(p) => caps.with_proofs(&p),
+            None => caps,
         }
-        .build(Message {
+        .build_message(Message {
             address: self.address,
             chain_id: self.chain_id,
             domain: self.domain,
@@ -129,29 +109,38 @@ impl SessionConfig {
 }
 
 impl Session {
-    pub async fn invoke(
-        self,
-        actions: Vec<(String, String, String)>,
-    ) -> Result<KeplerInvocation, InvocationError> {
-        let targets = actions
-            .into_iter()
-            .map(|(s, p, a)| self.orbit_id.clone().to_resource(Some(s), Some(p), Some(a)));
+    pub fn invoke(self, actions: Vec<(String, String, String)>) -> Result<Invocation, Error> {
+        use kepler_lib::ssi::ucan::Payload;
+        use serde_json::Value;
+        let targets =
+            actions
+                .into_iter()
+                .try_fold(Capabilities::<Value>::new(), |mut acc, (s, p, a)| {
+                    let action = format!("{s}/{a}");
+                    acc.with_action_convert(
+                        self.orbit_id
+                            .clone()
+                            .to_resource(Some(s), Some(p), None)
+                            .to_string(),
+                        action,
+                        [],
+                    )
+                    .map_err(|_| Error::InvalidAction)?;
+                    Ok::<Capabilities<Value>, Error>(acc)
+                })?;
         let now = OffsetDateTime::now_utc();
-        let nanos = now.nanosecond();
         let unix = now.unix_timestamp();
         // 60 seconds in the future
-        let exp = (unix.seconds() + Duration::nanoseconds(nanos.into()) + Duration::MINUTE)
-            .as_seconds_f64();
-        make_invocation(
-            targets.collect(),
-            self.delegation_cid,
-            &self.jwk,
+        let exp = unix + 60;
+        let mut p = Payload::<Value, Value>::new(
+            self.verification_method.clone(),
             self.verification_method,
-            exp,
-            None,
-            None,
-        )
-        .await
+        );
+        p.expiration = Some(exp as u64);
+        p.proof = Some(vec![self.delegation_cid]);
+        p.nonce = Some(format!("urn:uuid:{}", uuid::Uuid::new_v4()));
+        p.capabilities = targets;
+        Ok(p.sign_with_jwk(&self.jwk, None)?.try_into()?)
     }
 }
 
@@ -185,21 +174,14 @@ pub async fn prepare_session(config: SessionConfig) -> Result<PreparedSession, E
 }
 
 pub fn complete_session_setup(signed_session: SignedSession) -> Result<Session, Error> {
-    use kepler_lib::{
-        authorization::KeplerDelegation,
-        cacaos::siwe_cacao::SiweCacao,
-        libipld::{cbor::DagCborCodec, multihash::Code, store::DefaultParams, Block},
-    };
-    let delegation = SiweCacao::new(
-        signed_session.session.siwe.into(),
-        signed_session.signature,
-        None,
+    use kepler_lib::libipld::multihash::{Code, MultihashDigest};
+    let delegation =
+        Delegation::try_from((signed_session.session.siwe, signed_session.signature.0))?;
+    let delegation_cid = Cid::new_v1(
+        0x71,
+        Code::Blake3_256.digest(&serde_ipld_dagcbor::to_vec(&delegation)?),
     );
-    let delegation_cid =
-        *Block::<DefaultParams>::encode(DagCborCodec, Code::Blake3_256, &delegation)
-            .map_err(Error::UnableToGenerateCid)?
-            .cid();
-    let delegation_header = DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(delegation)));
+    let delegation_header = DelegationHeaders::new(delegation);
 
     Ok(Session {
         delegation_header,
@@ -219,11 +201,17 @@ pub enum Error {
     #[error("unable to generate the SIWE message to start the session: {0}")]
     UnableToGenerateSIWEMessage(String),
     #[error("unable to generate the CID: {0}")]
-    UnableToGenerateCid(kepler_lib::libipld::error::Error),
+    UnableToGenerateCid(#[from] serde_ipld_dagcbor::EncodeError<std::collections::TryReserveError>),
     #[error("failed to translate response to JSON: {0}")]
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]
     JSONDeserializing(serde_json::Error),
+    #[error(transparent)]
+    CacaoError(#[from] kepler_lib::cacaos::common::Error),
+    #[error(transparent)]
+    UcanError(#[from] kepler_lib::ssi::ucan::payload::Error),
+    #[error("Invalid Actions or Resources")]
+    InvalidAction,
 }
 
 #[cfg(test)]
@@ -232,8 +220,15 @@ pub mod test {
     use serde_json::json;
     pub async fn test_session() -> Session {
         let config = json!({
-            "actions": { "kv": { "path": vec!["put", "get", "list", "del", "metadata"] },
-            "capabilities": { "": vec!["read"] }},
+            "actions": {
+                "kepler:pkh:eip155:1:0x7BD63AA37326a64d458559F44432103e3d6eEDE9://default/kv/path": {
+                    "kv/put": [{}],
+                    "kv/get": [{}],
+                    "kv/list": [{}],
+                    "kv/del": [{}],
+                    "kv/metadata": [{}],
+                },
+            },
             "address": "0x7BD63AA37326a64d458559F44432103e3d6eEDE9",
             "chainId": 1u8,
             "domain": "example.com",
@@ -259,7 +254,6 @@ pub mod test {
         test_session()
             .await
             .invoke(vec![("kv".into(), "path".into(), "get".into())])
-            .await
             .expect("failed to create invocation");
     }
 }

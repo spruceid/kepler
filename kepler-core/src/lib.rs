@@ -8,7 +8,6 @@ pub mod models;
 pub mod relationships;
 pub mod storage;
 pub mod types;
-pub mod util;
 
 pub use db::{Commit, InvocationOutcome, OrbitDatabase, TxError, TxStoreError};
 pub use libp2p;

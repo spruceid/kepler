@@ -1,8 +1,7 @@
-use super::super::{events::Revocation, models::*, relationships::*};
+use super::super::{events::SRevocation, models::*};
 use crate::hash::{hash, Hash};
-use kepler_lib::authorization::KeplerRevocation;
+use kepler_lib::resolver::DID_METHODS;
 use sea_orm::{entity::prelude::*, sea_query::OnConflict, ConnectionTrait};
-use time::OffsetDateTime;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "revocation")]
@@ -67,39 +66,31 @@ pub enum RevocationError {
 
 pub(crate) async fn process<C: ConnectionTrait>(
     db: &C,
-    revocation: Revocation,
+    revocation: SRevocation,
 ) -> Result<Hash, Error> {
     let (r, serialization) = (revocation.0, revocation.1);
 
-    let t = OffsetDateTime::now_utc();
-
-    match &r.revocation {
-        KeplerRevocation::Cacao(c) => {
-            c.verify()
-                .await
-                .map_err(|_| RevocationError::InvalidSignature)?;
-            if !c.payload().valid_at(&t) {
-                return Err(RevocationError::InvalidTime.into());
-            };
-        }
-    };
+    r.verify_signature(&*DID_METHODS, None)
+        .await
+        .map_err(|_| RevocationError::InvalidSignature)?;
 
     let hash: Hash = hash(&serialization);
-    let delegation = delegation::Entity::find_by_id(Hash::from(r.revoked))
+    // TODO get the whole delegation chain
+    let delegation = delegation::Entity::find_by_id(Hash::from(r.revoke))
         .one(db)
         .await?
         .ok_or(RevocationError::MissingParents)?;
 
     // check the revoker is also the delegator
-    if delegation.delegator != r.revoker {
-        return Err(RevocationError::UnauthorizedRevoker(r.revoker).into());
+    if delegation.delegator != r.issuer {
+        return Err(RevocationError::UnauthorizedRevoker(r.issuer).into());
     };
 
     match Entity::insert(ActiveModel::from(Model {
         id: hash,
         serialization,
-        revoker: r.revoker,
-        revoked: delegation.id,
+        revoker: r.issuer,
+        revoked: r.revoke.into(),
     }))
     .on_conflict(OnConflict::column(Column::Id).do_nothing().to_owned())
     .exec(db)
@@ -110,17 +101,6 @@ pub(crate) async fn process<C: ConnectionTrait>(
             r?;
         }
     };
-
-    if !r.parents.is_empty() {
-        parent_delegations::Entity::insert_many(r.parents.into_iter().map(|p| {
-            parent_delegations::ActiveModel::from(parent_delegations::Model {
-                child: hash,
-                parent: p.into(),
-            })
-        }))
-        .exec(db)
-        .await?;
-    }
 
     Ok(hash)
 }

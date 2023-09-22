@@ -1,15 +1,11 @@
 use http::uri::Authority;
-use kepler_lib::authorization::KeplerDelegation;
-use kepler_lib::cacaos::{
-    siwe::{generate_nonce, Message, TimeStamp, Version},
-    siwe_cacao::{SIWESignature, SiweCacao},
-};
+use kepler_lib::cacaos::recap_cacao::siwe::{generate_nonce, Message, TimeStamp, Version};
 use kepler_lib::resource::OrbitId;
-use kepler_lib::siwe_recap::Builder;
+use kepler_lib::siwe_recap::Capability;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 
-use crate::authorization::DelegationHeaders;
+use crate::{authorization::DelegationHeaders, session::SIWESignature};
 
 #[serde_as]
 #[derive(Deserialize)]
@@ -39,15 +35,14 @@ pub struct SignedMessage {
 impl TryFrom<HostConfig> for Message {
     type Error = String;
     fn try_from(c: HostConfig) -> Result<Self, String> {
-        Builder::new()
-            .with_action(
-                &"kepler"
-                    .parse()
-                    .map_err(|e| format!("failed to parse kepler as namespace: {e}"))?,
+        Capability::<serde_json::Value>::new()
+            .with_action_convert(
                 c.orbit_id.to_resource(None, None, None).to_string(),
-                "host".to_string(),
+                "orbit/host".to_string(),
+                [],
             )
-            .build(Self {
+            .map_err(|e| format!("failed to create capability: {}", e))?
+            .build_message(Self {
                 address: c.address,
                 chain_id: c.chain_id,
                 domain: c.domain,
@@ -72,12 +67,12 @@ pub fn generate_host_siwe_message(config: HostConfig) -> Result<Message, Error> 
     Message::try_from(config).map_err(Error::UnableToGenerateSIWEMessage)
 }
 
-pub fn siwe_to_delegation_headers(signed_message: SignedMessage) -> DelegationHeaders {
-    DelegationHeaders::new(KeplerDelegation::Cacao(Box::new(SiweCacao::new(
-        signed_message.siwe.into(),
-        signed_message.signature,
-        None,
-    ))))
+pub fn siwe_to_delegation_headers(
+    signed_message: SignedMessage,
+) -> Result<DelegationHeaders, Error> {
+    Ok(DelegationHeaders::new(
+        (signed_message.siwe, signed_message.signature.0).try_into()?,
+    ))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,4 +83,6 @@ pub enum Error {
     JSONSerializing(serde_json::Error),
     #[error("failed to parse input from JSON: {0}")]
     JSONDeserializing(serde_json::Error),
+    #[error(transparent)]
+    CacaoError(#[from] kepler_lib::cacaos::common::Error),
 }

@@ -6,31 +6,28 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1"
 iri-string = "0.6"
-libipld = { version = "0.14", default-features = false, features = ["dag-cbor", "dag-json", "derive", "serde-codec"]}
+libipld = { version = "0.16", default-features = false, features = ["dag-cbor", "dag-json", "derive", "serde-codec"]}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
-cacaos = "0.5"
-siwe-recap = "0.1.0"
+cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/cacao-v3" }
+siwe-recap = "0.2.0"
 lazy_static = "1.4"
-did-method-key = { default-features = false, version = "0.2" }
-did-tz = { default-features = false, version = "0.2" }
-did-ethr = { default-features = false, version = "0.2" }
-did-pkh = { version = "0.2" }
-did-web = { default-features = false, version = "0.2" }
-did-webkey = { default-features = false, version = "0.2" }
-did-onion = { default-features = false, version = "0.2" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-uuid = { version = "1", features = ["v4", "js"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uuid = { version = "1", features = ["v4"] }
+did-method-key = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-tz = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-ethr = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-pkh = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", version = "0.2" }
+did-web = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-webkey = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-onion = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+serde_ipld_dagcbor = "0.4"
 
 [dependencies.ssi]
-version = "0.6"
+git = "https://github.com/spruceid/ssi"
+branch = "feat/ucan-0.10"
+version = "0.7"
 default-features = false
 features = ["ed25519", "rsa", "secp256k1"]
 

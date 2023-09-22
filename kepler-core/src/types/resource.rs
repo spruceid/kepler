@@ -1,51 +1,69 @@
-use kepler_lib::resource::{OrbitId, ResourceId};
+use kepler_lib::{
+    iri_string::types::{UriStr, UriString},
+    resource::{AnyResource, ResourceId},
+};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(untagged)]
-pub enum Resource {
-    Kepler(ResourceId),
-    Other(String),
+pub struct Resource(pub AnyResource);
+
+impl AsRef<AnyResource> for Resource {
+    fn as_ref(&self) -> &AnyResource {
+        &self.0
+    }
 }
 
 impl Resource {
-    pub fn orbit(&self) -> Option<&OrbitId> {
-        match self {
-            Resource::Kepler(id) => Some(id.orbit()),
-            Resource::Other(_) => None,
-        }
-    }
-
-    pub fn extends(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Resource::Kepler(a), Resource::Kepler(b)) => a.extends(b).is_ok(),
-            (Resource::Other(a), Resource::Other(b)) => a.starts_with(b),
+    pub fn extends<O: AsRef<str>, S: AsRef<AnyResource<O>>>(&self, other: &S) -> bool {
+        match (&self.0, other.as_ref()) {
+            (AnyResource::Kepler(a), AnyResource::Kepler(b)) => a.extends(b).is_ok(),
+            (AnyResource::Other(a), AnyResource::Other(b)) => a.as_str().starts_with(b.as_ref()),
             _ => false,
-        }
-    }
-
-    pub fn kepler_resource(&self) -> Option<&ResourceId> {
-        match self {
-            Resource::Kepler(id) => Some(id),
-            Resource::Other(_) => None,
         }
     }
 }
 
 impl From<ResourceId> for Resource {
     fn from(id: ResourceId) -> Self {
-        Resource::Kepler(id)
+        Resource(id.into())
+    }
+}
+
+impl From<UriString> for Resource {
+    fn from(id: UriString) -> Self {
+        Resource(id.into())
+    }
+}
+
+impl From<&UriString> for Resource {
+    fn from(id: &UriString) -> Self {
+        Resource(id.into())
+    }
+}
+
+impl From<&UriStr> for Resource {
+    fn from(id: &UriStr) -> Self {
+        Resource(id.into())
+    }
+}
+
+impl From<AnyResource<UriString>> for Resource {
+    fn from(id: AnyResource<UriString>) -> Self {
+        Resource(id)
+    }
+}
+
+impl<'a> From<AnyResource<&'a UriStr>> for Resource {
+    fn from(id: AnyResource<&'a UriStr>) -> Self {
+        Resource(id.into())
     }
 }
 
 impl From<Resource> for Value {
     fn from(r: Resource) -> Self {
-        Value::String(Some(Box::new(match r {
-            Resource::Kepler(k) => k.to_string(),
-            Resource::Other(o) => o,
-        })))
+        Value::String(Some(Box::new(r.to_string())))
     }
 }
 
@@ -54,15 +72,21 @@ impl sea_orm::TryGetable for Resource {
         res: &QueryResult,
         idx: I,
     ) -> Result<Self, sea_orm::TryGetError> {
-        let s: String = res.try_get_by(idx).map_err(sea_orm::TryGetError::DbErr)?;
-        Ok(Resource::from(s))
+        Ok(res
+            .try_get_by::<String, I>(idx)?
+            .parse()
+            .map_err(|e| DbErr::TryIntoErr {
+                from: "String",
+                into: "Resource",
+                source: Box::new(e),
+            })?)
     }
 }
 
 impl sea_orm::sea_query::ValueType for Resource {
     fn try_from(v: Value) -> Result<Self, sea_orm::sea_query::ValueTypeErr> {
         match v {
-            Value::String(Some(x)) => Ok(Resource::from(*x)),
+            Value::String(Some(s)) => s.parse().or(Err(sea_orm::sea_query::ValueTypeErr)),
             _ => Err(sea_orm::sea_query::ValueTypeErr),
         }
     }
@@ -80,22 +104,16 @@ impl sea_orm::sea_query::ValueType for Resource {
     }
 }
 
-impl From<String> for Resource {
-    fn from(s: String) -> Self {
-        if let Ok(resource_id) = ResourceId::from_str(&s) {
-            Resource::Kepler(resource_id)
-        } else {
-            Resource::Other(s)
-        }
+impl FromStr for Resource {
+    type Err = <AnyResource as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(AnyResource::from_str(s)?))
     }
 }
 
 impl Display for Resource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Resource::Kepler(resource_id) => write!(f, "{}", resource_id),
-            Resource::Other(s) => write!(f, "{}", s),
-        }
+        write!(f, "{}", self.as_ref())
     }
 }
 
