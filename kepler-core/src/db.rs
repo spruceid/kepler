@@ -419,7 +419,7 @@ pub(crate) async fn transact<C: ConnectionTrait, S: StorageSetup, K: Secrets>(
         .map(|e| (e.hash(), e))
         .collect::<Vec<(Hash, Event)>>();
     let event_orbits = event_orbits(db, &event_hashes).await?;
-    let host = Ability::new("kepler/host").unwrap();
+    let host = Ability::new("orbit/host").unwrap();
     let mut new_orbits = event_hashes
         .iter()
         .filter_map(|(_, e)| match e {
