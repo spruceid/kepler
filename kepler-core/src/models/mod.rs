@@ -11,7 +11,7 @@ pub mod revocation;
 use crate::{hash::Hash, keys::Secrets, storage::StorageSetup, types::CaveatsInner, TxError};
 use kepler_lib::{
     authorization::Resources,
-    cacaos::v2::{
+    cacaos::{
         common::{CommonCacao, CommonVerifier, Error as CacaoError},
         Cacao,
     },

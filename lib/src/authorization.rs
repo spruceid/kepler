@@ -1,5 +1,5 @@
 use crate::resource::{AnyResource, ResourceId};
-use cacaos::v2::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
+use cacaos::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
 use iri_string::types::{UriStr, UriString};
 use ssi::ucan::{capabilities::*, jose, jwt::Jwt, Revocation as URevocation, Ucan, UcanDecode};
 use std::{
@@ -141,7 +141,7 @@ pub enum EncodingError {
     #[error(transparent)]
     UCAN(#[from] ssi::ucan::jwt::DecodeError<jose::Error>),
     #[error(transparent)]
-    CacaoError(#[from] cacaos::v2::common::Error),
+    CacaoError(#[from] cacaos::common::Error),
     #[error(transparent)]
     ToIpldError(#[from] serde_ipld_dagcbor::EncodeError<std::collections::TryReserveError>),
     #[error(transparent)]

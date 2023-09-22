@@ -53,9 +53,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f2135563fb5c609d2b2b87c1e8ce7bc41b0b45430fa9661f457981503dd5bf0"
+checksum = "ea5d730647d4fadd988536d06fecce94b7b4f2a7efdae548f1cf4b63205518ab"
 dependencies = [
  "memchr",
 ]
@@ -807,9 +807,9 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "199c42ab6972d92c9f8995f086273d25c42fc0f7b2a1fcefba465c1352d25ba5"
+checksum = "0231f06152bf547e9c2b5194f247cd97aacf6dcd8b15d8e5ec0663f64580da87"
 dependencies = [
  "arrayref",
  "arrayvec 0.7.4",
@@ -1033,7 +1033,7 @@ dependencies = [
 [[package]]
 name = "cacaos"
 version = "0.5.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v3#92661420efc40f9d2b1345e6366d848f238828bd"
 dependencies = [
  "async-trait",
  "hex",
@@ -1162,7 +1162,6 @@ dependencies = [
  "multibase 0.9.1",
  "multihash 0.16.3",
  "serde",
- "serde_bytes",
  "unsigned-varint",
 ]
 
@@ -1441,9 +1440,9 @@ dependencies = [
 
 [[package]]
 name = "curve25519-dalek"
-version = "4.1.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "622178105f911d937a42cdb140730ba4a3ed2becd8ae6ce39c7d28b5d75d4588"
+checksum = "e89b8c6a2e4b1f45971ad09761aafb85514a84744b67a95e32c3cc1352d1f65c"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1792,7 +1791,7 @@ dependencies = [
 [[package]]
 name = "did-ethr"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1808,7 +1807,7 @@ dependencies = [
 [[package]]
 name = "did-method-key"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "multibase 0.8.0",
@@ -1823,7 +1822,7 @@ dependencies = [
 [[package]]
 name = "did-onion"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "http",
@@ -1836,7 +1835,7 @@ dependencies = [
 [[package]]
 name = "did-pkh"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "bech32 0.8.1",
@@ -1855,7 +1854,7 @@ dependencies = [
 [[package]]
 name = "did-tz"
 version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1874,8 +1873,8 @@ dependencies = [
 
 [[package]]
 name = "did-web"
-version = "0.2.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+version = "0.2.2"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "http",
@@ -1887,7 +1886,7 @@ dependencies = [
 [[package]]
 name = "did-webkey"
 version = "0.2.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2004,7 +2003,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7277392b266383ef8396db7fdeb1e77b6c52fed775f5df15bb24f35b72156980"
 dependencies = [
- "curve25519-dalek 4.1.0",
+ "curve25519-dalek 4.1.1",
  "ed25519 2.2.2",
  "rand_core 0.6.4",
  "serde",
@@ -2886,7 +2885,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb0889898416213fab133e1d33a0e5858a48177452750691bde3666d0fdbaf8b"
 dependencies = [
  "hermit-abi",
- "rustix 0.38.13",
+ "rustix 0.38.14",
  "windows-sys 0.48.0",
 ]
 
@@ -3165,7 +3164,7 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "serde",
- "serde_ipld_dagcbor 0.3.0",
+ "serde_ipld_dagcbor",
  "serde_json",
  "ssi",
  "thiserror",
@@ -3190,14 +3189,13 @@ dependencies = [
  "lazy_static",
  "libipld 0.16.0",
  "serde",
- "serde_ipld_dagcbor 0.4.2",
+ "serde_ipld_dagcbor",
  "serde_json",
  "serde_with 1.14.0",
  "siwe-recap 0.2.0",
  "ssi",
  "thiserror",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -3210,12 +3208,14 @@ dependencies = [
  "iri-string",
  "kepler-lib",
  "serde",
+ "serde_ipld_dagcbor",
  "serde_json",
  "serde_with 1.14.0",
  "thiserror",
  "time",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3808,7 +3808,7 @@ dependencies = [
 [[package]]
 name = "multidid"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v3#92661420efc40f9d2b1345e6366d848f238828bd"
 dependencies = [
  "bech32 0.9.1",
  "bs58 0.5.0",
@@ -3829,8 +3829,6 @@ dependencies = [
  "blake3",
  "core2",
  "multihash-derive",
- "serde",
- "serde-big-array",
  "unsigned-varint",
 ]
 
@@ -4384,7 +4382,7 @@ dependencies = [
  "chrono",
  "cipher",
  "crc24",
- "curve25519-dalek 4.1.0",
+ "curve25519-dalek 4.1.1",
  "derive_builder 0.12.0",
  "des",
  "digest 0.10.7",
@@ -5192,9 +5190,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.13"
+version = "0.38.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7db8590df6dfcd144d22afd1b83b36c21a18d7cbc1dc4bb5295a8712e9eb662"
+checksum = "747c788e9ce8e92b12cd485c49ddf90723550b654b32508f979b71a7b1ecda4f"
 dependencies = [
  "bitflags 2.4.0",
  "errno",
@@ -5251,9 +5249,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.101.5"
+version = "0.101.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45a27e3b59326c16e23d30aeb7a36a24cc0d29e71d68ff611cdfb4a01d013bed"
+checksum = "3c7d5dece342910d9ba34d259310cae3e0154b873b35408b787b59bce53d34fe"
 dependencies = [
  "ring",
  "untrusted",
@@ -5583,18 +5581,6 @@ dependencies = [
 
 [[package]]
 name = "serde_ipld_dagcbor"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2433e94ffb5977e67afbd75733abd6ada1c4f497125894a8c89b3fdc5fd6a058"
-dependencies = [
- "cbor4ii",
- "cid 0.8.6",
- "scopeguard",
- "serde",
-]
-
-[[package]]
-name = "serde_ipld_dagcbor"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e880e0b1f9c7a8db874642c1217f7e19b29e325f24ab9f0fcb11818adec7f01"
@@ -5702,9 +5688,9 @@ dependencies = [
 
 [[package]]
 name = "sha1"
-version = "0.10.5"
+version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f04293dc80c3993519f2d7f6f511707ee7094fe0c6d3406feb330cdb3540eba3"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -5881,9 +5867,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
+checksum = "942b4a808e05215192e39f4ab80813e599068285906cc91aa64f923db842bd5a"
 
 [[package]]
 name = "socket2"
@@ -6195,7 +6181,7 @@ dependencies = [
 [[package]]
 name = "ssi"
 version = "0.7.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "ssi-caips",
  "ssi-core",
@@ -6216,7 +6202,7 @@ dependencies = [
 [[package]]
 name = "ssi-caips"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "bs58 0.4.0",
  "ssi-jwk",
@@ -6226,12 +6212,12 @@ dependencies = [
 [[package]]
 name = "ssi-contexts"
 version = "0.1.5"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 
 [[package]]
 name = "ssi-core"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "serde",
@@ -6241,7 +6227,7 @@ dependencies = [
 [[package]]
 name = "ssi-crypto"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "bs58 0.4.0",
  "digest 0.9.0",
@@ -6256,7 +6242,7 @@ dependencies = [
 [[package]]
 name = "ssi-dids"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6282,7 +6268,7 @@ dependencies = [
 [[package]]
 name = "ssi-json-ld"
 version = "0.2.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-std",
  "combination",
@@ -6303,7 +6289,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwk"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "base64 0.12.3",
  "blake2b_simd 0.5.11",
@@ -6331,7 +6317,7 @@ dependencies = [
 [[package]]
 name = "ssi-jws"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "base64 0.12.3",
  "blake2",
@@ -6352,7 +6338,7 @@ dependencies = [
 [[package]]
 name = "ssi-jwt"
 version = "0.1.1"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "chrono",
  "serde",
@@ -6366,7 +6352,7 @@ dependencies = [
 [[package]]
 name = "ssi-ldp"
 version = "0.3.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "bs58 0.4.0",
@@ -6402,7 +6388,7 @@ dependencies = [
 [[package]]
 name = "ssi-ssh"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
@@ -6412,7 +6398,7 @@ dependencies = [
 [[package]]
 name = "ssi-tzkey"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "bs58 0.4.0",
  "ed25519-dalek 1.0.1",
@@ -6424,7 +6410,7 @@ dependencies = [
 [[package]]
 name = "ssi-ucan"
 version = "0.2.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "base64 0.12.3",
  "chrono",
@@ -6446,7 +6432,7 @@ dependencies = [
 [[package]]
 name = "ssi-vc"
 version = "0.2.0"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "base64 0.12.3",
@@ -6474,7 +6460,7 @@ dependencies = [
 [[package]]
 name = "ssi-zcap-ld"
 version = "0.1.2"
-source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#4b807236207bc2b025c1851ebcec1d6af92b9fb4"
+source = "git+https://github.com/spruceid/ssi?branch=feat/ucan-0.10#7c92ac58f5fd1cd2bc72fb0bc866949db33b9ab0"
 dependencies = [
  "async-trait",
  "iref",
@@ -6605,7 +6591,7 @@ dependencies = [
  "cfg-if",
  "fastrand 2.0.0",
  "redox_syscall",
- "rustix 0.38.13",
+ "rustix 0.38.14",
  "windows-sys 0.48.0",
 ]
 
@@ -6799,9 +6785,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.8"
+version = "0.7.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "806fe8c2c87eccc8b3267cbae29ed3ab2d0bd37fca70ab622e46aaa9375ddb7d"
+checksum = "1d68074620f57a0b21594d9735eb2e98ab38b17f80d3fcb189fca266771ca60d"
 dependencies = [
  "bytes",
  "futures-core",
@@ -7146,7 +7132,7 @@ checksum = "d92ccd67fb88503048c01b59152a04effd0782d035a83a6d256ce6085f08f4a3"
 [[package]]
 name = "varsig"
 version = "0.1.0"
-source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v2#9464d9ebf5a7f90d6317e0dd1407d0f772678fa0"
+source = "git+https://github.com/spruceid/cacao-rs?branch=feat/cacao-v3#92661420efc40f9d2b1345e6366d848f238828bd"
 dependencies = [
  "serde",
  "thiserror",
@@ -7508,7 +7494,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb66477291e7e8d2b0ff1bcb900bf29489a9692816d79874bea351e7a8b6de96"
 dependencies = [
- "curve25519-dalek 4.1.0",
+ "curve25519-dalek 4.1.1",
  "rand_core 0.6.4",
  "serde",
  "zeroize",

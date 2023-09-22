@@ -49,7 +49,7 @@ pub enum TxError<S: StorageSetup, K: Secrets> {
     #[error(transparent)]
     Ucan(#[from] ssi::ucan::jose::VerificationError<ssi::ucan::jose::Error>),
     #[error(transparent)]
-    Cacao(#[from] kepler_lib::cacaos::v2::common::Error),
+    Cacao(#[from] kepler_lib::cacaos::common::Error),
     #[error(transparent)]
     InvalidDelegation(ValidationError),
     #[error(transparent)]
