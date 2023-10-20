@@ -10,11 +10,8 @@ pub mod revocation;
 
 use crate::{hash::Hash, keys::Secrets, storage::StorageSetup, types::CaveatsInner, TxError};
 use kepler_lib::{
-    authorization::Resources,
-    cacaos::{
-        common::{CommonCacao, CommonVerifier, Error as CacaoError},
-        Cacao,
-    },
+    authorization::{Delegation, Resources},
+    cacaos::common::{CommonCacao, CommonVerifier, Error as CacaoError},
     iri_string::types::{UriStr, UriString},
     resolver::DID_METHODS,
     resource::{AnyResource, ResourceId},
@@ -91,14 +88,14 @@ pub enum ValidationError {
 }
 
 // verify signature
-async fn verify(cacao: &CommonCacao) -> Result<(), ValidationError> {
+async fn verify(cacao: &Delegation) -> Result<(), ValidationError> {
     Ok(cacao.verify(&CommonVerifier::new(&*DID_METHODS)).await?)
 }
 
 // verify parenthood and authorization
 async fn validate<'a, C: ConnectionTrait>(
     db: &C,
-    message: &'a CommonCacao,
+    message: &'a Delegation,
     time: Option<OffsetDateTime>,
 ) -> Result<(), EventProcessingError> {
     let mut required = get_required(message);
@@ -127,8 +124,8 @@ async fn validate<'a, C: ConnectionTrait>(
 }
 
 // get caps which rely on delegated parent caps
-fn get_required<'a, S: 'a, F: 'a, NB: 'a>(
-    message: &'a Cacao<S, F, NB>,
+fn get_required<'a, U: 'a, NB: 'a, W: 'a>(
+    message: &'a CommonCacao<U, NB, W>,
 ) -> impl Iterator<
     Item = (
         AnyResource<&'a UriStr>,
@@ -173,7 +170,7 @@ fn take_unauthorized<'a>(
 
 async fn get_granted<C: ConnectionTrait>(
     db: &C,
-    message: &CommonCacao,
+    message: &Delegation,
     time: Option<OffsetDateTime>,
 ) -> Result<HashMap<AnyResource, BTreeMap<String, CaveatsInner>>, EventProcessingError> {
     Ok(match message.proof() {

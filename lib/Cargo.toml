@@ -12,10 +12,10 @@ serde_json = "1.0"
 serde_with = "1.0"
 thiserror = "1"
 base64 = "0.13"
-cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/cacao-v3" }
+cacaos = { git = "https://github.com/spruceid/cacao-rs", branch = "feat/webauthn-cacao" }
 siwe-recap = "0.2.0"
 lazy_static = "1.4"
-did-method-key = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
+did-method-key = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", version = "0.2" }
 did-tz = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
 did-ethr = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", default-features = false, version = "0.2" }
 did-pkh = { git = "https://github.com/spruceid/ssi", branch = "feat/ucan-0.10", version = "0.2" }

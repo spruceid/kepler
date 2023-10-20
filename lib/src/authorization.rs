@@ -1,5 +1,8 @@
 use crate::resource::{AnyResource, ResourceId};
-use cacaos::{common::CommonCacao, varsig::either::EitherSignature, Cacao};
+use cacaos::{
+    common::{CommonCacao, Signature},
+    ucan_cacao::UcanCacao,
+};
 use iri_string::types::{UriStr, UriString};
 use ssi::ucan::{capabilities::*, jose, jwt::Jwt, Revocation as URevocation, Ucan, UcanDecode};
 use std::{
@@ -26,22 +29,20 @@ pub trait Resources<'a, RO: 'a = &'a UriStr, NB: 'a = serde_json::Value> {
     }
 }
 
-pub type Delegation = CommonCacao;
+pub type Delegation = CommonCacao<BTreeMap<String, serde_json::Value>, serde_json::Value>;
 
 impl HeaderEncode for Delegation {
     fn encode(&self) -> Result<String, EncodingError> {
-        Ok(match self.signature().sig() {
-            EitherSignature::A(_) => {
-                base64::encode_config(serde_ipld_dagcbor::to_vec(self)?, base64::URL_SAFE)
-            }
-            EitherSignature::B(_) => self.serialize_jwt()?.ok_or(EncodingError::NotAJwt)?,
+        Ok(match self.signature() {
+            Signature::Ucan(_) => self.serialize_jwt()?.ok_or(EncodingError::NotAJwt)?,
+            _ => base64::encode_config(serde_ipld_dagcbor::to_vec(self)?, base64::URL_SAFE),
         })
     }
 
     fn decode(s: &str) -> Result<(Self, Vec<u8>), EncodingError> {
         Ok(if s.contains('.') {
             (
-                <Ucan as UcanDecode<Jwt>>::decode(s)?.try_into()?,
+                UcanCacao::try_from(<Ucan as UcanDecode<Jwt>>::decode(s)?)?.into(),
                 s.as_bytes().to_vec(),
             )
         } else {
@@ -51,7 +52,7 @@ impl HeaderEncode for Delegation {
     }
 }
 
-impl<'a, NB: 'a, RO: 'a, F: 'a, S: 'a> Resources<'a, RO, NB> for Cacao<S, F, NB>
+impl<'a, U: 'a, NB: 'a, RO: 'a, W: 'a> Resources<'a, RO, NB> for CommonCacao<U, NB, W>
 where
     Capabilities<NB>: Resources<'a, RO, NB>,
 {
@@ -121,7 +122,7 @@ pub fn delegation_from_bytes(b: &[u8]) -> Result<Delegation, EncodingError> {
     }
 }
 
-pub type Invocation = CommonCacao;
+pub type Invocation = CommonCacao<BTreeMap<String, serde_json::Value>, serde_json::Value>;
 
 pub type Revocation = URevocation;
 
@@ -152,6 +153,12 @@ pub enum EncodingError {
     FromIpldError(#[from] serde_ipld_dagcbor::DecodeError<std::convert::Infallible>),
     #[error("CACAO not a JWT")]
     NotAJwt,
+}
+
+impl From<cacaos::v3::ucan_cacao::Error> for EncodingError {
+    fn from(e: cacaos::v3::ucan_cacao::Error) -> EncodingError {
+        EncodingError::CacaoError(e.into())
+    }
 }
 
 pub enum CapabilitiesQuery {
